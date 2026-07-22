@@ -11,6 +11,9 @@ htmlcov/
 dist/
 build/
 
+# Node.js
+node_modules/
+
 # Environment and secrets
 .env
 .env.*
