@@ -1,0 +1,117 @@
+version: 1
+cases:
+  - id: statement_smuggling
+    expected_code: multiple_statements
+    sql: "SELECT c.customer_id FROM crm.customers AS c LIMIT 1; DROP TABLE crm.customers"
+  - id: line_comment
+    expected_code: comments_forbidden
+    sql: "SELECT c.customer_id FROM crm.customers AS c LIMIT 1 -- concealed"
+  - id: block_comment
+    expected_code: comments_forbidden
+    sql: "SELECT c.customer_id /* concealed */ FROM crm.customers AS c LIMIT 1"
+  - id: insert
+    expected_code: non_read_only_statement
+    sql: "INSERT INTO crm.customers VALUES ('00000000999', CURRENT_DATE, 'ES', 'ACTIVE')"
+  - id: update
+    expected_code: non_read_only_statement
+    sql: "UPDATE crm.customers SET customer_status = 'INACTIVE'"
+  - id: delete
+    expected_code: non_read_only_statement
+    sql: "DELETE FROM crm.customers"
+  - id: merge
+    expected_code: non_read_only_statement
+    sql: "MERGE INTO crm.customers AS c USING legacy.client_master AS l ON FALSE WHEN MATCHED THEN DELETE"
+  - id: create
+    expected_code: non_read_only_statement
+    sql: "CREATE TABLE crm.forbidden (id INTEGER)"
+  - id: alter
+    expected_code: non_read_only_statement
+    sql: "ALTER TABLE crm.customers ADD COLUMN forbidden TEXT"
+  - id: drop
+    expected_code: non_read_only_statement
+    sql: "DROP TABLE crm.customers"
+  - id: truncate
+    expected_code: non_read_only_statement
+    sql: "TRUNCATE TABLE crm.customers"
+  - id: copy
+    expected_code: non_read_only_statement
+    sql: "COPY crm.customers TO STDOUT"
+  - id: call
+    expected_code: non_read_only_statement
+    sql: "CALL dangerous()"
+  - id: do
+    expected_code: non_read_only_statement
+    sql: "DO $$ BEGIN NULL; END $$"
+  - id: set
+    expected_code: non_read_only_statement
+    sql: "SET statement_timeout = '0'"
+  - id: grant
+    expected_code: non_read_only_statement
+    sql: "GRANT SELECT ON crm.customers TO public"
+  - id: revoke
+    expected_code: non_read_only_statement
+    sql: "REVOKE SELECT ON crm.customers FROM public"
+  - id: destructive_cte
+    expected_code: forbidden_statement
+    sql: "WITH deleted AS (DELETE FROM crm.customers RETURNING customer_id) SELECT customer_id FROM deleted LIMIT 1"
+  - id: select_for_update
+    expected_code: forbidden_statement
+    sql: "SELECT c.customer_id FROM crm.customers AS c LIMIT 1 FOR UPDATE"
+  - id: recursive_cte
+    expected_code: recursive_cte
+    sql: "WITH RECURSIVE sequence(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM sequence WHERE n < 2) SELECT n FROM sequence LIMIT 2"
+  - id: select_into
+    expected_code: select_into
+    sql: "SELECT c.customer_id INTO forbidden_copy FROM crm.customers AS c LIMIT 1"
+  - id: unknown_asset
+    expected_code: unknown_asset
+    sql: "SELECT s.secret_value FROM private.secrets AS s LIMIT 1"
+  - id: unknown_column
+    expected_code: unknown_column
+    sql: "SELECT c.secret_value FROM crm.customers AS c LIMIT 1"
+  - id: quoted_malicious_identifier
+    expected_code: unknown_column
+    sql: "SELECT c.\"customer_id; DROP TABLE crm.customers\" FROM crm.customers AS c LIMIT 1"
+  - id: wildcard
+    expected_code: wildcard_projection
+    sql: "SELECT * FROM crm.customers AS c LIMIT 1"
+  - id: cross_join
+    expected_code: cartesian_join
+    sql: "SELECT c.customer_id FROM crm.customers AS c CROSS JOIN bank.account_holders AS h LIMIT 10"
+  - id: comma_join
+    expected_code: cartesian_join
+    sql: "SELECT c.customer_id FROM crm.customers AS c, bank.account_holders AS h LIMIT 10"
+  - id: join_on_true
+    expected_code: missing_join_predicate
+    sql: "SELECT c.customer_id FROM crm.customers AS c JOIN bank.account_holders AS h ON TRUE LIMIT 10"
+  - id: join_or_true
+    expected_code: missing_join_predicate
+    sql: "SELECT c.customer_id FROM crm.customers AS c JOIN bank.account_holders AS h ON c.customer_id = h.account_number OR TRUE LIMIT 10"
+  - id: join_ignores_new_relation
+    expected_code: missing_join_predicate
+    sql: "SELECT c.customer_id FROM crm.customers AS c JOIN bank.account_holders AS h ON c.customer_id = h.account_number JOIN bank.accounts AS a ON c.customer_id = h.account_number LIMIT 10"
+  - id: join_using
+    expected_code: missing_join_predicate
+    sql: "SELECT c.customer_id FROM crm.customers AS c JOIN bank.account_holders AS h USING (account_number) LIMIT 10"
+  - id: duplicate_alias
+    expected_code: duplicate_alias
+    sql: "SELECT same.customer_id FROM crm.customers AS same JOIN bank.account_holders AS same ON same.customer_id = same.account_number LIMIT 10"
+  - id: self_join
+    expected_code: repeated_asset
+    sql: "SELECT c.customer_id FROM crm.customers AS c JOIN crm.customers AS other ON c.customer_id = other.customer_id LIMIT 10"
+  - id: fourth_table
+    expected_code: too_many_tables
+    sql: "SELECT c.customer_id FROM crm.customers AS c JOIN bank.account_holders AS h ON c.customer_id = h.account_number JOIN bank.accounts AS a ON h.account_number = a.account_number JOIN reporting.customer_accounts AS r ON a.account_number = r.account_number LIMIT 10"
+  - id: missing_limit
+    expected_code: missing_preview_limit
+    sql: "SELECT c.customer_id FROM crm.customers AS c"
+  - id: excessive_limit
+    expected_code: invalid_preview_limit
+    effective_limit: 501
+    sql: "SELECT c.customer_id FROM crm.customers AS c LIMIT 501"
+  - id: unsafe_function
+    expected_code: unsafe_function
+    sql: "SELECT PG_SLEEP(1) AS delayed FROM crm.customers AS c LIMIT 1"
+  - id: parameter_mismatch
+    expected_code: parameter_mismatch
+    sql: "SELECT c.customer_id FROM crm.customers AS c WHERE c.customer_status = %s LIMIT 1"

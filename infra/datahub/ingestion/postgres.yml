@@ -1,0 +1,26 @@
+# Run from the host after DataHub and the synthetic PostgreSQL service are healthy.
+source:
+  type: postgres
+  config:
+    host_port: "127.0.0.1:55433"
+    database: schemabridge
+    username: schemabridge_reader
+    password: "${POSTGRES_READER_PASSWORD}"
+    include_tables: true
+    include_views: true
+    profiling:
+      enabled: true
+      profile_table_level_only: false
+      max_number_of_fields_to_profile: 100
+    schema_pattern:
+      allow:
+        - "crm"
+        - "legacy"
+        - "bank"
+        - "reporting"
+
+sink:
+  type: datahub-rest
+  config:
+    server: "${DATAHUB_GMS_URL}"
+    token: "${DATAHUB_GMS_TOKEN}"

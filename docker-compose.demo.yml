@@ -1,0 +1,30 @@
+name: schemabridge-demo
+
+services:
+  postgres:
+    image: postgres:16.13-alpine@sha256:20edbde7749f822887a1a022ad526fde0a47d6b2be9a8364433605cf65099416
+    container_name: schemabridge-postgres
+    environment:
+      POSTGRES_DB: schemabridge
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_INITDB_ARGS: --encoding=UTF8 --locale=C --data-checksums
+      PGTZ: UTC
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-55433}:5432"
+    volumes:
+      - schemabridge_postgres_data:/var/lib/postgresql/data
+      - ./demo/sql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      start_period: 5s
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 10s
+    restart: "no"
+
+volumes:
+  schemabridge_postgres_data:

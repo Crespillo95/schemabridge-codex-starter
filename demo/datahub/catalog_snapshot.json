@@ -1,0 +1,232 @@
+{
+  "fixture_kind": "sanitized_catalog_recording",
+  "recorded_from": "datahub-core-v1.6.0",
+  "assets": [
+    {
+      "dataset": "crm.customers",
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.crm.customers,PROD)",
+      "name": "customers",
+      "platform": "postgres",
+      "description": "CRM customer master with padded string identifiers.",
+      "subtypes": ["Table"],
+      "governance": {
+        "owners": [],
+        "tags": [],
+        "glossary_terms": [],
+        "domain": null
+      },
+      "fields": [
+        {
+          "field_path": "customer_id",
+          "native_type": "VARCHAR(11)",
+          "description": "Customer identifier encoded as an 11-character numeric string.",
+          "nullable": false,
+          "is_part_of_key": true,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "registration_date",
+          "native_type": "DATE",
+          "description": "Date when the customer was registered in CRM.",
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "country_cd",
+          "native_type": "VARCHAR(2)",
+          "description": null,
+          "nullable": true,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "customer_status",
+          "native_type": "VARCHAR(20)",
+          "description": null,
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        }
+      ]
+    },
+    {
+      "dataset": "legacy.client_master",
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.legacy.client_master,PROD)",
+      "name": "client_master",
+      "platform": "postgres",
+      "description": "Legacy customer representation using integer identifiers.",
+      "subtypes": ["Table"],
+      "governance": {
+        "owners": [],
+        "tags": [],
+        "glossary_terms": [],
+        "domain": null
+      },
+      "fields": [
+        {
+          "field_path": "client_no",
+          "native_type": "BIGINT",
+          "description": "Legacy numeric customer identifier.",
+          "nullable": false,
+          "is_part_of_key": true,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "created_dt",
+          "native_type": "TIMESTAMP",
+          "description": null,
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "country",
+          "native_type": "VARCHAR(3)",
+          "description": null,
+          "nullable": true,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "status_code",
+          "native_type": "SMALLINT",
+          "description": null,
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        }
+      ]
+    },
+    {
+      "dataset": "bank.account_holders",
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.bank.account_holders,PROD)",
+      "name": "account_holders",
+      "platform": "postgres",
+      "description": "Relationship between accounts and holders; legacy float customer key.",
+      "subtypes": ["Table"],
+      "governance": {
+        "owners": [],
+        "tags": [],
+        "glossary_terms": [],
+        "domain": null
+      },
+      "fields": [
+        {
+          "field_path": "holder_link_id",
+          "native_type": "BIGINT",
+          "description": null,
+          "nullable": false,
+          "is_part_of_key": true,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "account_number",
+          "native_type": "VARCHAR(20)",
+          "description": null,
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "gf_customer_id",
+          "native_type": "DOUBLE PRECISION",
+          "description": "Customer identifier stored as double precision; integral values are expected.",
+          "nullable": true,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "holder_type",
+          "native_type": "VARCHAR(20)",
+          "description": "Holder role using heterogeneous operational codes.",
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "relationship_start_date",
+          "native_type": "DATE",
+          "description": null,
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "relationship_end_date",
+          "native_type": "DATE",
+          "description": null,
+          "nullable": true,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        }
+      ]
+    },
+    {
+      "dataset": "bank.accounts",
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.bank.accounts,PROD)",
+      "name": "accounts",
+      "platform": "postgres",
+      "description": "Bank account master.",
+      "subtypes": ["Table"],
+      "governance": {
+        "owners": [],
+        "tags": [],
+        "glossary_terms": [],
+        "domain": null
+      },
+      "fields": [
+        {
+          "field_path": "account_number",
+          "native_type": "VARCHAR(20)",
+          "description": "Unique account identifier referenced by holder relationships.",
+          "nullable": false,
+          "is_part_of_key": true,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "opening_date",
+          "native_type": "DATE",
+          "description": null,
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "account_status",
+          "native_type": "VARCHAR(20)",
+          "description": null,
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "current_balance",
+          "native_type": "NUMERIC(14,2)",
+          "description": null,
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+"""Approved planning-context adapters."""

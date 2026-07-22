@@ -1,0 +1,21 @@
+# Project-scoped Codex defaults. Codex loads this only after the project is trusted.
+model = "gpt-5.6-sol"
+model_reasoning_effort = "high"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+web_search = "cached"
+personality = "pragmatic"
+
+[features]
+multi_agent = true
+
+# Enabled after the M04 read-only tool-list, search, and schema-read check passed.
+# The wrapper loads ignored local credentials and forces every mutation switch off.
+[mcp_servers.datahub]
+enabled = true
+required = false
+command = "bash"
+args = ["scripts/datahub-mcp.sh"]
+default_tools_approval_mode = "writes"
+startup_timeout_sec = 60
+tool_timeout_sec = 120

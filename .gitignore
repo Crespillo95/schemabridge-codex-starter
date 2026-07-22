@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.secrets/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Runtime artifacts
+.local/
+artifacts/
+reports/
+!reports/
+reports/*
+!reports/release-audit.md
+!reports/m16-audits/
+reports/m16-audits/*
+!reports/m16-audits/*.md
+.streamlit/secrets.toml
+datahub-quickstart/

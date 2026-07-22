@@ -1,0 +1,35 @@
+version: 1
+contracts:
+  - id: customer_to_account_holder
+    left_key:
+      logical_field: Customer.customer_key
+      physical_field: crm.customers.customer_id
+      transformation_plan:
+        version: 1
+        steps:
+          - operation: trim
+          - operation: validate_regex
+            pattern: ^[0-9]+$
+          - operation: strip_leading_zeros
+          - operation: reject_invalid
+    right_key:
+      logical_field: AccountHolder.customer_key
+      physical_field: bank.account_holders.gf_customer_id
+      transformation_plan:
+        version: 1
+        steps:
+          - operation: validate_finite
+          - operation: validate_integral
+          - operation: cast_integer_to_string
+          - operation: reject_invalid
+    cardinality: one_to_many
+    default_join_type: inner
+    fanout_policy: require_distinct_for_left_entity_metrics
+    status: approved
+    version: 1
+    evidence:
+      - normalized_value_overlap
+      - matching_business_definition
+    risks:
+      - duplicate_holder_relationships_can_multiply_customer_rows
+    approval_decision_id: fixture_join_approval_v1

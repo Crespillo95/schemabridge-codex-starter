@@ -1,0 +1,151 @@
+version: 1
+mappings:
+  - approval_decision_id: ground-truth-map-customer-key-v1
+    physical_type: string
+    mapping:
+      logical_field: Customer.customer_key
+      physical_field: crm.customers.customer_id
+      confidence: 1.0
+      status: approved
+      evidence:
+        - Approved synthetic CRM mapping used by the governed north-star fixture.
+      risks:
+        - Padded identifiers require explicit normalization before joining.
+      transformation_plan:
+        version: 1
+        steps:
+          - operation: trim
+          - operation: validate_regex
+            pattern: ^[0-9]+$
+          - operation: strip_leading_zeros
+          - operation: reject_invalid
+      version: 1
+  - approval_decision_id: ground-truth-map-registration-date-v1
+    physical_type: date
+    mapping:
+      logical_field: Customer.registration_date
+      physical_field: crm.customers.registration_date
+      confidence: 1.0
+      status: approved
+      evidence:
+        - Approved synthetic CRM registration date.
+      transformation_plan:
+        version: 1
+        steps:
+          - operation: identity
+      version: 1
+  - approval_decision_id: ground-truth-map-country-v1
+    physical_type: string
+    mapping:
+      logical_field: Customer.country_code
+      physical_field: crm.customers.country_cd
+      confidence: 1.0
+      status: approved
+      evidence:
+        - Approved synthetic CRM country code.
+      transformation_plan:
+        version: 1
+        steps:
+          - operation: identity
+      version: 1
+  - approval_decision_id: ground-truth-map-status-v1
+    physical_type: string
+    mapping:
+      logical_field: Customer.customer_status
+      physical_field: crm.customers.customer_status
+      confidence: 1.0
+      status: approved
+      evidence:
+        - Approved synthetic CRM lifecycle status.
+      transformation_plan:
+        version: 1
+        steps:
+          - operation: identity
+      version: 1
+  - approval_decision_id: ground-truth-map-holder-customer-v1
+    physical_type: float
+    mapping:
+      logical_field: AccountHolder.customer_key
+      physical_field: bank.account_holders.gf_customer_id
+      confidence: 1.0
+      status: approved
+      evidence:
+        - Approved synthetic global customer identifier on holder relationships.
+      risks:
+        - Float representation includes NULL, NaN, and fractional invalid examples.
+      transformation_plan:
+        version: 1
+        steps:
+          - operation: validate_finite
+          - operation: validate_integral
+          - operation: cast_integer_to_string
+          - operation: reject_invalid
+      version: 1
+  - approval_decision_id: ground-truth-map-holder-account-v1
+    physical_type: string
+    mapping:
+      logical_field: AccountHolder.account_key
+      physical_field: bank.account_holders.account_number
+      confidence: 1.0
+      status: approved
+      evidence:
+        - Approved declared foreign-key field in the synthetic bank schema.
+      transformation_plan:
+        version: 1
+        steps:
+          - operation: identity
+      version: 1
+  - approval_decision_id: ground-truth-map-holder-role-v1
+    physical_type: string
+    mapping:
+      logical_field: AccountHolder.holder_role
+      physical_field: bank.account_holders.holder_type
+      confidence: 1.0
+      status: approved
+      evidence:
+        - Approved closed role-code normalization for the synthetic holder fixture.
+      risks:
+        - Unknown holder codes fail closed instead of being guessed.
+      transformation_plan:
+        version: 1
+        steps:
+          - operation: map_values
+            entries:
+              - source: PRIMARY
+                target: PRIMARY
+              - source: SECONDARY
+                target: SECONDARY
+              - source: "2"
+                target: SECONDARY
+              - source: CO_HOLDER
+                target: SECONDARY
+          - operation: reject_invalid
+      version: 1
+  - approval_decision_id: ground-truth-map-account-key-v1
+    physical_type: string
+    mapping:
+      logical_field: Account.account_key
+      physical_field: bank.accounts.account_number
+      confidence: 1.0
+      status: approved
+      evidence:
+        - Approved synthetic bank account identifier.
+      transformation_plan:
+        version: 1
+        steps:
+          - operation: identity
+      version: 1
+  - approval_decision_id: ground-truth-map-current-balance-v1
+    physical_type: decimal
+    mapping:
+      logical_field: Account.current_balance
+      physical_field: bank.accounts.current_balance
+      confidence: 1.0
+      status: approved
+      evidence:
+        - Approved synthetic account balance measure.
+      transformation_plan:
+        version: 1
+        steps:
+          - operation: identity
+      version: 1

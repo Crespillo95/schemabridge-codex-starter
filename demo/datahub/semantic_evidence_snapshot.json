@@ -1,0 +1,42 @@
+{
+  "fixture_kind": "synthetic_candidate_evidence",
+  "source_notice": "Synthetic bounded signals for the recorded demo; not production evidence.",
+  "entries": [
+    {
+      "logical_field": "Customer.customer_key",
+      "physical_field": "crm.customers.customer_id",
+      "value_pattern": {
+        "score": 0.98,
+        "detail": "Synthetic profile is fixed-width ASCII digits with no invalid values."
+      },
+      "normalized_overlap": {
+        "score": 1.0,
+        "detail": "All seven synthetic CRM keys overlap the legacy keys after configured strip normalization."
+      }
+    },
+    {
+      "logical_field": "Customer.customer_key",
+      "physical_field": "legacy.client_master.client_no",
+      "value_pattern": {
+        "score": 1.0,
+        "detail": "Synthetic profile contains only non-negative integral identifiers."
+      },
+      "normalized_overlap": {
+        "score": 1.0,
+        "detail": "All seven synthetic legacy keys overlap CRM after integer-to-string conversion."
+      }
+    },
+    {
+      "logical_field": "Customer.customer_key",
+      "physical_field": "bank.account_holders.gf_customer_id",
+      "value_pattern": {
+        "score": 0.65,
+        "detail": "Synthetic profile includes integral floats plus fractional, non-finite, and NULL rejection paths."
+      },
+      "normalized_overlap": {
+        "score": 0.83,
+        "detail": "Five of six finite integral synthetic holder keys overlap normalized CRM keys."
+      }
+    }
+  ]
+}

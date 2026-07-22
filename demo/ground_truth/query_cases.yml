@@ -1,0 +1,69 @@
+version: 1
+cases:
+  - id: secondary_holders_by_registration_date
+    question_es: Agrupa por fecha de registro todos los clientes que sean segundo titular de una cuenta.
+    interpretation:
+      primary_entity: Customer
+      dimensions:
+        - field: Customer.registration_date
+          grain: day
+      metrics:
+        - operation: count_distinct
+          field: Customer.customer_key
+          alias: secondary_holder_customers
+      filters:
+        - field: AccountHolder.holder_role
+          operator: equals
+          value: SECONDARY
+      order_by:
+        - field: Customer.registration_date
+          direction: asc
+      limit: 500
+    required_models:
+      - Customer
+      - AccountHolder
+    join_contracts:
+      - customer_to_account_holder
+    expected_rows:
+      - registration_date: 2026-01-01
+        secondary_holder_customers: 2
+      - registration_date: 2026-01-02
+        secondary_holder_customers: 1
+      - registration_date: 2026-01-03
+        secondary_holder_customers: 1
+    expected_rejections:
+      - source_value: 127.5
+        reason: non_integral_identifier
+      - source_value: NaN
+        reason: non_finite_identifier
+      - source_value: null
+        reason: null_join_key
+  - id: active_customers_by_country
+    question_es: Cuenta clientes activos por país.
+    interpretation:
+      primary_entity: Customer
+      dimensions:
+        - field: Customer.country_code
+      metrics:
+        - operation: count_distinct
+          field: Customer.customer_key
+          alias: active_customers
+      filters:
+        - field: Customer.customer_status
+          operator: equals
+          value: ACTIVE
+      order_by:
+        - field: Customer.country_code
+          direction: asc
+      limit: 500
+    required_models:
+      - Customer
+    join_contracts: []
+    expected_behavior: no_join
+    expected_rows:
+      - country_code: ES
+        active_customers: 4
+      - country_code: FR
+        active_customers: 1
+      - country_code: PT
+        active_customers: 1

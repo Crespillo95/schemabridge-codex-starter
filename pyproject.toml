@@ -1,0 +1,95 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "schemabridge"
+version = "0.1.0"
+description = "Governed semantic query agent for inconsistent schemas, built on DataHub."
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+license = { text = "Apache-2.0" }
+authors = [{ name = "SchemaBridge Hackathon Team" }]
+dependencies = [
+  "pydantic>=2.10,<3",
+  "pydantic-settings>=2.7,<3",
+  "typer>=0.15,<1",
+  "rich>=13.9,<15",
+  "PyYAML>=6.0,<7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "hatch>=1.14,<2",
+  "mypy>=1.14,<2",
+  "pytest>=8.3,<9",
+  "pytest-cov>=6,<7",
+  "ruff>=0.9,<1",
+  "types-PyYAML>=6.0,<7",
+]
+postgres = [
+  "psycopg[binary]>=3.2,<4",
+]
+sql = ["sqlglot>=26,<30"]
+ui = [
+  "streamlit>=1.59,<2",
+  # NumPy 2.3+ stubs use Python 3.12 syntax, while SchemaBridge type-checks at 3.11.
+  "numpy>=1.26,<2.3",
+]
+datahub = [
+  "acryl-datahub==1.6.0.15",
+  "mcp==1.28.1",
+  "uv==0.11.30",
+]
+llm = ["openai>=1.70,<3"]
+
+[project.scripts]
+schemabridge = "schemabridge.entrypoints.cli.main:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/schemabridge"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+mypy_path = "src"
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers --strict-config"
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = [
+  "integration: requires local services",
+  "acceptance: exercises a complete user path",
+]
+
+[tool.coverage.run]
+source = ["schemabridge"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 80
+
+[[tool.mypy.overrides]]
+module = ["psycopg", "psycopg.*", "mcp", "mcp.*", "datahub", "datahub.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["streamlit", "streamlit.*", "numpy", "numpy.*"]
+follow_imports = "skip"
+ignore_missing_imports = true

@@ -1,0 +1,38 @@
+{
+  "dataset_urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.crm.customers,PROD)",
+  "datasets": [
+    {
+      "described_fields": ["customer_id", "registration_date"],
+      "fields": ["customer_id", "registration_date", "country_cd", "customer_status"],
+      "row_count": 7,
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.crm.customers,PROD)"
+    },
+    {
+      "described_fields": ["client_no"],
+      "fields": ["client_no", "created_dt", "country", "status_code"],
+      "row_count": 7,
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.legacy.client_master,PROD)"
+    },
+    {
+      "described_fields": [],
+      "fields": ["account_number", "opening_date", "account_status", "current_balance"],
+      "row_count": 9,
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.bank.accounts,PROD)"
+    },
+    {
+      "described_fields": ["gf_customer_id", "holder_type"],
+      "fields": ["holder_link_id", "account_number", "gf_customer_id", "holder_type", "relationship_start_date", "relationship_end_date"],
+      "row_count": 9,
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.bank.account_holders,PROD)"
+    },
+    {
+      "described_fields": ["customer_key_text"],
+      "fields": ["report_date", "customer_key_text", "account_number", "holder_role_normalized"],
+      "row_count": 6,
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.reporting.customer_accounts,PROD)"
+    }
+  ],
+  "fields": ["customer_id", "registration_date", "country_cd", "customer_status"],
+  "fixture_kind": "sanitized_mcp_expectation",
+  "search_query": "schemabridge.crm.customers"
+}

@@ -1,0 +1,89 @@
+version: 1
+source: recorded:demo/ground_truth/approved_logical_context.yml
+models:
+  - id: Customer
+    description: Approved synthetic customer context for guided request evaluation.
+    status: approved
+    version: 1
+    fields:
+      - id: Customer.customer_key
+        canonical_type: string
+        role: identifier
+        definition: Stable identifier for a customer across approved source representations.
+        status: approved
+        version: 1
+      - id: Customer.registration_date
+        canonical_type: date
+        role: temporal
+        definition: Calendar date on which the customer was registered.
+        status: approved
+        version: 1
+      - id: Customer.country_code
+        canonical_type: string
+        role: attribute
+        definition: Approved country code associated with the customer.
+        status: approved
+        version: 1
+      - id: Customer.customer_status
+        canonical_type: string
+        role: attribute
+        definition: Approved lifecycle status of the customer.
+        status: approved
+        version: 1
+  - id: AccountHolder
+    description: Approved synthetic relationship between a customer and an account.
+    status: approved
+    version: 1
+    fields:
+      - id: AccountHolder.customer_key
+        canonical_type: string
+        role: identifier
+        definition: Approved customer identifier on an account-holder relationship.
+        status: approved
+        version: 1
+      - id: AccountHolder.account_key
+        canonical_type: string
+        role: identifier
+        definition: Approved account identifier on an account-holder relationship.
+        status: approved
+        version: 1
+      - id: AccountHolder.holder_role
+        canonical_type: string
+        role: attribute
+        definition: Approved normalized role of the customer on the account.
+        status: approved
+        version: 1
+  - id: Account
+    description: Approved synthetic financial account context.
+    status: approved
+    version: 1
+    fields:
+      - id: Account.account_key
+        canonical_type: string
+        role: identifier
+        definition: Stable approved account identifier.
+        status: approved
+        version: 1
+      - id: Account.current_balance
+        canonical_type: decimal
+        role: measure
+        definition: Approved current account balance measure.
+        status: approved
+        version: 1
+joins:
+  - id: customer_to_account_holder
+    left_model: Customer
+    right_model: AccountHolder
+    cardinality: one_to_many
+    fanout_policy: require_distinct_for_left_entity_metrics
+    status: approved
+    version: 1
+    approval_decision_id: ground-truth-customer-holder-v1
+  - id: account_holder_to_account
+    left_model: AccountHolder
+    right_model: Account
+    cardinality: many_to_one
+    fanout_policy: none
+    status: approved
+    version: 1
+    approval_decision_id: ground-truth-holder-account-v1

@@ -1,0 +1,38 @@
+version: 1
+mappings:
+  - logical_field: Customer.customer_key
+    physical_field: crm.customers.customer_id
+    confidence: 0.97
+    status: approved
+    evidence:
+      - normalized_name_similarity
+      - definition_similarity
+      - normalized_value_overlap
+    risks:
+      - leading_zero_semantics
+    transformation_plan:
+      version: 1
+      steps:
+        - operation: trim
+        - operation: validate_regex
+          pattern: "^[0-9]+$"
+        - operation: strip_leading_zeros
+        - operation: reject_invalid
+    version: 1
+  - logical_field: AccountHolder.customer_key
+    physical_field: bank.account_holders.gf_customer_id
+    confidence: 0.96
+    status: approved
+    evidence:
+      - normalized_value_overlap
+      - matching_business_definition
+    risks:
+      - unsafe_float_identifier
+    transformation_plan:
+      version: 1
+      steps:
+        - operation: validate_finite
+        - operation: validate_integral
+        - operation: cast_integer_to_string
+        - operation: reject_invalid
+    version: 1

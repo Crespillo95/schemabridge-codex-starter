@@ -1,0 +1,176 @@
+version: 1
+logical_models:
+  Customer:
+    description: A person or organization registered as a customer.
+    physical_datasets:
+      - crm.customers
+      - legacy.client_master
+    fields:
+      customer_key:
+        canonical_type: string
+        definition: Stable identifier for a customer across source systems.
+        mappings:
+          - physical_field: crm.customers.customer_id
+            transformation:
+              - trim
+              - validate_regex: "^[0-9]+$"
+              - strip_leading_zeros
+          - physical_field: legacy.client_master.client_no
+            transformation:
+              - cast_integer_to_string
+      registration_date:
+        canonical_type: date
+        definition: Date on which the customer was first registered.
+        mappings:
+          - physical_field: crm.customers.registration_date
+            transformation: [identity]
+          - physical_field: legacy.client_master.created_dt
+            transformation: [cast_timestamp_to_date]
+  AccountHolder:
+    description: A relationship assigning a customer a role on an account.
+    physical_datasets:
+      - bank.account_holders
+    fields:
+      customer_key:
+        canonical_type: string
+        mappings:
+          - physical_field: bank.account_holders.gf_customer_id
+            transformation:
+              - validate_finite
+              - validate_integral
+              - cast_integer_to_string
+      account_key:
+        canonical_type: string
+        mappings:
+          - physical_field: bank.account_holders.account_number
+            transformation: [identity]
+      holder_role:
+        canonical_type: string
+        mappings:
+          - physical_field: bank.account_holders.holder_type
+            transformation:
+              - map_values:
+                  SECONDARY: SECONDARY
+                  "2": SECONDARY
+                  CO_HOLDER: SECONDARY
+                  PRIMARY: PRIMARY
+  Account:
+    description: A financial account.
+    physical_datasets:
+      - bank.accounts
+    fields:
+      account_key:
+        canonical_type: string
+        mappings:
+          - physical_field: bank.accounts.account_number
+            transformation: [identity]
+
+evaluation:
+  fixture_notice: >-
+    Synthetic labeled M06 fixture used only to measure deterministic candidate behavior;
+    scores from these tuned examples are not production evidence.
+  concepts:
+    Customer.customer_key:
+      id: Customer.customer_key
+      canonical_name: customer_key
+      canonical_type: string
+      definition: Stable identifier for a customer across source systems.
+      format_policy:
+        null_policy: preserve
+        leading_zero_policy: strip
+        empty_string_policy: reject
+  cases:
+    - id: crm_customer_id_true
+      concept: Customer.customer_key
+      physical_field: crm.customers.customer_id
+      native_type: VARCHAR(11)
+      description: Customer identifier encoded as an 11-character numeric string.
+      is_part_of_key: true
+      label: positive
+      kind: true_mapping
+      rationale: Synthetic ground truth maps the padded CRM identifier to Customer.customer_key.
+      evidence:
+        value_pattern:
+          score: 0.98
+          detail: Fixed-width ASCII digits with no invalid synthetic values.
+        normalized_overlap:
+          score: 1.0
+          detail: All synthetic CRM keys overlap after strip normalization.
+    - id: legacy_client_no_true
+      concept: Customer.customer_key
+      physical_field: legacy.client_master.client_no
+      native_type: BIGINT
+      description: Legacy numeric customer identifier.
+      is_part_of_key: true
+      label: positive
+      kind: true_mapping
+      rationale: Synthetic ground truth maps the legacy integer to Customer.customer_key.
+      evidence:
+        value_pattern:
+          score: 1.0
+          detail: All synthetic values are non-negative integral identifiers.
+        normalized_overlap:
+          score: 1.0
+          detail: All legacy keys overlap CRM after integer-to-string conversion.
+    - id: holder_float_customer_id_true
+      concept: Customer.customer_key
+      physical_field: bank.account_holders.gf_customer_id
+      native_type: DOUBLE PRECISION
+      description: Customer identifier stored as double precision; integral values are expected.
+      is_part_of_key: false
+      label: positive
+      kind: true_mapping
+      rationale: Integral holder keys represent customers but unsafe values must be rejected.
+      evidence:
+        value_pattern:
+          score: 0.65
+          detail: Integral floats coexist with fractional, non-finite, and NULL rejection paths.
+        normalized_overlap:
+          score: 0.83
+          detail: Most valid holder keys overlap normalized CRM keys.
+    - id: support_customer_key_homonym
+      concept: Customer.customer_key
+      physical_field: support.accounts.customer_key
+      native_type: VARCHAR(32)
+      description: Customer key supplied on a support account and scoped only to that case system.
+      is_part_of_key: true
+      label: negative
+      kind: homonym
+      rationale: The same name and coincidental values do not prove enterprise customer identity.
+      evidence:
+        value_pattern:
+          score: 0.90
+          detail: Values look identifier-like in the synthetic homonym case.
+        normalized_overlap:
+          score: 0.85
+          detail: A small synthetic range coincidentally overlaps customer keys.
+    - id: archive_subject_ref_hidden_synonym
+      concept: Customer.customer_key
+      physical_field: archive.person_registry.subject_ref
+      native_type: VARCHAR(24)
+      description: null
+      is_part_of_key: false
+      label: positive
+      kind: hidden_synonym
+      rationale: This intentionally under-documented positive should remain a visible false negative.
+      evidence: {}
+    - id: holder_link_id_negative
+      concept: Customer.customer_key
+      physical_field: bank.account_holders.holder_link_id
+      native_type: BIGINT
+      description: Internal relationship row identifier.
+      is_part_of_key: true
+      label: negative
+      kind: negative
+      rationale: A holder-link row key is not a customer key.
+      evidence: {}
+    - id: customer_status_negative
+      concept: Customer.customer_key
+      physical_field: crm.customers.customer_status
+      native_type: VARCHAR(20)
+      description: Operational lifecycle state of the customer record.
+      is_part_of_key: false
+      label: negative
+      kind: negative
+      rationale: A field mentioning customer is not necessarily a customer identifier.
+      evidence: {}

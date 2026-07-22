@@ -1,0 +1,32 @@
+version: 1
+fixture_notice: >-
+  Small synthetic SchemaBridge release-candidate evaluation. Raw counts only; no confidence
+  interval or production-quality claim is statistically justified.
+source_versions:
+  semantic_mappings: 1
+  query_cases: 1
+  join_contracts: 1
+  approved_logical_context: 1
+  planning_mappings: 1
+  sql_guard_cases: 1
+  query_recipe: 1
+query_cases:
+  - id: secondary_holders_by_registration_date
+    guided_case: north_star
+    intent_alternative: count-distinct-customers
+  - id: active_customers_by_country
+    guided_case: no_join
+    intent_skip_reason: >-
+      The deterministic M11 parser intentionally has no active-customer control phrase; this
+      query remains evaluated for planning, execution, and result correctness.
+recipe_reuse_cases:
+  - id: current_recipe
+    mutation: none
+    expected_status: reusable
+    expected_reasons: []
+  - id: changed_mapping_version
+    mutation: increment_first_mapping_version
+    expected_status: stale
+    expected_reasons:
+      - mapping_version_changed
+      - plan_changed

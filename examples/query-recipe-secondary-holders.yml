@@ -1,0 +1,78 @@
+# Regenerated from a real guarded execution of the synthetic PostgreSQL demo on 2026-07-22.
+# This recipe contains no executable SQL. See query-validation-report.md for provenance.
+id: query_recipe_d94f4317d638a514
+version: 1
+business_question: Agrupa por fecha de registro todos los clientes que sean segundo titular de una cuenta.
+normalized_intent:
+  primary_entity: Customer
+  dimensions:
+    - field: Customer.registration_date
+      grain: day
+  metrics:
+    - operation: count_distinct
+      field: Customer.customer_key
+      alias: secondary_holder_customers
+  filters:
+    - field: AccountHolder.holder_role
+      operator: equals
+      value: SECONDARY
+  order_by:
+    - field: Customer.registration_date
+      direction: asc
+  limit: 500
+intent_fingerprint: d94f4317d638a514abfa960208aada13b021ba10f42d6a89ba1c06fba05383ce
+validated_request_fingerprint: 8c926651a16204146767b08578b699c35345de0ab4e66278b1d8b41ca95f20fd
+model_version:
+  source: recorded:demo/ground_truth/m10
+  version: 1
+  fingerprint: c49284df5e6800867ef07ac1123ba8bc738e398380353d296d9dd961b37cbfa9
+mapping_versions:
+  - logical_field: AccountHolder.customer_key
+    physical_field: bank.account_holders.gf_customer_id
+    version: 1
+    approval_decision_id: ground-truth-map-holder-customer-v1
+  - logical_field: AccountHolder.holder_role
+    physical_field: bank.account_holders.holder_type
+    version: 1
+    approval_decision_id: ground-truth-map-holder-role-v1
+  - logical_field: Customer.customer_key
+    physical_field: crm.customers.customer_id
+    version: 1
+    approval_decision_id: ground-truth-map-customer-key-v1
+  - logical_field: Customer.registration_date
+    physical_field: crm.customers.registration_date
+    version: 1
+    approval_decision_id: ground-truth-map-registration-date-v1
+join_versions:
+  - contract_id: customer_to_account_holder
+    version: 1
+    approval_decision_id: ground-truth-customer-holder-v1
+source_schema_fingerprint: dbd26695ca74341942dd85f20339b3ed09d2ba82d144144951528fc0bea8aac7
+plan_fingerprint: 086f41d20b5830e6786ec04702ec7206f4307253d6ec102feb01b04441093162
+query_fingerprint: b81cc0de555200592339e36ffcfd78a237cda32ccf32a7ec58e3327735b84066
+compiler_version: postgres-ir-v1
+validation:
+  policy_status: accepted
+  executed_at: 2026-07-22T04:47:16.959625Z
+  database_user: schemabridge_reader
+  transaction_read_only: true
+  statement_timeout_ms: 5000
+  row_count: 3
+  rejected_count: 3
+  rejection_codes:
+    - non_integral_identifier
+    - non_finite_identifier
+    - null_join_key
+  truncated: false
+  preview_fingerprint: e7df94d70592eb7be8cccb130bdc8b857d27d59c8609425b46461f35eddafddb
+limitations:
+  - Synthetic SchemaBridge demo assets only; not production evidence.
+  - Reuse never bypasses current semantic planning, SQL policy validation, or bounded preview.
+  - Validated for the recorded model, mapping, join, source-schema, and compiler versions only.
+linked_asset_urns:
+  - urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.bank.account_holders,PROD)
+  - urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.crm.customers,PROD)
+source_workflow_id: m16-recipe-artifact
+created_at: 2026-07-22T04:47:16.959625Z
+content_fingerprint: 134e56cb8df4f8ad36a20c3debb9e223979ba667d69faa6193b10aa02b1729ed
+fingerprint: efc99366085edf9ecbfd53198c4d804a45e5bb41fbb34799d87b83e058d3f279
