@@ -13,12 +13,9 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: python -m pip install --upgrade pip
-      - run: python -m pip install -e '.[dev,postgres,sql,ui,llm]'
-      - run: ruff format --check src tests scripts
-      - run: ruff check src tests scripts
-      - run: mypy src
-      - run: pytest -m 'not integration and not acceptance'
+      - run: make bootstrap
+      - run: make check
+      - run: make runtime-wheel-smoke
 
   postgres-integration:
     runs-on: ubuntu-latest
@@ -31,21 +28,37 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: python -m pip install --upgrade pip
-      - run: python -m pip install -e '.[dev,postgres,sql,ui]'
+      - run: make bootstrap
+      - run: make install
       - run: make demo-reset
+      - run: make datahub-start
+      - run: make datahub-health
+      - run: make datahub-init-admin
+      - run: make datahub-ingest
+      - run: make datahub-provision-mcp
+      - run: make datahub-provision-writer
+      - run: make datahub-catalog-check
+      - run: make datahub-mcp-check
+      - run: make control-plane-reset
+      - run: make control-plane-migrate
+      - run: make control-plane-check
       - run: make test-integration
       - run: make test-acceptance
+      - run: make coverage
       - run: >-
-          python -m schemabridge.entrypoints.cli.main evaluate
+          .venv/bin/python -m schemabridge.entrypoints.cli.main evaluate
           --output reports/evaluation.json
           --markdown reports/evaluation.md
       - run: >-
-          python -c "import json; from pathlib import Path;
+          .venv/bin/python -c "import json; from pathlib import Path;
           report=json.loads(Path('reports/evaluation.json').read_text());
           assert report['successful'] and not report['release']['dirty'];
           assert report['release']['revision'] == '${{ github.sha }}'"
       - if: failure()
         run: docker compose -f docker-compose.demo.yml logs --no-color postgres
+      - if: failure()
+        run: docker compose -f docker-compose.control.yml logs --no-color control-postgres
       - if: always()
         run: docker compose -f docker-compose.demo.yml down -v --remove-orphans
+      - if: always()
+        run: docker compose -f docker-compose.control.yml down -v --remove-orphans

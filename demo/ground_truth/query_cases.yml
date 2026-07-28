@@ -1,4 +1,4 @@
-version: 1
+version: 2
 cases:
   - id: secondary_holders_by_registration_date
     question_es: Agrupa por fecha de registro todos los clientes que sean segundo titular de una cuenta.
@@ -67,3 +67,158 @@ cases:
         active_customers: 1
       - country_code: PT
         active_customers: 1
+  - id: active_products_by_category
+    question_es: Cuenta los productos activos por categoría.
+    interpretation:
+      primary_entity: Product
+      dimensions:
+        - field: Product.category
+      metrics:
+        - operation: count_distinct
+          field: Product.product_key
+          alias: active_products
+      filters:
+        - field: Product.is_active
+          operator: equals
+          value: true
+      order_by:
+        - field: Product.category
+          direction: asc
+      limit: 100
+    required_models:
+      - Product
+    join_contracts: []
+    expected_behavior: no_join
+    expected_rows:
+      - category: BOOKS
+        active_products: 8
+      - category: ELECTRONICS
+        active_products: 9
+      - category: HOME
+        active_products: 9
+      - category: SPORTS
+        active_products: 9
+  - id: delivered_orders_by_month
+    question_es: Cuenta pedidos distintos con entregas completadas por mes.
+    interpretation:
+      primary_entity: SalesOrder
+      dimensions:
+        - field: SalesOrder.ordered_at
+          grain: month
+      metrics:
+        - operation: count
+          field: SalesOrder.order_key
+          alias: delivered_orders
+      filters:
+        - field: Shipment.shipment_status
+          operator: equals
+          value: DELIVERED
+      order_by:
+        - field: SalesOrder.ordered_at
+          direction: asc
+      limit: 100
+    required_models:
+      - SalesOrder
+      - Shipment
+    join_contracts:
+      - sales_order_to_shipment
+    expected_rows:
+      - ordered_at: 2026-01-01
+        delivered_orders: 22
+      - ordered_at: 2026-02-01
+        delivered_orders: 11
+    expected_rejections:
+      - source_value: ""
+        reason: malformed_identifier
+      - source_value: -1010
+        reason: negative_identifier
+      - source_value: not-an-order
+        reason: malformed_identifier
+      - source_value: null
+        reason: null_join_key
+  - id: commerce_revenue_by_category_month
+    question_es: Suma ingresos netos y unidades por categoría de producto y mes para pedidos completados.
+    interpretation:
+      primary_entity: SaleLine
+      dimensions:
+        - field: Product.category
+        - field: SalesOrder.ordered_at
+          grain: month
+      metrics:
+        - operation: sum
+          field: SaleLine.net_amount
+          alias: net_revenue
+        - operation: sum
+          field: SaleLine.quantity
+          alias: units
+      filters:
+        - field: SalesOrder.order_status
+          operator: equals
+          value: COMPLETED
+      order_by:
+        - field: Product.category
+          direction: asc
+        - field: SalesOrder.ordered_at
+          direction: asc
+      limit: 100
+    required_models:
+      - SaleLine
+      - Product
+      - SalesOrder
+    join_contracts:
+      - product_to_sale_line
+      - sales_order_to_sale_line
+    expected_rows:
+      - category: BOOKS
+        ordered_at: 2026-01-01
+        net_revenue:
+          decimal: "1496.45"
+        units: 25
+      - category: BOOKS
+        ordered_at: 2026-02-01
+        net_revenue:
+          decimal: "988.00"
+        units: 16
+      - category: ELECTRONICS
+        ordered_at: 2026-01-01
+        net_revenue:
+          decimal: "938.65"
+        units: 23
+      - category: ELECTRONICS
+        ordered_at: 2026-02-01
+        net_revenue:
+          decimal: "440.85"
+        units: 7
+      - category: HOME
+        ordered_at: 2026-01-01
+        net_revenue:
+          decimal: "529.70"
+        units: 13
+      - category: HOME
+        ordered_at: 2026-02-01
+        net_revenue:
+          decimal: "637.80"
+        units: 12
+      - category: SPORTS
+        ordered_at: 2026-01-01
+        net_revenue:
+          decimal: "988.80"
+        units: 16
+      - category: SPORTS
+        ordered_at: 2026-02-01
+        net_revenue:
+          decimal: "852.00"
+        units: 11
+    expected_rejections:
+      - source_value: -3
+        reason: negative_identifier
+      - source_value: null
+        reason: null_join_key
+      - source_value: ""
+        reason: malformed_identifier
+      - source_value: -1001
+        reason: negative_identifier
+      - source_value: bad-1060
+        reason: malformed_identifier
+      - source_value: null
+        reason: null_join_key

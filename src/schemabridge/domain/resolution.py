@@ -4,22 +4,21 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from collections import deque
 from dataclasses import dataclass
 from enum import StrEnum
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, model_validator
 
 from schemabridge.domain._base import FrozenDomainModel
 from schemabridge.domain.concepts import CanonicalType, LogicalFieldRef
+from schemabridge.domain.connectors import GovernedExecutionTarget
 from schemabridge.domain.decisions import ApprovalStatus
 from schemabridge.domain.fields import PhysicalDatasetRef, PhysicalFieldRef
 from schemabridge.domain.joins import (
     Cardinality,
     FanoutPolicy,
     JoinContract,
-    JoinContractSet,
     JoinType,
     NormalizedJoinKey,
 )
@@ -50,12 +49,27 @@ from schemabridge.domain.request_context import (
     validate_analytical_request,
 )
 from schemabridge.domain.requests import AnalyticalRequest, FilterOperator, MetricOperation
+from schemabridge.domain.semantic_registry import (
+    GovernedFieldMapping,
+    GovernedSemanticRegistrySnapshot,
+    PhysicalValueType,
+    SemanticPlanningContext,
+    governed_semantic_registry_fingerprint,
+)
+from schemabridge.domain.semantic_registry import (
+    GovernedMappingSet as GovernedMappingSet,
+)
 from schemabridge.domain.transformations import TransformationPlan
 
-_SOURCE_PATTERN = re.compile(r"^[a-z][a-z0-9_-]*:[A-Za-z0-9._/-]+$")
+MAX_REJECTED_SOURCE_TOTAL = 2_147_483_647
+
+_DUPLICATION_INVARIANT_OPERATIONS = frozenset(
+    {MetricOperation.COUNT_DISTINCT, MetricOperation.MIN, MetricOperation.MAX}
+)
 
 
 class ResolutionErrorCode(StrEnum):
+    STALE_REGISTRY = "stale_registry"
     STALE_LOGICAL_CONTEXT = "stale_logical_context"
     MISSING_MAPPING = "missing_approved_mapping"
     UNAPPROVED_MAPPING = "unapproved_mapping"
@@ -88,68 +102,6 @@ class SourceRejectionCode(StrEnum):
     NON_INTEGRAL_IDENTIFIER = "non_integral_identifier"
     UNSAFE_FLOAT_IDENTIFIER = "unsafe_float_identifier"
     MALFORMED_IDENTIFIER = "malformed_identifier"
-
-
-class PhysicalValueType(StrEnum):
-    STRING = "string"
-    INTEGER = "integer"
-    FLOAT = "float"
-    DECIMAL = "decimal"
-    BOOLEAN = "boolean"
-    DATE = "date"
-    TIMESTAMP = "timestamp"
-
-
-class GovernedFieldMapping(FrozenDomainModel):
-    mapping: ColumnMapping
-    physical_type: PhysicalValueType
-    approval_decision_id: str | None = None
-
-    @model_validator(mode="after")
-    def approval_reference_must_match_status(self) -> GovernedFieldMapping:
-        approved = self.mapping.status is ApprovalStatus.APPROVED
-        if approved != (self.approval_decision_id is not None):
-            raise ValueError("approved mapping status must match its decision reference")
-        if self.approval_decision_id is not None and not self.approval_decision_id.strip():
-            raise ValueError("mapping approval decision id must not be blank")
-        return self
-
-
-class GovernedMappingSet(FrozenDomainModel):
-    version: int = Field(ge=1)
-    mappings: tuple[GovernedFieldMapping, ...] = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def mappings_must_be_unique(self) -> GovernedMappingSet:
-        pairs = [
-            (item.mapping.logical_field.root, item.mapping.physical_field.root)
-            for item in self.mappings
-        ]
-        if len(pairs) != len(set(pairs)):
-            raise ValueError("governed mapping pairs must be unique")
-        decisions = [
-            item.approval_decision_id
-            for item in self.mappings
-            if item.approval_decision_id is not None
-        ]
-        if len(decisions) != len(set(decisions)):
-            raise ValueError("mapping approval decisions must be unique")
-        return self
-
-
-class SemanticPlanningContext(FrozenDomainModel):
-    version: int = Field(ge=1)
-    source: str = Field(min_length=1)
-    logical_context: ApprovedLogicalContext
-    mapping_set: GovernedMappingSet
-    join_contracts: JoinContractSet
-
-    @field_validator("source")
-    @classmethod
-    def source_must_be_explicit(cls, value: str) -> str:
-        if _SOURCE_PATTERN.fullmatch(value) is None:
-            raise ValueError("planning context source must be an explicit kind:location label")
-        return value
 
 
 class ResolutionLimits(FrozenDomainModel):
@@ -189,7 +141,7 @@ class RejectedSourceRecord(FrozenDomainModel):
 class RejectedSourceReport(FrozenDomainModel):
     inspected_fields: tuple[PhysicalFieldRef, ...] = ()
     records: tuple[RejectedSourceRecord, ...] = ()
-    total_records: int = Field(default=0, ge=0)
+    total_records: int = Field(default=0, ge=0, le=MAX_REJECTED_SOURCE_TOTAL)
     truncated: bool = False
     database_user: str | None = None
     transaction_read_only: bool | None = None
@@ -220,6 +172,16 @@ class ResolvedSemanticPlan(FrozenDomainModel):
     context_source: str = Field(min_length=1)
     context_version: int = Field(ge=1)
     context_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    activation_generation: int | None = Field(default=None, ge=1)
+    active_pointer_fingerprint: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+    active_scope_fingerprint: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+    execution_target: GovernedExecutionTarget | None = None
     request: AnalyticalRequest
     selected_mappings: tuple[GovernedFieldMapping, ...] = Field(min_length=1)
     selected_contracts: tuple[JoinContract, ...] = Field(default=(), max_length=2)
@@ -231,6 +193,14 @@ class ResolvedSemanticPlan(FrozenDomainModel):
 
     @model_validator(mode="after")
     def plan_assets_must_match_selected_context(self) -> ResolvedSemanticPlan:
+        if (self.activation_generation is None) != (self.active_pointer_fingerprint is None):
+            raise ValueError(
+                "active semantic plans require generation and pointer fingerprint together"
+            )
+        if self.activation_generation is None and self.active_scope_fingerprint is not None:
+            raise ValueError("inactive semantic plans cannot claim a tenant scope fingerprint")
+        if self.activation_generation is None and self.execution_target is not None:
+            raise ValueError("inactive semantic plans cannot claim a managed execution target")
         plan_assets = {self.query_plan.root_scan.dataset.root}
         plan_assets.update(join.right_scan.dataset.root for join in self.query_plan.joins)
         policy_assets = {asset.dataset.root for asset in self.query_policy.assets}
@@ -250,17 +220,17 @@ class _PathEdge:
 
 def resolve_semantic_request(
     validated: ValidatedAnalyticalRequest,
-    context: SemanticPlanningContext,
+    context: GovernedSemanticRegistrySnapshot,
     limits: ResolutionLimits,
 ) -> ResolvedSemanticPlan:
     """Resolve only approved current context into the existing restricted query IR."""
 
     logical = context.logical_context
-    fingerprint = approved_logical_context_fingerprint(logical)
+    logical_fingerprint = approved_logical_context_fingerprint(logical)
     if (
         validated.context_source != logical.source
         or validated.context_version != logical.version
-        or validated.context_fingerprint != fingerprint
+        or validated.context_fingerprint != logical_fingerprint
     ):
         raise SemanticResolutionError(
             ResolutionErrorCode.STALE_LOGICAL_CONTEXT,
@@ -333,7 +303,10 @@ def resolve_semantic_request(
         assumptions.append(
             ResolutionAssumption(
                 code="no_join_required",
-                message="Every requested logical field resolves to the primary Customer dataset.",
+                message=(
+                    "Every requested logical field resolves to the primary "
+                    f"{validated.request.primary_entity.root} dataset."
+                ),
             )
         )
     assumptions.extend(fanout_assumptions)
@@ -348,7 +321,7 @@ def resolve_semantic_request(
     return ResolvedSemanticPlan(
         context_source=context.source,
         context_version=context.version,
-        context_fingerprint=fingerprint,
+        context_fingerprint=governed_semantic_registry_fingerprint(context),
         request=validated.request,
         selected_mappings=selected_mappings,
         selected_contracts=tuple(edge.contract for edge in edges),
@@ -520,7 +493,9 @@ def _select_mappings(
             raise SemanticResolutionError(
                 code, f"no approved mapping is available for {field.root}"
             )
-        current = tuple(item for item in approved if item.mapping.version == definition.version)
+        current = tuple(
+            item for item in approved if item.logical_field_version == definition.version
+        )
         if not current:
             raise SemanticResolutionError(
                 ResolutionErrorCode.STALE_MAPPING,
@@ -612,33 +587,93 @@ def _resolve_fanout(
                 ResolutionAssumption(
                     code="relationship_metric_requested",
                     message=(
-                        f"{metric.alias or metric.field.root} counts {metric_model} values, not "
-                        f"distinct {validated.request.primary_entity.root} entities."
+                        f"{metric.alias or metric.field.root} applies {metric.operation.value} to "
+                        f"{metric_model} values, not to "
+                        f"{validated.request.primary_entity.root} entities."
                     ),
                 )
             )
+        scanned_models = {validated.request.primary_entity.root}
+        upstream_fanout_contract: str | None = None
         for edge in edges:
             contract = edge.contract
-            left_model = _model_for_field(contract.left_key.logical_field)
-            if contract.cardinality is not Cardinality.ONE_TO_MANY or metric_model != left_model:
+            cardinality = _oriented_cardinality(edge)
+            if upstream_fanout_contract is not None and edge.to_model == metric_model:
+                if metric.operation not in _DUPLICATION_INVARIANT_OPERATIONS:
+                    raise SemanticResolutionError(
+                        ResolutionErrorCode.UNSUPPORTED_FANOUT,
+                        (
+                            f"metric {metric.field.root} is downstream of fanout contract "
+                            f"{upstream_fanout_contract}; {metric.operation.value} is not "
+                            "invariant under duplicated rows"
+                        ),
+                    )
+                mitigations.append(
+                    FanoutMitigation(
+                        contract_id=upstream_fanout_contract,
+                        metric_alias=metric.alias or metric.field.root,
+                        requested_operation=metric.operation,
+                        applied_operation=metric.operation,
+                        automatic=False,
+                        reason=(
+                            f"{metric.operation.value} is invariant under row duplication from "
+                            f"upstream fanout contract {upstream_fanout_contract}."
+                        ),
+                    )
+                )
+            affected = metric_model in scanned_models and cardinality in {
+                Cardinality.ONE_TO_MANY,
+                Cardinality.MANY_TO_MANY,
+            }
+            scanned_models.add(edge.to_model)
+            if cardinality is Cardinality.ONE_TO_MANY and upstream_fanout_contract is None:
+                upstream_fanout_contract = contract.id
+            if not affected:
                 continue
-            if contract.fanout_policy is not FanoutPolicy.REQUIRE_DISTINCT_FOR_LEFT_ENTITY_METRICS:
+            if cardinality is Cardinality.MANY_TO_MANY:
                 raise SemanticResolutionError(
                     ResolutionErrorCode.UNSUPPORTED_FANOUT,
-                    f"contract {contract.id} has no executable left-entity fanout mitigation",
+                    f"contract {contract.id} has unsupported many_to_many fanout",
+                )
+            if contract.fanout_policy is not FanoutPolicy.REQUIRE_DISTINCT_FOR_LEFT_ENTITY_METRICS:
+                orientation = (
+                    f"reversed {contract.cardinality.value}"
+                    if edge.from_model == _model_for_field(contract.right_key.logical_field)
+                    else contract.cardinality.value
+                )
+                raise SemanticResolutionError(
+                    ResolutionErrorCode.UNSUPPORTED_FANOUT,
+                    (
+                        f"contract {contract.id} is {orientation} from "
+                        f"{edge.from_model} to {edge.to_model} and has no approved mitigation"
+                    ),
                 )
             requested = metric.operation
             if requested is MetricOperation.COUNT:
+                existing_key = (
+                    contract.left_key
+                    if edge.from_model == _model_for_field(contract.left_key.logical_field)
+                    else contract.right_key
+                )
+                if metric.field != existing_key.logical_field:
+                    raise SemanticResolutionError(
+                        ResolutionErrorCode.UNSUPPORTED_FANOUT,
+                        (
+                            f"metric {metric.field.root} is not the exact approved one-side key "
+                            f"{existing_key.logical_field.root}; automatic COUNT DISTINCT would "
+                            "change the requested metric"
+                        ),
+                    )
                 operations[index] = MetricOperation.COUNT_DISTINCT
                 automatic = True
-            elif requested is MetricOperation.COUNT_DISTINCT:
+            elif requested in _DUPLICATION_INVARIANT_OPERATIONS:
                 automatic = False
             else:
                 raise SemanticResolutionError(
                     ResolutionErrorCode.UNSUPPORTED_FANOUT,
                     (
-                        f"contract {contract.id} permits only COUNT DISTINCT mitigation for "
-                        f"left-entity metrics, not {requested.value}"
+                        f"contract {contract.id} permits only exact-key COUNT DISTINCT or a "
+                        f"duplication-invariant aggregate, not {requested.value}"
                     ),
                 )
             mitigations.append(
@@ -646,15 +681,30 @@ def _resolve_fanout(
                     contract_id=contract.id,
                     metric_alias=metric.alias or metric.field.root,
                     requested_operation=requested,
-                    applied_operation=MetricOperation.COUNT_DISTINCT,
+                    applied_operation=operations[index],
                     automatic=automatic,
                     reason=(
-                        f"{contract.id} is one_to_many; duplicate holder links can multiply "
-                        f"{left_model} rows, so the approved policy requires COUNT DISTINCT."
+                        f"{contract.id} is one_to_many and can multiply {edge.from_model} rows; "
+                        + (
+                            "the exact approved one-side key therefore requires COUNT DISTINCT."
+                            if requested is MetricOperation.COUNT
+                            else f"{requested.value} is invariant under duplicate rows."
+                        )
                     ),
                 )
             )
     return operations, tuple(mitigations), tuple(assumptions)
+
+
+def _oriented_cardinality(edge: _PathEdge) -> Cardinality:
+    left_model = _model_for_field(edge.contract.left_key.logical_field)
+    if edge.from_model == left_model:
+        return edge.contract.cardinality
+    if edge.contract.cardinality is Cardinality.ONE_TO_MANY:
+        return Cardinality.MANY_TO_ONE
+    if edge.contract.cardinality is Cardinality.MANY_TO_ONE:
+        return Cardinality.ONE_TO_MANY
+    return edge.contract.cardinality
 
 
 def _validate_mapping_types(

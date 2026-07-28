@@ -20,9 +20,15 @@ from schemabridge.application.governed_execution import (
 )
 from schemabridge.application.guided_requests import (
     BuildGuidedRequest,
+    GuidedDimensionInput,
+    GuidedMetricInput,
+    GuidedOrderInput,
     GuidedRequestCase,
+    GuidedRequestInput,
     build_demo_guided_input,
 )
+from schemabridge.domain.plans import AggregateExpression
+from schemabridge.domain.requests import MetricOperation
 from schemabridge.domain.resolution import ResolutionLimits
 
 pytestmark = pytest.mark.integration
@@ -97,3 +103,100 @@ def test_governed_planner_no_join_and_relationship_count_are_distinct(
         (date(2026, 1, 2), 1),
         (date(2026, 1, 3), 1),
     )
+
+
+def test_reversed_one_to_many_executes_plain_relationship_count_as_six(
+    reader_dsn: str,
+) -> None:
+    logical_path = ROOT / "demo/ground_truth/approved_logical_context.yml"
+    request = BuildGuidedRequest(RecordedRequestContextAdapter(logical_path)).execute(
+        GuidedRequestInput(
+            primary_entity="AccountHolder",
+            dimensions=(),
+            metrics=(
+                GuidedMetricInput(
+                    operation="count",
+                    field="Customer.customer_key",
+                    alias="customer_relationships",
+                ),
+            ),
+            limit=25,
+        )
+    )
+    context = RecordedSemanticPlanningContext(
+        logical_path,
+        ROOT / "demo/ground_truth/planning_mappings.yml",
+        ROOT / "demo/ground_truth/join_contracts.yml",
+    )
+    result = ExecuteGovernedRequest(
+        prepare=PrepareGovernedRequest(
+            PlanSemanticRequest(context, ResolutionLimits()),
+            PostgresQueryCompiler(),
+            SqlGlotPolicyGuard(),
+        ),
+        executor=PsycopgQueryPreview(reader_dsn),
+        rejection_reporter=PsycopgRejectedSourceReporter(
+            reader_dsn,
+            frozenset(
+                {
+                    "crm.customers.customer_id",
+                    "bank.account_holders.gf_customer_id",
+                }
+            ),
+        ),
+    ).execute(request)
+    aggregate = result.resolved_plan.query_plan.projections[0].expression
+
+    assert isinstance(aggregate, AggregateExpression)
+    assert aggregate.operation is MetricOperation.COUNT
+    assert result.preview.rows == ((6,),)
+    assert result.preview.database_user == "schemabridge_reader"
+    assert result.preview.transaction_read_only is True
+
+
+def test_parameterized_role_dimension_groups_without_postgres_parameter_conflict(
+    reader_dsn: str,
+) -> None:
+    logical_path = ROOT / "demo/ground_truth/approved_logical_context.yml"
+    request = BuildGuidedRequest(RecordedRequestContextAdapter(logical_path)).execute(
+        GuidedRequestInput(
+            primary_entity="AccountHolder",
+            dimensions=(GuidedDimensionInput(field="AccountHolder.holder_role"),),
+            metrics=(
+                GuidedMetricInput(
+                    operation="count",
+                    field="AccountHolder.account_key",
+                    alias="holder_relationships",
+                ),
+            ),
+            order_by=(GuidedOrderInput(field="AccountHolder.holder_role"),),
+            limit=25,
+        )
+    )
+    context = RecordedSemanticPlanningContext(
+        logical_path,
+        ROOT / "demo/ground_truth/planning_mappings.yml",
+        ROOT / "demo/ground_truth/join_contracts.yml",
+    )
+    result = ExecuteGovernedRequest(
+        prepare=PrepareGovernedRequest(
+            PlanSemanticRequest(context, ResolutionLimits()),
+            PostgresQueryCompiler(),
+            SqlGlotPolicyGuard(),
+        ),
+        executor=PsycopgQueryPreview(reader_dsn),
+        rejection_reporter=PsycopgRejectedSourceReporter(
+            reader_dsn,
+            frozenset(
+                {
+                    "crm.customers.customer_id",
+                    "bank.account_holders.gf_customer_id",
+                }
+            ),
+        ),
+    ).execute(request)
+
+    assert result.preview.rows == (("PRIMARY", 1), ("SECONDARY", 8))
+    assert "GROUP BY\n  1" in result.sql
+    assert result.preview.database_user == "schemabridge_reader"
+    assert result.preview.transaction_read_only is True

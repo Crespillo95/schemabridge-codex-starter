@@ -6,6 +6,10 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Protocol
 
+from schemabridge.domain.connectors import (
+    GovernedExecutionTarget,
+    SourceDialect,
+)
 from schemabridge.domain.plans import ParameterScalar, QueryPlan, QueryPolicy
 
 
@@ -37,6 +41,8 @@ class SqlRejectionCode(StrEnum):
     INVALID_PREVIEW_LIMIT = "invalid_preview_limit"
     UNSAFE_FUNCTION = "unsafe_function"
     PARAMETER_MISMATCH = "parameter_mismatch"
+    DIALECT_MISMATCH = "dialect_mismatch"
+    TARGET_MISMATCH = "target_mismatch"
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,23 +72,31 @@ class QueryPreviewTimeoutError(QueryPreviewError):
     """The preview exceeded its configured statement timeout."""
 
 
+class QueryPreviewRejectedError(QueryPreviewError):
+    """The preview failed a permanent source or runtime safety contract."""
+
+
 @dataclass(frozen=True, slots=True)
 class CompiledQuery:
-    """Parameterized PostgreSQL produced by a compiler adapter."""
+    """Parameterized SQL plus the public compiler capability that produced it."""
 
     sql: str
     parameters: tuple[ParameterScalar, ...]
     effective_limit: int
+    dialect: SourceDialect = SourceDialect.POSTGRESQL
+    target_fingerprint: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class ValidatedQuery:
-    """Final SQL accepted by an independent policy guard."""
+    """Final SQL accepted for one explicit dialect and public target."""
 
     sql: str
     parameters: tuple[ParameterScalar, ...]
     max_rows: int
     statement_timeout_ms: int
+    dialect: SourceDialect = SourceDialect.POSTGRESQL
+    target_fingerprint: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,17 +122,34 @@ class QueryPreviewResult:
 
 
 class QueryCompilerPort(Protocol):
-    def compile(self, plan: QueryPlan, *, max_preview_rows: int) -> CompiledQuery:
+    def compile(
+        self,
+        plan: QueryPlan,
+        *,
+        max_preview_rows: int,
+        target: GovernedExecutionTarget | None = None,
+    ) -> CompiledQuery:
         """Compile restricted IR into parameterized SQL."""
 
 
 class SqlPolicyGuardPort(Protocol):
-    def validate(self, query: CompiledQuery, policy: QueryPolicy) -> ValidatedQuery:
+    def validate(
+        self,
+        query: CompiledQuery,
+        policy: QueryPolicy,
+        *,
+        target: GovernedExecutionTarget | None = None,
+    ) -> ValidatedQuery:
         """Reparse and independently validate final SQL."""
 
 
 class QueryPreviewPort(Protocol):
-    def execute(self, query: ValidatedQuery) -> QueryPreviewResult:
+    def execute(
+        self,
+        query: ValidatedQuery,
+        *,
+        target: GovernedExecutionTarget | None = None,
+    ) -> QueryPreviewResult:
         """Execute one guarded query through a bounded read-only transaction."""
 
 

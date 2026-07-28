@@ -1,0 +1,59 @@
+{
+  "adapter": "recorded_governed_binding_facts",
+  "ambiguity_misses": [],
+  "calculated_cost_eur": 0.0,
+  "catalog_asset_count": 11,
+  "catalog_sha256": "3057afebc4e67e674995db5b45df0ec1293bad422e687f5d30a71c3cf93de671",
+  "corpus_sha256": "6bb72e6efd4801bd5042e15a29616d634118d62e5f8a83b2f19d4691b1502ece",
+  "deterministic_replay_stable": true,
+  "false_negatives_at_20": [],
+  "false_positives": [],
+  "fixture_notice": "Synthetic multilingual Query Studio labels. They contain no employer, customer, source-row, credential, or proprietary data and are not evidence of production accuracy.",
+  "governed_mapping_count": 31,
+  "input_tokens": 0,
+  "keyset_page_sizes": [
+    1,
+    17,
+    50
+  ],
+  "keyset_stable": true,
+  "keyset_traversal_counts": [
+    31,
+    31,
+    31
+  ],
+  "matcher_version": "m27-deterministic-v8",
+  "metrics": {
+    "ambiguity_cases": 6,
+    "ambiguity_correct": 6,
+    "ambiguity_recall": 1.0,
+    "mean_reciprocal_rank": 0.9462365591397849,
+    "negative_cases": 31,
+    "negative_no_match_correct": 31,
+    "no_match_specificity": 1.0,
+    "positive_cases": 62,
+    "recall_at_20": 1.0,
+    "recall_at_20_correct": 62,
+    "reciprocal_rank_sum": 58.666666666666664,
+    "top_1_accuracy": 0.9032258064516129,
+    "top_1_correct": 56,
+    "top_3_correct": 62,
+    "top_3_recall": 1.0
+  },
+  "output_tokens": 0,
+  "passed": true,
+  "provider_calls": 0,
+  "registry_fingerprint": "0710148874049078f751ac96f0a18131cf01daa41f27dc034ca52a8b212dd966",
+  "schema_version": 1,
+  "score_order": "integer_score_desc_logical_field_asc_binding_id_asc",
+  "tie_behavior": "equal_scores_remain_visible_and_use_stable_identity_order",
+  "top_1_errors": [
+    "holder-account-key:es:expected=('AccountHolder.account_key', 'warehouse-primary', 'bank.account_holders.account_number'):actual=('AccountHolder.customer_key', 'warehouse-primary', 'bank.account_holders.gf_customer_id')",
+    "holder-account-key:en:expected=('AccountHolder.account_key', 'warehouse-primary', 'bank.account_holders.account_number'):actual=('AccountHolder.customer_key', 'warehouse-primary', 'bank.account_holders.gf_customer_id')",
+    "line-key:es:expected=('SaleLine.line_key', 'warehouse-primary', 'sales.order_lines.line_id'):actual=('SaleLine.order_key', 'warehouse-primary', 'sales.order_lines.order_ref')",
+    "line-key:en:expected=('SaleLine.line_key', 'warehouse-primary', 'sales.order_lines.line_id'):actual=('SaleLine.order_key', 'warehouse-primary', 'sales.order_lines.order_ref')",
+    "shipment-order-key:es:expected=('Shipment.order_key', 'warehouse-primary', 'fulfillment.shipments.order_ref'):actual=('SaleLine.order_key', 'warehouse-primary', 'sales.order_lines.order_ref')",
+    "shipment-order-key:en:expected=('Shipment.order_key', 'warehouse-primary', 'fulfillment.shipments.order_ref'):actual=('SaleLine.order_key', 'warehouse-primary', 'sales.order_lines.order_ref')"
+  ],
+  "ungoverned_executable_results": []
+}

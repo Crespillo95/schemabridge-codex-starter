@@ -2,10 +2,11 @@
 
 Audit date: 2026-07-22
 Scope: M00–M15 release candidate, audited under M16 only
-Decision: **NO-GO pending release identity, governance-audit remediation/risk decision, and final manual live journey**
+Decision: **NO-GO pending reviewed remediation commit, strict clean-room rerun, and final recorded manual journey**
 
-This report is tracked; runtime evaluation JSON and logs remain ignored. The supplied repository has
-no `HEAD`, so no result in this working tree is represented as release-commit evidence.
+This report is tracked; runtime evaluation JSON and logs remain ignored. The repository now has
+`HEAD` `231187a`, but the fanout/audit remediation described below is still uncommitted. Its passing
+development gates are therefore not yet strict release-commit evidence.
 
 ## Independent audit panel
 
@@ -17,9 +18,9 @@ regressions.
 |---|---|---|
 | Architecture/domain boundaries | Medium: composition outside `bootstrap.py`, mutable lookup constants, incomplete global import checks | Fixed composition/immutability; added whole-tree AST regression |
 | SQL/database security | High: unbounded rejected-source materialization; negative identifiers accepted by SQL interpreters | Fixed with bounded samples/exact totals and consistent negative rejection |
-| DataHub/governance | High: cross-environment URNs accepted; insufficient release restart proof | Fixed environment isolation; clean-room restart/read-back added |
-| Tests/evaluation | High: CI could skip database-backed acceptance/evaluation; no release commit | CI DSN/evaluation fixed; absent commit blocks release |
-| Judge experience/docs | Critical: no RC commit; high stale README/disclosure and ignored report | Docs/report fixed; absent commit blocks release |
+| DataHub/governance | High: cross-environment URNs and no unified per-target audit | Fixed environment isolation, restart proof, and common approval-bound target ledger |
+| Tests/evaluation | High: CI could skip database-backed acceptance/evaluation; no release identity at audit time | CI DSN/evaluation fixed; current remediation still needs a reviewed commit |
+| Judge experience/docs | Critical at audit time: no RC commit; stale disclosure/report | Docs/report fixed; current remediation commit and recorded operator journey remain |
 
 The operator-readable ranked reports preserve each panel's evidence, reproduction, proposed
 regression, and main-agent disposition:
@@ -41,10 +42,20 @@ findings were not treated as M16 implementation defects:
 - The small synthetic metrics retain their false positive/negative and make no production claim.
 - Missing lineage/query entities are typed missing evidence, not a fabricated signal.
 
-One governance finding remains a release blocker: canonical/join/workflow DataHub writes bind exact
-approvals and retain immutable decision/payload/per-target results, but the persisted audit does not
-yet place the publication approver timestamp and an explicit old/new fingerprint summary together
-for every target. This is recorded rather than silently downgraded.
+The accepted governance finding `GOV-001` is now remediated: canonical, join, workflow, and recipe
+writes return one common immutable record per target containing approval, actor/time, old/new
+fingerprints, operation, decisions, outcome, and stable failure reason. The application validates
+the adapter facts against the exact approval before an atomic append, and the ledger rejects an
+approval ID reused with another identity. A fresh SQLite instance can query the records by approval
+ID. A null old fingerprint now means “no prior fingerprint was verifiable,” never an inferred copy
+of another target's marker. DataHub and SQLite still cannot form one distributed transaction, and
+DataHub upserts expose no cross-client compare-and-swap; those residuals remain explicit below.
+A supplemental adversarial pass also reproduced a workflow-specific false-success path: matching
+payload fingerprints were accepted without reading back the embedded approval or target audit.
+The workflow document now requires the exact workflow ID, fingerprints, approval actor/time/ID,
+and validated successful per-target audit; post-write verification compares the exact audit record.
+Workflow proposal hashes are recomputed by the domain model so a reused idempotency key cannot bind
+different content.
 
 ## Accepted fixes and regressions
 
@@ -62,6 +73,13 @@ for every target. This is recorded rather than silently downgraded.
 | DH-007 | Fresh DataHub admin and writer provisioning now waits through the pinned GMS policy-cache window and fails closed on unexpected privileges | unit policy regressions plus clean-reset live provisioning |
 | DH-008 | Canonical, join, and recipe writers independently ensure the decision structured property after approval | focused helper regression plus fresh-order live publication |
 | TE-009 | The execution-derived query recipe and validation example were regenerated after negative identifiers became a fail-closed compiler rule | fixture validation and the complete acceptance suite |
+| GOV-001 / DH-002 | Added one required approval-bound per-target audit value and append-only SQLite ledger across all four publication families | unit binding/collision/partial-retry tests plus live fresh-process canonical, join, workflow, and recipe read-back |
+| DH-010 | Workflow current-state and post-write checks require the exact embedded approval and validated target audit; proposal hashes are self-validating and a conflicting deterministic target is never overwritten | missing-evidence, reused-key, and immutable-conflict unit regressions plus live workflow replay |
+| FAN-001 | Cardinality and mitigation are evaluated in scan direction; reverse one-to-many preserves relationship `COUNT`, reverse many-to-one fails closed without an inverse policy | unit resolver/IR regressions and live PostgreSQL result `6` rather than incorrect `5` |
+| FAN-002 | Automatic `COUNT DISTINCT` is limited to the exact approved one-side key; unsafe downstream aggregates fail closed while `COUNT DISTINCT`/`MIN`/`MAX` remain duplication-invariant | resolver and forged-IR regressions over attributes and three-table paths |
+| IR-001 | Every physical join predicate, normalization plan, scan direction, and reversed `LEFT` constraint must match its approved contract | forged predicate/transformation/direction unit regressions |
+| DH-005 | Canonical, join, and recipe version targets reject a different valid fingerprint before mutation; join/recipe writes require target read-back before reporting success | unit conflict/no-op/read-back regressions plus live canonical retry/conflict coverage |
+| SQL-008 | Parameterized normalized dimensions group/order by their identical validated projection ordinal | compiler regression and live holder-role result `PRIMARY=1`, `SECONDARY=8` |
 
 ## Clean-room proof
 
@@ -99,22 +117,36 @@ Two earlier clean-reset attempts exposed, rather than concealed, the GMS authori
 and publication-property ordering dependency. Regressions were added, both defects were fixed, and
 the table above comes from the subsequent uninterrupted zero-state run.
 
-The strict `make release-audit` and `make release-clean` commands were also run. Both failed closed,
-as designed: `HEAD` does not exist and every candidate file is therefore untracked. A successful
-development-mode run does not override the no-go decision or constitute release-commit evidence.
+At the time of that clean-room run, strict `make release-audit` and `make release-clean` both failed
+closed because `HEAD` did not yet exist. The repository now has `HEAD` `231187a`, but the remediation
+in this report is newer and uncommitted.
+
+Post-audit remediation was then verified without resetting the already healthy synthetic services:
+
+| Stage | Current development result |
+|---|---|
+| Quality | Ruff passed over 187 files; strict mypy passed over 113 source files; 310 unit tests passed |
+| Integration | 29 passed against PostgreSQL/DataHub, including reverse fanout count, parameterized grouping, immutable conflicts, and fresh-process audit read-back |
+| Acceptance | 7 passed, including live workflow publication audit read-back |
+| Audit robustness | Approval binding/collision, partial failure, actual per-target canonical/join retry, exact workflow approval/audit read-back, proposal-hash integrity, post-write read-back, and append/reopen regressions passed |
+| Candidate scan | Development scan passed 324 files, 19 direct licenses, and 20 external links; strict scan fails only because the tree is dirty |
+
+These results establish the behavior of the working tree, not a strict release candidate. The
+operator must review/commit it and rerun `make release-clean` before release.
 
 ## Unresolved-risk register
 
 | ID | Severity | Risk / limitation | Release treatment |
 |---|---|---|---|
-| RC-001 | Critical | Repository has no initial/release-candidate commit or remote | **Blocks release**; operator must review and commit, then run strict gate |
-| GOV-001 | High | Publication audit facts are distributed rather than one persisted per-target actor/time old/new/result record | **Blocks release** pending remediation or explicit operator risk decision |
-| UX-001 | High/manual | Clean live-DataHub browser journey, timing, and recording were not performed by this agent | **Blocks release** until operator test |
+| RC-002 | High | Current fanout/audit remediation is not committed and has not run in strict clean-room mode | **Blocks release**; operator must review/commit, then run `make release-clean` |
+| UX-001 | High/manual | Live browser journey passed at 1440×1000 and 1024×900, but timing/recording and second-person challenge are absent | **Blocks release** until operator evidence is recorded |
+| GOV-002 | Medium | DataHub mutation and SQLite ledger append cannot share one distributed transaction | A ledger failure is typed and retryable/reconcilable; add a durable outbox/reconciler before production-grade guarantees |
+| GOV-003 | Medium | DataHub document upserts offer no compare-and-swap, leaving a narrow concurrent-writer race after immutable-version preflight | Keep the scoped publisher single-writer/serialized; move version URNs to content-addressed IDs or add CAS when supported |
+| GOV-004 | Low | Structured-property and logical-parent aspects cannot persist a publication fingerprint | Their exact state is re-read and re-ensured; audit old fingerprint is explicitly null rather than fabricated |
 | SQL-003 | Medium | Compiler applies the float exactness cap to a cast step without physical-type provenance, rejecting exact very large integers | Fail-closed undercount risk; add typed physical provenance before widening |
 | SQL-005 | Medium | Guard does not reject every unsupported AST shape or encode exact approved join edges | Current compiler cannot emit them; extend independent defense before broader compiler scope |
 | SQL-006 | Medium | A deliberately misconfigured expected username can bless an admin DSN | Default demo role is least-privilege and ACL-tested; add capability probe |
 | DH-004 | Medium | Stock DataHub all-users policy grants the MCP identity personal-token generation | MCP mutation tools stay disabled; document/remove upstream grant when supported |
-| DH-005 | Medium | Join version-document conflict detection is weaker than recipe conflict handling | Current deterministic versioning is tested; add immutable conflict read-before-write |
 | DH-009 | Low | A newly minted one-month writer token could remain valid but unsaved if terminal policy verification fails | Local state is never written on failure; revoke the scoped token manually after a terminal provisioning failure |
 | TE-003 | Medium | Result-correctness denominator includes non-executed query cases | Failures remain visible/blocking; align documented denominator |
 | TE-004 | Medium | Zero-denominator evaluation metrics raise before report output | Current fixture denominators are nonzero; add typed undefined/skipped metric |
@@ -140,6 +172,9 @@ development-mode run does not override the no-go decision or constitute release-
 
 ## Go/no-go
 
-**NO-GO.** Automated development evidence can be completed, but M16 cannot truthfully satisfy the
-release-commit criterion without an operator-created commit, and the two manual/governance blockers
-above remain explicit. No commit was created automatically.
+**NO-GO for release; core application behavior is green.** GOV-001, workflow target-audit
+read-back, proposal-hash integrity, fanout orientation/grain, contract-bound joins, immutable
+preflight, and post-write verification are fixed and all current development suites pass. M16 still cannot
+claim release evidence until the operator reviews/commits this working tree, reruns strict
+`make release-clean`, and records the remaining manual acceptance. No commit was created
+automatically.

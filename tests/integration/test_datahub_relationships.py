@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from schemabridge.adapters.datahub.join_context import DataHubJoinContextAdapter
+from schemabridge.adapters.storage.publication_audit import SqlitePublicationAuditStore
 from schemabridge.adapters.storage.relationships import InMemoryJoinReviewStore
 from schemabridge.application.join_demo import (
     build_join_review_draft,
@@ -34,7 +35,7 @@ pytestmark = pytest.mark.integration
 NOW = datetime(2026, 7, 21, 16, 0, tzinfo=UTC)
 
 
-def test_approved_join_contracts_persist_and_load_in_a_new_process() -> None:
+def test_approved_join_contracts_persist_and_load_in_a_new_process(tmp_path: Path) -> None:
     credential = Path(".local/datahub/writer.env")
     if not credential.is_file():
         pytest.skip("DataHub writer credentials are absent; run make datahub-provision-writer")
@@ -102,8 +103,11 @@ def test_approved_join_contracts_persist_and_load_in_a_new_process() -> None:
         confirmation=JoinPublicationConfirmation.PUBLISH_APPROVED_JOIN_CONTRACTS,
     )
     writer = DataHubJoinContextAdapter.from_env_file(credential)
+    audit_path = tmp_path / "publication-audit.db"
 
-    first = PublishJoinContracts(store, writer).execute(publication.draft_id, approval)
+    first = PublishJoinContracts(store, writer, SqlitePublicationAuditStore(audit_path)).execute(
+        publication.draft_id, approval
+    )
 
     assert first.status in {
         JoinPublicationStatus.PUBLISHED,
@@ -119,5 +123,12 @@ def test_approved_join_contracts_persist_and_load_in_a_new_process() -> None:
     }
     assert len(loaded.related_asset_urns) == 3
 
-    replay = PublishJoinContracts(store, fresh_process).execute(publication.draft_id, approval)
+    replay = PublishJoinContracts(
+        store, fresh_process, SqlitePublicationAuditStore(audit_path)
+    ).execute(publication.draft_id, approval)
     assert replay.status is JoinPublicationStatus.ALREADY_CURRENT
+    records = SqlitePublicationAuditStore(audit_path).list_for_approval(approval.id)
+    assert len(records) == 4
+    assert {record.actor for record in records} == {approval.actor}
+    assert {record.approved_at for record in records} == {approval.approved_at}
+    assert {record.new_fingerprint for record in records} == {publication.fingerprint}

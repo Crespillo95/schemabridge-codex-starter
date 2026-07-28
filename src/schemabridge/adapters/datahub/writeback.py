@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import stat
 import urllib.error
 import urllib.request
@@ -22,6 +23,11 @@ from schemabridge.adapters.datahub.canonical_urns import (
 from schemabridge.adapters.datahub.decision_property import ensure_decision_property
 from schemabridge.application.ports.reviews import ReviewErrorCode, ReviewWorkflowError
 from schemabridge.domain.decisions import ApprovalStatus, DecisionAction
+from schemabridge.domain.publication_audit import (
+    PublicationAuditOutcome,
+    PublicationFamily,
+    PublicationTargetAuditRecord,
+)
 from schemabridge.domain.reviews import (
     CanonicalPublication,
     PublicationApproval,
@@ -36,12 +42,21 @@ from schemabridge.domain.reviews import (
 
 logger = logging.getLogger(__name__)
 
+_PUBLICATION_FINGERPRINT_PROPERTY = "schemabridge.publicationFingerprint"
+_LOGICAL_MODEL_FINGERPRINT_PROPERTY = "schemabridge.logicalModelFingerprint"
+
 
 @dataclass(frozen=True, slots=True)
 class DataHubWriteConfig:
     server: str
     token: str
     actor_urn: str
+
+
+@dataclass(frozen=True, slots=True)
+class _TargetState:
+    previous_fingerprint: str | None
+    is_current: bool
 
 
 class DataHubCatalogWriteAdapter:
@@ -87,29 +102,108 @@ class DataHubCatalogWriteAdapter:
         approval: PublicationApproval,
     ) -> PublicationResult:
         _validate_approval(publication, approval)
-        if self.read_context(publication) is not None:
-            return _all_current(publication, approval)
+        try:
+            self._verify_runtime_identity()
+            client = self._client()
+            actions = self._actions(client, publication)
+            target_states = {
+                (kind, target): self._target_state(
+                    client,
+                    publication,
+                    kind,
+                    target,
+                )
+                for kind, target, _action in actions
+            }
+        except ReviewWorkflowError:
+            raise
+        except Exception as error:
+            code = _review_error_code(error)
+            raise ReviewWorkflowError(code, "DataHub canonical target state read failed") from error
 
-        client = self._client()
+        document_state = next(
+            state
+            for (kind, _target), state in target_states.items()
+            if kind is PublicationItemKind.DECISION_DOCUMENT
+        )
+        if (
+            document_state.previous_fingerprint is not None
+            and document_state.previous_fingerprint != publication.fingerprint
+        ):
+            raise ReviewWorkflowError(
+                ReviewErrorCode.CONFLICT,
+                "DataHub immutable canonical decision document identifies different content",
+            )
+
+        if all(
+            state.is_current and state.previous_fingerprint == publication.fingerprint
+            for state in target_states.values()
+        ):
+            return _all_current(publication, approval, target_states)
+
         refs = _decision_refs(publication)
-        actions = self._actions(client, publication)
         results: list[PublicationItemResult] = []
         failed = False
         for kind, target, action in actions:
             if failed:
+                previous_fingerprint = target_states[(kind, target)].previous_fingerprint
                 results.append(
                     _item(
                         kind,
                         target,
                         PublicationItemStatus.NOT_ATTEMPTED,
                         refs,
+                        publication,
+                        approval,
+                        previous_fingerprint,
                         reason_code="prior_item_failed",
+                    )
+                )
+                continue
+            try:
+                state = self._target_state(client, publication, kind, target)
+            except Exception as error:
+                failed = True
+                previous_fingerprint = target_states[(kind, target)].previous_fingerprint
+                reason = _reason_code(error)
+                results.append(
+                    _item(
+                        kind,
+                        target,
+                        PublicationItemStatus.FAILED,
+                        refs,
+                        publication,
+                        approval,
+                        previous_fingerprint,
+                        reason_code=reason,
+                    )
+                )
+                continue
+            previous_fingerprint = state.previous_fingerprint
+            if state.is_current and previous_fingerprint == publication.fingerprint:
+                results.append(
+                    _item(
+                        kind,
+                        target,
+                        PublicationItemStatus.ALREADY_CURRENT,
+                        refs,
+                        publication,
+                        approval,
+                        previous_fingerprint,
                     )
                 )
                 continue
             logger.info("datahub_publish operation=%s target=%s", kind.value, target)
             try:
                 action()
+                resulting_state = self._target_state(
+                    client,
+                    publication,
+                    kind,
+                    target,
+                )
+                if not resulting_state.is_current:
+                    raise ValueError("DataHub canonical target did not match its approved payload")
             except Exception as error:  # external SDK and transport exceptions are normalized here
                 failed = True
                 reason = _reason_code(error)
@@ -120,10 +214,29 @@ class DataHubCatalogWriteAdapter:
                     reason,
                 )
                 results.append(
-                    _item(kind, target, PublicationItemStatus.FAILED, refs, reason_code=reason)
+                    _item(
+                        kind,
+                        target,
+                        PublicationItemStatus.FAILED,
+                        refs,
+                        publication,
+                        approval,
+                        previous_fingerprint,
+                        reason_code=reason,
+                    )
                 )
             else:
-                results.append(_item(kind, target, PublicationItemStatus.PUBLISHED, refs))
+                results.append(
+                    _item(
+                        kind,
+                        target,
+                        PublicationItemStatus.PUBLISHED,
+                        refs,
+                        publication,
+                        approval,
+                        previous_fingerprint,
+                    )
+                )
         return PublicationResult(
             approval_id=approval.id,
             draft_id=publication.draft_id,
@@ -252,6 +365,227 @@ class DataHubCatalogWriteAdapter:
             code = _review_error_code(error)
             raise ReviewWorkflowError(code, "DataHub canonical-context read failed") from error
 
+    def _target_state(
+        self,
+        client: Any,
+        publication: CanonicalPublication,
+        kind: PublicationItemKind,
+        target: str,
+    ) -> _TargetState:
+        """Read the state of the exact target; never infer it from the current marker."""
+
+        if kind is PublicationItemKind.STRUCTURED_PROPERTY:
+            current = self._decision_property_is_current()
+            return _TargetState(
+                previous_fingerprint=None,
+                is_current=current,
+            )
+        if kind is PublicationItemKind.GLOSSARY_TERM:
+            return self._term_state(client, publication, target)
+        if kind is PublicationItemKind.LOGICAL_MODEL:
+            return self._logical_model_state(client, publication)
+        if kind is PublicationItemKind.PHYSICAL_LINK:
+            current = self._link_is_current(client, publication, target)
+            return _TargetState(
+                previous_fingerprint=None,
+                is_current=current,
+            )
+        if kind is PublicationItemKind.DECISION_DOCUMENT:
+            return self._document_state(client, publication, target)
+        if kind is PublicationItemKind.PUBLICATION_MARKER:
+            return self._marker_state(client, publication)
+        raise ValueError(f"unsupported canonical publication target kind: {kind}")
+
+    def _decision_property_is_current(self) -> bool:
+        existing = self._graphql(
+            """
+            query CanonicalTargetProperty($urn: String!) {
+              structuredProperty(urn: $urn) { urn definition { qualifiedName } }
+            }
+            """,
+            {"urn": DECISION_PROPERTY_URN},
+        ).get("structuredProperty")
+        return (
+            isinstance(existing, dict)
+            and existing.get("urn") == DECISION_PROPERTY_URN
+            and isinstance(existing.get("definition"), dict)
+            and existing["definition"].get("qualifiedName") == "io.schemabridge.decisionRef"
+        )
+
+    @staticmethod
+    def _term_state(
+        client: Any,
+        publication: CanonicalPublication,
+        target: str,
+    ) -> _TargetState:
+        from datahub.metadata.schema_classes import (
+            GlossaryTermInfoClass,
+            StructuredPropertiesClass,
+        )
+
+        field = next(
+            (
+                candidate
+                for candidate in publication.fields
+                if _term_urn(candidate.id.root) == target
+            ),
+            None,
+        )
+        if field is None:
+            raise ValueError("canonical glossary target is not present in the publication")
+        graph = client._graph
+        info = graph.get_aspect(target, GlossaryTermInfoClass)
+        previous = _aspect_fingerprint(info, _PUBLICATION_FINGERPRINT_PROPERTY)
+        expected_properties = _decision_properties(publication)
+        current = (
+            info is not None
+            and previous == publication.fingerprint
+            and info.name == field.canonical_name.replace("_", " ").title()
+            and info.definition == field.definition
+            and all(
+                info.customProperties.get(key) == value
+                for key, value in expected_properties.items()
+            )
+            and _has_decision_property(
+                graph,
+                target,
+                StructuredPropertiesClass,
+                publication,
+            )
+        )
+        return _TargetState(previous_fingerprint=previous, is_current=current)
+
+    @staticmethod
+    def _logical_model_state(
+        client: Any,
+        publication: CanonicalPublication,
+    ) -> _TargetState:
+        from datahub.metadata.schema_classes import (
+            DatasetPropertiesClass,
+            EditableDatasetPropertiesClass,
+            GlossaryTermsClass,
+            SchemaMetadataClass,
+            StructuredPropertiesClass,
+        )
+
+        graph = client._graph
+        properties = graph.get_aspect(LOGICAL_CUSTOMER_URN, DatasetPropertiesClass)
+        previous = _aspect_fingerprint(properties, _LOGICAL_MODEL_FINGERPRINT_PROPERTY)
+        editable = graph.get_aspect(LOGICAL_CUSTOMER_URN, EditableDatasetPropertiesClass)
+        schema = graph.get_aspect(LOGICAL_CUSTOMER_URN, SchemaMetadataClass)
+        terms = graph.get_aspect(LOGICAL_CUSTOMER_URN, GlossaryTermsClass)
+        expected_properties = _decision_properties(publication)
+        expected_fields = {field.id.root.rsplit(".", 1)[1] for field in publication.fields}
+        expected_terms = {CUSTOMER_KEY_TERM_URN, REGISTRATION_DATE_TERM_URN}
+        current = (
+            properties is not None
+            and previous == publication.fingerprint
+            and editable is not None
+            and editable.description == publication.logical_model.description
+            and all(
+                properties.customProperties.get(key) == value
+                for key, value in expected_properties.items()
+            )
+            and schema is not None
+            and {field.fieldPath for field in schema.fields} == expected_fields
+            and terms is not None
+            and {term.urn for term in terms.terms} == expected_terms
+            and _has_decision_property(
+                graph,
+                LOGICAL_CUSTOMER_URN,
+                StructuredPropertiesClass,
+                publication,
+            )
+        )
+        return _TargetState(previous_fingerprint=previous, is_current=current)
+
+    @staticmethod
+    def _link_is_current(
+        client: Any,
+        publication: CanonicalPublication,
+        dataset: str,
+    ) -> bool:
+        from datahub.metadata.schema_classes import LogicalParentClass
+
+        graph = client._graph
+        physical_urn = _physical_urn(dataset)
+        parent = graph.get_aspect(physical_urn, LogicalParentClass)
+        if (
+            parent is None
+            or parent.parent is None
+            or parent.parent.destinationUrn != LOGICAL_CUSTOMER_URN
+        ):
+            return False
+        for mapping in publication.mappings:
+            if mapping.physical_field.root.rsplit(".", 1)[0] != dataset:
+                continue
+            physical_field_urn = _schema_field_urn(
+                physical_urn,
+                mapping.physical_field.root.rsplit(".", 1)[1],
+            )
+            logical_field_urn = _schema_field_urn(
+                LOGICAL_CUSTOMER_URN,
+                mapping.logical_field.root.rsplit(".", 1)[1],
+            )
+            field_parent = graph.get_aspect(physical_field_urn, LogicalParentClass)
+            if (
+                field_parent is None
+                or field_parent.parent is None
+                or field_parent.parent.destinationUrn != logical_field_urn
+            ):
+                return False
+        return True
+
+    @staticmethod
+    def _document_state(
+        client: Any,
+        publication: CanonicalPublication,
+        target: str,
+    ) -> _TargetState:
+        from datahub.metadata.schema_classes import (
+            DocumentInfoClass,
+            StructuredPropertiesClass,
+        )
+
+        graph = client._graph
+        document = graph.get_aspect(target, DocumentInfoClass)
+        previous = _aspect_fingerprint(document, _PUBLICATION_FINGERPRINT_PROPERTY)
+        expected_properties = _decision_properties(publication)
+        expected_assets = {
+            LOGICAL_CUSTOMER_URN,
+            *(_physical_urn(dataset) for dataset in _physical_dataset_names(publication)),
+        }
+        current = (
+            document is not None
+            and previous == publication.fingerprint
+            and all(
+                document.customProperties.get(key) == value
+                for key, value in expected_properties.items()
+            )
+            and {asset.asset for asset in document.relatedAssets or ()} == expected_assets
+            and _has_decision_property(
+                graph,
+                target,
+                StructuredPropertiesClass,
+                publication,
+            )
+        )
+        return _TargetState(previous_fingerprint=previous, is_current=current)
+
+    @staticmethod
+    def _marker_state(
+        client: Any,
+        publication: CanonicalPublication,
+    ) -> _TargetState:
+        from datahub.metadata.schema_classes import DatasetPropertiesClass
+
+        properties = client._graph.get_aspect(LOGICAL_CUSTOMER_URN, DatasetPropertiesClass)
+        previous = _aspect_fingerprint(properties, _PUBLICATION_FINGERPRINT_PROPERTY)
+        return _TargetState(
+            previous_fingerprint=previous,
+            is_current=previous == publication.fingerprint,
+        )
+
     def _client(self) -> Any:
         try:
             from datahub.sdk.main_client import DataHubClient
@@ -377,7 +711,10 @@ class DataHubCatalogWriteAdapter:
             id=f"SchemaBridge.{field.id.root}",
             display_name=field.canonical_name.replace("_", " ").title(),
             definition=field.definition,
-            custom_properties=_decision_properties(publication),
+            custom_properties={
+                **_decision_properties(publication),
+                _PUBLICATION_FINGERPRINT_PROPERTY: publication.fingerprint,
+            },
         )
         term.set_structured_property(DECISION_PROPERTY_URN, _decision_values(publication))
         client.entities.upsert(term)
@@ -392,8 +729,9 @@ class DataHubCatalogWriteAdapter:
         from datahub.sdk.dataset import Dataset
 
         custom = _decision_properties(publication)
+        custom[_LOGICAL_MODEL_FINGERPRINT_PROPERTY] = publication.fingerprint
         if marker:
-            custom["schemabridge.publicationFingerprint"] = publication.fingerprint
+            custom[_PUBLICATION_FINGERPRINT_PROPERTY] = publication.fingerprint
         schema = [
             (
                 field.canonical_name,
@@ -478,7 +816,10 @@ class DataHubCatalogWriteAdapter:
                 LOGICAL_CUSTOMER_URN,
                 *(_physical_urn(name) for name in _physical_dataset_names(publication)),
             ),
-            custom_properties=_decision_properties(publication),
+            custom_properties={
+                **_decision_properties(publication),
+                _PUBLICATION_FINGERPRINT_PROPERTY: publication.fingerprint,
+            },
             structured_properties={
                 DECISION_PROPERTY_URN: _decision_values(publication),
             },
@@ -515,6 +856,20 @@ def _read_env_file(path: Path) -> dict[str, str]:
         if separator and key:
             values[key] = value
     return values
+
+
+def _aspect_fingerprint(aspect: Any, property_name: str) -> str | None:
+    if aspect is None:
+        return None
+    custom_properties = getattr(aspect, "customProperties", None)
+    if not isinstance(custom_properties, dict):
+        raise ValueError("DataHub canonical target custom properties are invalid")
+    fingerprint = custom_properties.get(property_name)
+    if fingerprint is None:
+        return None
+    if not isinstance(fingerprint, str) or re.fullmatch(r"[0-9a-f]{64}", fingerprint) is None:
+        raise ValueError("DataHub canonical target fingerprint is invalid")
+    return fingerprint
 
 
 def _has_decision_property(
@@ -591,6 +946,7 @@ def _decision_properties(publication: CanonicalPublication) -> dict[str, str]:
 def _all_current(
     publication: CanonicalPublication,
     approval: PublicationApproval,
+    target_states: dict[tuple[PublicationItemKind, str], _TargetState],
 ) -> PublicationResult:
     refs = _decision_refs(publication)
     return PublicationResult(
@@ -599,7 +955,15 @@ def _all_current(
         fingerprint=publication.fingerprint,
         status=PublicationStatus.ALREADY_CURRENT,
         items=tuple(
-            _item(kind, target, PublicationItemStatus.ALREADY_CURRENT, refs)
+            _item(
+                kind,
+                target,
+                PublicationItemStatus.ALREADY_CURRENT,
+                refs,
+                publication,
+                approval,
+                target_states[(kind, target)].previous_fingerprint,
+            )
             for kind, target in _targets(publication)
         ),
     )
@@ -634,15 +998,37 @@ def _item(
     target: str,
     status: PublicationItemStatus,
     refs: tuple[PublicationDecisionRef, ...],
+    publication: CanonicalPublication,
+    approval: PublicationApproval,
+    previous_fingerprint: str | None,
     *,
     reason_code: str | None = None,
 ) -> PublicationItemResult:
+    outcome = {
+        PublicationItemStatus.PUBLISHED: PublicationAuditOutcome.SUCCEEDED,
+        PublicationItemStatus.ALREADY_CURRENT: PublicationAuditOutcome.ALREADY_CURRENT,
+        PublicationItemStatus.FAILED: PublicationAuditOutcome.FAILED,
+        PublicationItemStatus.NOT_ATTEMPTED: PublicationAuditOutcome.NOT_ATTEMPTED,
+    }[status]
     return PublicationItemResult(
         kind=kind,
         target=target,
         status=status,
         decision_refs=refs,
         reason_code=reason_code,
+        audit_record=PublicationTargetAuditRecord(
+            family=PublicationFamily.CANONICAL,
+            operation=kind.value,
+            target=target,
+            approval_id=approval.id,
+            actor=approval.actor,
+            approved_at=approval.approved_at,
+            previous_fingerprint=previous_fingerprint,
+            new_fingerprint=publication.fingerprint,
+            outcome=outcome,
+            decision_ids=tuple(reference.id for reference in refs),
+            reason_code=reason_code,
+        ),
     )
 
 

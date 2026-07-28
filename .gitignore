@@ -35,6 +35,10 @@ reports/
 !reports/
 reports/*
 !reports/release-audit.md
+!reports/m25-scale-report.json
+!reports/m25-scale-report.md
+!reports/m27-query-studio-deterministic-evaluation.json
+!reports/m27-query-studio-deterministic-evaluation.md
 !reports/m16-audits/
 reports/m16-audits/*
 !reports/m16-audits/*.md

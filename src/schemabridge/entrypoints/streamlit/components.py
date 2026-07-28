@@ -15,8 +15,11 @@ from schemabridge.application.ui_view_models import (
     JudgeUiView,
     UiHealthStatus,
     UiMode,
+    UiQuery,
+    UiRegistryProjectionStatus,
     UiResult,
 )
+from schemabridge.application.ui_workflow import UiCapabilities
 
 
 class PageActionKind(StrEnum):
@@ -25,6 +28,7 @@ class PageActionKind(StrEnum):
     PUBLISH = "publish"
     SKIP_PUBLICATION = "skip_publication"
     RETRY = "retry"
+    RECOVER = "recover"
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,7 +123,12 @@ def render_modes(modes: tuple[UiMode, ...]) -> None:
     )
 
 
-def render_failure(view: JudgeUiView) -> PageAction | None:
+def render_failure(
+    view: JudgeUiView,
+    *,
+    can_retry: bool = True,
+    can_publish: bool = False,
+) -> PageAction | None:
     session_error = st.session_state.get("ui_error")
     if isinstance(session_error, dict):
         code = str(session_error.get("code", "ui_action_failed"))
@@ -127,19 +136,32 @@ def render_failure(view: JudgeUiView) -> PageAction | None:
         corrective = str(session_error.get("corrective_action", "Review the current state."))
         st.error(f"{code}: {message}")
         st.caption(f"Next action: {corrective}")
+    if view.recovery_operation is not None:
+        st.warning(
+            "This durable workflow contains an interrupted transition. "
+            "Opening it is read-only; recovery requires an explicit authorized action."
+        )
+        can_recover = can_publish if view.recovery_operation == "context_publication" else can_retry
+        if can_recover and st.button("Recover interrupted state", key="recover-action"):
+            return PageAction(PageActionKind.RECOVER)
+        if not can_recover:
+            st.caption("Your current roles do not allow this recovery.")
     if view.error_code is None:
         return None
     st.error(f"{view.error_code}: {view.error_message}")
     st.caption(f"Next action: {view.corrective_action}")
-    if view.can_retry and st.button("Retry failed step", key="retry-action"):
+    if view.can_retry and can_retry and st.button("Retry failed step", key="retry-action"):
         return PageAction(PageActionKind.RETRY)
+    if view.can_retry and not can_retry:
+        st.caption("Your current roles do not allow this retry.")
     return None
 
 
 def render_overview(view: JudgeUiView) -> None:
     st.subheader("Governance overview")
     st.caption(
-        "One synthetic scenario, explicit integration labels, and no hidden production claims."
+        "A deterministic multi-domain synthetic corpus, explicit integration labels, "
+        "and no hidden production claims."
     )
     health_columns = st.columns(len(view.health))
     for column, health in zip(health_columns, view.health, strict=True):
@@ -158,24 +180,75 @@ def render_overview(view: JudgeUiView) -> None:
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Approved mappings", approved)
     c2.metric("Governed joins", len(view.reference.relationships))
-    c3.metric("Candidate fields", len(view.reference.candidates))
-    c4.metric("Context version", view.reference.context_version)
+    c3.metric("Logical models", view.reference.model_count)
+    c4.metric("Registry version", view.reference.context_version)
+    st.caption(
+        f"Registry {view.reference.registry_id} · scope {view.reference.catalog_scope} · "
+        f"adapter {_registry_adapter_label(view.reference.context_source)} · "
+        f"source {view.reference.context_source} · "
+        f"fingerprint {view.reference.registry_fingerprint}"
+    )
+    _render_registry_control_status(view)
 
     st.markdown("#### What the demo proves")
     p1, p2, p3 = st.columns(3)
-    p1.info("Three physical identifier shapes resolve through explicit transformations.")
+    p1.info("Multiple physical identifier shapes resolve through explicit approved mappings.")
     p2.info("One-to-many fanout is visible and mitigated with COUNT DISTINCT.")
     p3.info("Final SQL is deterministic, parameterized, reparsed, and read-only.")
     if view.workflow_id is None:
         st.info("Use **Load demo scenario** in the sidebar to begin the three-step judge path.")
 
 
+def _render_registry_control_status(view: JudgeUiView) -> None:
+    reference = view.reference
+    if reference.activation_generation is None:
+        st.caption("Registry selection · fixed version (no managed activation pointer)")
+        return
+    assert reference.active_pointer_fingerprint is not None
+    status = reference.projection_status
+    message = (
+        f"Authoritative registry · generation {reference.activation_generation} · "
+        f"version {reference.context_version} · projection {status.value}"
+    )
+    if status is UiRegistryProjectionStatus.DELIVERED:
+        st.success(message)
+    elif status is UiRegistryProjectionStatus.PENDING:
+        st.warning(message)
+    elif status is UiRegistryProjectionStatus.BLOCKED:
+        st.error(message)
+    else:
+        st.info(message)
+    st.caption(f"Active pointer fingerprint {reference.active_pointer_fingerprint}")
+
+
 def render_semantic_models(view: JudgeUiView) -> None:
     reference = view.reference
     st.subheader("Semantic Models")
     st.caption(
-        f"{reference.concept_name} · {reference.concept_definition} · {reference.candidate_source}"
+        f"Registry {reference.registry_id} v{reference.context_version} · "
+        f"{reference.model_count} models · {len(reference.mappings)} mappings · "
+        f"{len(reference.relationships)} joins · {reference.catalog_scope} · "
+        f"adapter {_registry_adapter_label(reference.context_source)} · "
+        f"source {reference.context_source} · "
+        f"fingerprint {reference.registry_fingerprint}"
     )
+    selected_model_id = st.selectbox(
+        "Inspect logical model",
+        tuple(model.id for model in reference.logical_models),
+        key="semantic-model",
+    )
+    selected_model = next(
+        model for model in reference.logical_models if model.id == selected_model_id
+    )
+    st.markdown(f"**{selected_model.id} · v{selected_model.version} · {selected_model.status}**")
+    st.caption(selected_model.description)
+    for field in selected_model.fields:
+        values = f" · values: {', '.join(field.allowed_values)}" if field.allowed_values else ""
+        st.write(
+            f"**{field.id}** · {field.canonical_type} · {field.role} · v{field.version}{values}"
+        )
+        st.caption(field.definition)
+
     physical, canonical, evidence = st.columns((1.25, 1, 1.35))
     with physical:
         st.markdown("#### Physical candidates")
@@ -241,6 +314,8 @@ def render_semantic_models(view: JudgeUiView) -> None:
                 "status": mapping.status,
                 "version": mapping.version,
                 "decision": mapping.decision_id,
+                "evidence": " · ".join(mapping.evidence),
+                "risks": " · ".join(mapping.risks),
             }
             for mapping in reference.mappings
         ],
@@ -252,7 +327,11 @@ def render_semantic_models(view: JudgeUiView) -> None:
 def render_relationships(view: JudgeUiView) -> None:
     st.subheader("Relationships")
     st.caption("Only versioned approved contracts can enter a query plan.")
-    st.markdown("**Customer** ── one-to-many ── **AccountHolder** ── many-to-one ── **Account**")
+    st.caption(
+        f"{len(view.reference.relationships)} contracts from registry "
+        f"{view.reference.registry_id} · fingerprint "
+        f"{view.reference.registry_fingerprint[:12]}…"
+    )
     st.dataframe(
         [
             {
@@ -287,11 +366,17 @@ def render_relationships(view: JudgeUiView) -> None:
                 st.warning(risk)
 
 
-def render_query_studio(view: JudgeUiView) -> PageAction | None:
+def render_query_studio(
+    view: JudgeUiView,
+    capabilities: UiCapabilities,
+) -> PageAction | None:
     st.subheader("Query Studio")
     query = view.query
     if query is None:
-        st.info("Load the deterministic demo or enter a business request in the sidebar.")
+        st.info(
+            "Crea una solicitud Natural o Guiada arriba, o carga el demo "
+            "determinista desde la barra lateral."
+        )
         return None
 
     status_1, status_2, status_3, status_4 = st.columns(4)
@@ -309,7 +394,7 @@ def render_query_studio(view: JudgeUiView) -> PageAction | None:
     for finding in query.findings:
         st.info(finding)
     action: PageAction | None = None
-    if query.alternatives and query.can_confirm:
+    if query.alternatives and query.can_confirm and capabilities.can_confirm:
         labels = {item.id: item.label for item in query.alternatives if item.available}
         selected = st.selectbox(
             "Choose the intended meaning",
@@ -325,6 +410,8 @@ def render_query_studio(view: JudgeUiView) -> PageAction | None:
             key="confirm-intent",
         ):
             action = PageAction(PageActionKind.CONFIRM_INTENT, selected)
+    elif query.alternatives and query.can_confirm:
+        st.caption("Your current roles do not allow interpretation confirmation.")
     elif query.checkpoint != "intent_confirmation":
         st.success("Interpretation confirmed and bound to the durable workflow.")
 
@@ -343,23 +430,43 @@ def render_query_studio(view: JudgeUiView) -> PageAction | None:
             for join_label in query.join_path or ("No join required",):
                 st.write(join_label)
             st.markdown("**Fanout mitigation**")
-            for mitigation in query.fanout_mitigations or ("No fanout mitigation required",):
+            st.caption(query.fanout_summary)
+            for mitigation in query.fanout_mitigations:
                 st.warning(mitigation)
         with st.expander("Assumptions and plan fingerprint inputs"):
             for assumption in query.assumptions:
                 st.write(f"• {assumption}")
-            if query.plan_json:
+            if query.validated_request_fingerprint:
+                st.caption(
+                    f"Validated request fingerprint: `{query.validated_request_fingerprint}`"
+                )
+            if query.resolved_plan_fingerprint:
+                st.caption(f"Resolved plan fingerprint: `{query.resolved_plan_fingerprint}`")
+            if query.semantic_gate is not None:
+                st.success(
+                    "M26 semantic context gate: "
+                    f"{query.semantic_gate.status} · "
+                    f"baseline revision {query.semantic_gate.baseline_revision}"
+                )
+                st.caption(
+                    "Checked dependency fingerprint: "
+                    f"`{query.semantic_gate.dependencies_fingerprint}`"
+                )
+            if query.plan_json and capabilities.can_export:
                 st.download_button(
-                    "Download query plan JSON",
+                    "Download sanitized plan inspection JSON",
                     query.plan_json,
-                    file_name="schemabridge-query-plan.json",
+                    file_name="schemabridge-plan-inspection.json",
                     mime="application/json",
                     key="download-plan",
                 )
     else:
         st.caption("The physical plan appears only after the interpretation is confirmed.")
 
-    st.markdown("#### 3 · SQL safety")
+    st.markdown("#### 3 · Governed connector and cost preflight")
+    _render_connector_cost_preflight(query)
+
+    st.markdown("#### 4 · SQL safety")
     if query.sql:
         checks, sql = st.columns((1, 1.55))
         with checks:
@@ -367,43 +474,125 @@ def render_query_studio(view: JudgeUiView) -> PageAction | None:
                 st.success(f"{policy_check.name}: {policy_check.detail}")
         with sql:
             st.code(query.sql, language="sql", line_numbers=True)
-            st.caption(f"Bound parameters: {json.dumps(query.parameters, default=str)}")
-            st.download_button(
-                "Export validated SQL",
-                query.sql,
-                file_name="schemabridge-preview.sql",
-                mime="text/plain",
-                key="download-sql",
+            parameter_types = ", ".join(query.parameter_types) or "none"
+            st.caption(
+                f"Bound parameters: {len(query.parameters)} "
+                f"(values hidden; types: {parameter_types})"
             )
+            if capabilities.can_export:
+                st.download_button(
+                    "Export validated SQL",
+                    query.sql,
+                    file_name="schemabridge-preview.sql",
+                    mime="text/plain",
+                    key="download-sql",
+                )
     else:
         st.caption("No SQL is generated until an approved semantic plan exists.")
 
     if query.execution_blockers and query.result is None:
         for blocker in query.execution_blockers:
             st.caption(f"🔒 {blocker}")
-    if query.can_execute and st.button(
-        "Approve & run bounded preview",
-        type="primary",
-        key="approve-execution",
-    ):
-        action = PageAction(PageActionKind.APPROVE_EXECUTION)
+    if query.can_execute:
+        if capabilities.can_execute and st.button(
+            "Approve & run bounded preview",
+            type="primary",
+            key="approve-execution",
+        ):
+            action = PageAction(PageActionKind.APPROVE_EXECUTION)
+        elif not capabilities.can_execute:
+            st.caption("Your current roles do not allow preview execution.")
 
     if query.result is not None:
         _render_result(
-            query.result, query.selected_assets, query.join_path, query.fanout_mitigations
+            query.result,
+            query.selected_assets,
+            query.join_path,
+            query.fanout_summary,
+            query.fanout_mitigations,
+            can_export=capabilities.can_export,
         )
     if query.can_publish:
-        st.markdown("#### 5 · Reusable context")
+        st.markdown("#### 6 · Reusable context")
         st.info(
             "Publication is separate from execution and binds this exact validated result. "
             "The selected adapter is labeled above."
         )
         publish, skip = st.columns(2)
-        if publish.button("Approve context publication", key="publish-context"):
-            action = PageAction(PageActionKind.PUBLISH)
-        if skip.button("Skip publication", key="skip-publication"):
-            action = PageAction(PageActionKind.SKIP_PUBLICATION)
+        if capabilities.can_publish:
+            if publish.button("Approve context publication", key="publish-context"):
+                action = PageAction(PageActionKind.PUBLISH)
+        else:
+            publish.caption("Publisher role required.")
+        if capabilities.can_skip:
+            if skip.button("Skip publication", key="skip-publication"):
+                action = PageAction(PageActionKind.SKIP_PUBLICATION)
+        else:
+            skip.caption("Analyst role required to skip.")
     return action
+
+
+def _render_connector_cost_preflight(query: UiQuery) -> None:
+    """Render the public target and durable sanitized EXPLAIN trace facts."""
+
+    target = query.execution_target
+    if target is None:
+        st.caption(
+            "This explicit local/recorded path has no managed connector target or "
+            "query-cost preflight."
+        )
+        return
+
+    assessment = query.cost_assessment
+    connection, dialect, route, decision = st.columns(4)
+    connection.metric("Connection", target.connection_id)
+    dialect.metric("Dialect", target.dialect)
+    route.metric("Route revision", f"r{target.route_revision}")
+    decision.metric(
+        "Cost decision",
+        assessment.decision.title() if assessment is not None else "Unavailable",
+    )
+    st.caption(
+        f"Connector {target.connector_kind} · route {target.route_fingerprint} · "
+        f"target {target.target_fingerprint} · type contract "
+        f"{target.type_contract_fingerprint}"
+    )
+
+    budget = query.cost_budget
+    if budget is not None:
+        st.caption(
+            "Budget "
+            f"{budget.fingerprint} · timeout {budget.explain_timeout_ms} ms · "
+            f"response {budget.max_response_bytes:,} B · total cost "
+            f"{budget.max_total_cost} · rows {budget.max_estimated_rows:,} · "
+            f"nodes {budget.max_plan_nodes:,} · depth {budget.max_plan_depth} · "
+            f"width {budget.max_plan_width:,}"
+        )
+
+    if query.preflight_error_code is not None:
+        st.error(f"Connector/cost preflight blocked: {query.preflight_error_code}.")
+    if assessment is None:
+        st.warning("No persisted sanitized cost assessment is available.")
+        return
+
+    reasons = ", ".join(assessment.rejection_codes)
+    if assessment.decision == "accepted":
+        st.success(
+            f"Persisted bounded EXPLAIN accepted · ANALYZE disabled · "
+            f"assessment {assessment.fingerprint}."
+        )
+    else:
+        st.error(f"Cost preflight rejected: {reasons or 'unspecified_rejection'}.")
+    st.caption(
+        f"Persisted total cost {assessment.total_cost or 'unavailable'} · "
+        f"estimated rows {_display_optional_count(assessment.estimated_root_rows)} · "
+        f"nodes {_display_optional_count(assessment.plan_node_count)} · "
+        f"configured preflight timeout {assessment.explain_timeout_ms} ms"
+    )
+
+
+def _display_optional_count(value: int | None) -> str:
+    return f"{value:,}" if value is not None else "unavailable"
 
 
 def render_decisions(view: JudgeUiView) -> None:
@@ -454,11 +643,14 @@ def _render_result(
     result: UiResult,
     assets: tuple[str, ...],
     join_path: tuple[str, ...],
+    fanout_summary: str,
     fanout: tuple[str, ...],
+    *,
+    can_export: bool,
 ) -> None:
-    st.markdown("#### 4 · Validated result")
+    st.markdown("#### 5 · Validated result")
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Rows", len(result.rows))
+    c1.metric("Rows", result.row_count)
     c2.metric("Rejected", len(result.rejections))
     c3.metric("Reader", result.database_user)
     c4.metric("Timeout", f"{result.statement_timeout_ms} ms")
@@ -475,14 +667,21 @@ def _render_result(
         for item in join_path or ("No join",):
             st.write(f"• {item}")
         st.markdown("**Fanout mitigation**")
-        for item in fanout or ("None",):
-            st.write(f"• {item}")
+        st.write(f"• {fanout_summary}")
+        for item in fanout:
+            st.caption(f"Recorded mitigation: {item}")
     with table:
-        st.dataframe(
-            [dict(zip(result.columns, row, strict=True)) for row in result.rows],
-            hide_index=True,
-            width="stretch",
-        )
+        if result.rows:
+            st.dataframe(
+                [dict(zip(result.columns, row, strict=True)) for row in result.rows],
+                hide_index=True,
+                width="stretch",
+            )
+        elif result.row_count:
+            st.info(
+                "Validated row payload is intentionally transient and is not retained "
+                "in durable workflow state."
+            )
 
     st.markdown("**Rejected source records**")
     if result.rejections:
@@ -491,25 +690,31 @@ def _render_result(
             for item in result.rejections
         ]
         st.dataframe(rejection_rows, hide_index=True, width="stretch")
-        st.download_button(
-            "Download rejection report CSV",
-            _csv(rejection_rows),
-            file_name="schemabridge-rejections.csv",
-            mime="text/csv",
-            key="download-rejections",
-        )
+        if can_export:
+            st.download_button(
+                "Download rejection report CSV",
+                _csv(rejection_rows),
+                file_name="schemabridge-rejections.csv",
+                mime="text/csv",
+                key="download-rejections",
+            )
     else:
         st.info("No source records were rejected.")
     st.markdown("**Limitations**")
     for item in result.limitations:
         st.caption(f"• {item}")
-    st.download_button(
-        "Download validation report JSON",
-        _validation_report(result, assets, join_path, fanout),
-        file_name="schemabridge-validation-report.json",
-        mime="application/json",
-        key="download-validation-report",
-    )
+    if can_export:
+        st.download_button(
+            "Download validation report JSON",
+            _validation_report(result, assets, join_path, fanout),
+            file_name="schemabridge-validation-report.json",
+            mime="application/json",
+            key="download-validation-report",
+        )
+
+
+def _registry_adapter_label(source: str) -> str:
+    return "live:datahub" if source.startswith("datahub:") else "recorded:bundle"
 
 
 def _csv(rows: list[dict[str, object]]) -> str:
@@ -537,7 +742,7 @@ def _validation_report(
                 "transaction_read_only": result.transaction_read_only,
                 "statement_timeout_ms": result.statement_timeout_ms,
                 "truncated": result.truncated,
-                "row_count": len(result.rows),
+                "row_count": result.row_count,
             },
             "rejections": [
                 {"record": item.record, "code": item.code, "reason": item.reason}

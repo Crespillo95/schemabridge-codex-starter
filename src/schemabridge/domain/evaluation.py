@@ -42,11 +42,6 @@ class EvaluationCaseStatus(StrEnum):
     OBSERVED = "observed"
 
 
-class EvaluationGuidedCase(StrEnum):
-    NORTH_STAR = "north_star"
-    NO_JOIN = "no_join"
-
-
 class SourceFixtureVersion(FrozenDomainModel):
     name: str = Field(pattern=r"^[a-z][a-z0-9_]{2,63}$")
     version: int = Field(ge=1)
@@ -70,7 +65,6 @@ class NormalizedRow(FrozenDomainModel):
 
 class EvaluationQueryGroundTruth(FrozenDomainModel):
     id: str = Field(pattern=r"^[a-z][a-z0-9_]{2,79}$")
-    guided_case: EvaluationGuidedCase
     question: str = Field(min_length=1, max_length=2_000)
     expected_request: AnalyticalRequest
     expected_join_contracts: tuple[str, ...] = Field(max_length=2)
@@ -78,6 +72,7 @@ class EvaluationQueryGroundTruth(FrozenDomainModel):
     expected_rejection_codes: tuple[str, ...] = ()
     intent_alternative: IntentAlternativeId | None = None
     intent_skip_reason: str | None = Field(default=None, min_length=1, max_length=240)
+    recipe_reference: bool = False
 
     @model_validator(mode="after")
     def intent_case_is_evaluated_or_skipped(self) -> EvaluationQueryGroundTruth:
@@ -127,6 +122,8 @@ class EvaluationGroundTruth(FrozenDomainModel):
         ):
             if len(values) != len(set(values)):
                 raise ValueError("evaluation ground-truth identities must be unique")
+        if sum(item.recipe_reference for item in self.queries) != 1:
+            raise ValueError("evaluation requires exactly one query-recipe reference case")
         return self
 
 

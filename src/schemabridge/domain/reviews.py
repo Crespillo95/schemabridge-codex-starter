@@ -19,6 +19,11 @@ from schemabridge.domain.decisions import (
     DecisionRecord,
 )
 from schemabridge.domain.mappings import ColumnMapping
+from schemabridge.domain.publication_audit import (
+    PublicationAuditOutcome,
+    PublicationFamily,
+    PublicationTargetAuditRecord,
+)
 from schemabridge.domain.transformations import TransformationPlan
 
 _DRAFT_ID = re.compile(r"^[a-z][a-z0-9_-]*$")
@@ -302,6 +307,7 @@ class PublicationItemResult(FrozenDomainModel):
     status: PublicationItemStatus
     decision_refs: tuple[PublicationDecisionRef, ...] = Field(min_length=1)
     reason_code: str | None = None
+    audit_record: PublicationTargetAuditRecord
 
     @model_validator(mode="after")
     def failures_require_reason(self) -> PublicationItemResult:
@@ -310,6 +316,22 @@ class PublicationItemResult(FrozenDomainModel):
                 raise ValueError("failed or skipped publication item requires a reason code")
         elif self.reason_code is not None:
             raise ValueError("successful publication item cannot have a reason code")
+        expected_outcome = {
+            PublicationItemStatus.PUBLISHED: PublicationAuditOutcome.SUCCEEDED,
+            PublicationItemStatus.ALREADY_CURRENT: PublicationAuditOutcome.ALREADY_CURRENT,
+            PublicationItemStatus.FAILED: PublicationAuditOutcome.FAILED,
+            PublicationItemStatus.NOT_ATTEMPTED: PublicationAuditOutcome.NOT_ATTEMPTED,
+        }[self.status]
+        if (
+            self.audit_record.family is not PublicationFamily.CANONICAL
+            or self.audit_record.operation != self.kind.value
+            or self.audit_record.target != self.target
+            or self.audit_record.outcome is not expected_outcome
+            or self.audit_record.reason_code != self.reason_code
+            or self.audit_record.decision_ids
+            != tuple(reference.id for reference in self.decision_refs)
+        ):
+            raise ValueError("canonical publication item audit does not match its target result")
         return self
 
 
@@ -341,7 +363,22 @@ class PublicationResult(FrozenDomainModel):
             PublicationItemStatus.NOT_ATTEMPTED,
         }:
             raise ValueError("partial failure requires a failed or skipped item")
+        audits = tuple(item.audit_record for item in self.items)
+        if any(
+            audit.approval_id != self.approval_id or audit.new_fingerprint != self.fingerprint
+            for audit in audits
+        ):
+            raise ValueError("canonical publication audits must match their approval and payload")
+        identities = [(audit.operation, audit.target) for audit in audits]
+        if len(identities) != len(set(identities)):
+            raise ValueError("canonical publication audit targets must be unique by operation")
+        if len({(audit.actor, audit.approved_at) for audit in audits}) != 1:
+            raise ValueError("canonical publication audits must share one approver and timestamp")
         return self
+
+    @property
+    def audit_records(self) -> tuple[PublicationTargetAuditRecord, ...]:
+        return tuple(item.audit_record for item in self.items)
 
 
 class PublishedCanonicalContext(FrozenDomainModel):

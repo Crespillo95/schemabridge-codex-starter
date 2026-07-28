@@ -18,12 +18,17 @@ from schemabridge.domain.join_reviews import (
     JoinPublicationStatus,
     PublishedJoinContext,
 )
+from schemabridge.domain.publication_audit import (
+    PublicationAuditOutcome,
+    PublicationFamily,
+    PublicationTargetAuditRecord,
+)
 
 
 @dataclass(slots=True)
 class FakeJoinContextBackend:
     current: PublishedJoinContext | None = None
-    versioned_fingerprints: set[str] = field(default_factory=set)
+    versioned_fingerprints: dict[str, str] = field(default_factory=dict)
 
 
 class FakeJoinContextAdapter:
@@ -44,9 +49,27 @@ class FakeJoinContextAdapter:
     ) -> JoinPublicationResult:
         _validate_approval(publication, approval)
         self.publish_calls += 1
-        if self._backend.current is not None and (
-            self._backend.current.fingerprint == publication.fingerprint
-        ):
+        versioned_target = _target(
+            publication,
+            JoinPublicationItemKind.VERSIONED_DECISION_DOCUMENT,
+        )
+        previous_fingerprints = {
+            JoinPublicationItemKind.VERSIONED_DECISION_DOCUMENT: (
+                self._backend.versioned_fingerprints.get(versioned_target)
+            ),
+            JoinPublicationItemKind.CURRENT_CONTEXT_MARKER: (
+                self._backend.current.fingerprint if self._backend.current is not None else None
+            ),
+        }
+        versioned_previous = previous_fingerprints[
+            JoinPublicationItemKind.VERSIONED_DECISION_DOCUMENT
+        ]
+        if versioned_previous is not None and versioned_previous != publication.fingerprint:
+            raise RelationshipWorkflowError(
+                RelationshipErrorCode.CONFLICT,
+                "immutable join decision document already identifies different content",
+            )
+        if all(previous == publication.fingerprint for previous in previous_fingerprints.values()):
             return _result(
                 publication,
                 approval,
@@ -55,15 +78,30 @@ class FakeJoinContextAdapter:
                     JoinPublicationItemStatus.ALREADY_CURRENT,
                     JoinPublicationItemStatus.ALREADY_CURRENT,
                 ),
+                previous_fingerprints,
             )
         results: list[JoinPublicationItemResult] = []
         for kind in JoinPublicationItemKind:
+            previous_fingerprint = previous_fingerprints[kind]
+            if previous_fingerprint == publication.fingerprint:
+                results.append(
+                    _item(
+                        publication,
+                        approval,
+                        kind,
+                        JoinPublicationItemStatus.ALREADY_CURRENT,
+                        previous_fingerprint,
+                    )
+                )
+                continue
             if self._fail_at is kind:
                 results.append(
-                    JoinPublicationItemResult(
-                        kind=kind,
-                        target=_target(publication, kind),
-                        status=JoinPublicationItemStatus.FAILED,
+                    _item(
+                        publication,
+                        approval,
+                        kind,
+                        JoinPublicationItemStatus.FAILED,
+                        previous_fingerprint,
                         reason_code="injected_failure",
                     )
                 )
@@ -73,10 +111,12 @@ class FakeJoinContextAdapter:
                     if item not in {r.kind for r in results}
                 )
                 results.extend(
-                    JoinPublicationItemResult(
-                        kind=item,
-                        target=_target(publication, item),
-                        status=JoinPublicationItemStatus.NOT_ATTEMPTED,
+                    _item(
+                        publication,
+                        approval,
+                        item,
+                        JoinPublicationItemStatus.NOT_ATTEMPTED,
+                        previous_fingerprints[item],
                         reason_code="prior_item_failed",
                     )
                     for item in remaining
@@ -89,14 +129,16 @@ class FakeJoinContextAdapter:
                     items=tuple(results),
                 )
             if kind is JoinPublicationItemKind.VERSIONED_DECISION_DOCUMENT:
-                self._backend.versioned_fingerprints.add(publication.fingerprint)
+                self._backend.versioned_fingerprints[versioned_target] = publication.fingerprint
             else:
                 self._backend.current = _context(publication)
             results.append(
-                JoinPublicationItemResult(
-                    kind=kind,
-                    target=_target(publication, kind),
-                    status=JoinPublicationItemStatus.PUBLISHED,
+                _item(
+                    publication,
+                    approval,
+                    kind,
+                    JoinPublicationItemStatus.PUBLISHED,
+                    previous_fingerprint,
                 )
             )
         return JoinPublicationResult(
@@ -170,6 +212,7 @@ def _result(
     approval: JoinPublicationApproval,
     status: JoinPublicationStatus,
     item_statuses: tuple[JoinPublicationItemStatus, JoinPublicationItemStatus],
+    previous_fingerprints: dict[JoinPublicationItemKind, str | None],
 ) -> JoinPublicationResult:
     return JoinPublicationResult(
         approval_id=approval.id,
@@ -177,11 +220,50 @@ def _result(
         fingerprint=publication.fingerprint,
         status=status,
         items=tuple(
-            JoinPublicationItemResult(
-                kind=kind,
-                target=_target(publication, kind),
-                status=item_status,
+            _item(
+                publication,
+                approval,
+                kind,
+                item_status,
+                previous_fingerprints[kind],
             )
             for kind, item_status in zip(JoinPublicationItemKind, item_statuses, strict=True)
+        ),
+    )
+
+
+def _item(
+    publication: JoinContractPublication,
+    approval: JoinPublicationApproval,
+    kind: JoinPublicationItemKind,
+    status: JoinPublicationItemStatus,
+    previous_fingerprint: str | None,
+    *,
+    reason_code: str | None = None,
+) -> JoinPublicationItemResult:
+    target = _target(publication, kind)
+    outcome = {
+        JoinPublicationItemStatus.PUBLISHED: PublicationAuditOutcome.SUCCEEDED,
+        JoinPublicationItemStatus.ALREADY_CURRENT: PublicationAuditOutcome.ALREADY_CURRENT,
+        JoinPublicationItemStatus.FAILED: PublicationAuditOutcome.FAILED,
+        JoinPublicationItemStatus.NOT_ATTEMPTED: PublicationAuditOutcome.NOT_ATTEMPTED,
+    }[status]
+    return JoinPublicationItemResult(
+        kind=kind,
+        target=target,
+        status=status,
+        reason_code=reason_code,
+        audit_record=PublicationTargetAuditRecord(
+            family=PublicationFamily.JOIN,
+            operation=kind.value,
+            target=target,
+            approval_id=approval.id,
+            actor=approval.actor,
+            approved_at=approval.approved_at,
+            previous_fingerprint=previous_fingerprint,
+            new_fingerprint=publication.fingerprint,
+            outcome=outcome,
+            decision_ids=approval.decision_ids,
+            reason_code=reason_code,
         ),
     )

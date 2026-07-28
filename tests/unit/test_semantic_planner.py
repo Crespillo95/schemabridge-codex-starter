@@ -12,6 +12,7 @@ from schemabridge.adapters.requests.recorded_context import RecordedRequestConte
 from schemabridge.application.governed_execution import PlanSemanticRequest
 from schemabridge.application.guided_requests import (
     BuildGuidedRequest,
+    GuidedDimensionInput,
     GuidedMetricInput,
     GuidedRequestCase,
     GuidedRequestInput,
@@ -30,6 +31,12 @@ from schemabridge.domain.resolution import (
     ResolutionLimits,
     SemanticPlanningContext,
     SemanticResolutionError,
+    resolved_semantic_plan_fingerprint,
+)
+from schemabridge.domain.semantic_registry import (
+    ScopedSemanticRegistrySnapshot,
+    SemanticRegistryScope,
+    semantic_registry_scope_fingerprint,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -39,16 +46,56 @@ ROOT = Path(__file__).resolve().parents[2]
 class StaticPlanningContext:
     value: SemanticPlanningContext
 
-    def load(self) -> SemanticPlanningContext:
-        return self.value
+    @property
+    def scope(self) -> SemanticRegistryScope:
+        return SemanticRegistryScope(
+            workspace_id="semantic-planner-tests",
+            catalog_scope=self.value.catalog_scope,
+            registry_id=self.value.registry_id,
+        )
+
+    def load(self) -> ScopedSemanticRegistrySnapshot:
+        # Deliberately bypass the outer adapter boundary so these tests can
+        # exercise resolution's defence in depth against malformed snapshots.
+        return ScopedSemanticRegistrySnapshot.model_construct(
+            scope=self.scope,
+            registry=self.value,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ActivePlanningContext:
+    value: SemanticPlanningContext
+    generation: int
+    pointer_fingerprint: str
+
+    @property
+    def scope(self) -> SemanticRegistryScope:
+        return SemanticRegistryScope(
+            workspace_id="semantic-planner-tests",
+            catalog_scope=self.value.catalog_scope,
+            registry_id=self.value.registry_id,
+        )
+
+    def load(self) -> ScopedSemanticRegistrySnapshot:
+        return ScopedSemanticRegistrySnapshot(
+            scope=self.scope,
+            registry=self.value,
+            activation_generation=self.generation,
+            active_pointer_fingerprint=self.pointer_fingerprint,
+        )
 
 
 def _context() -> SemanticPlanningContext:
-    return RecordedSemanticPlanningContext(
-        ROOT / "demo/ground_truth/approved_logical_context.yml",
-        ROOT / "demo/ground_truth/planning_mappings.yml",
-        ROOT / "demo/ground_truth/join_contracts.yml",
-    ).load()
+    return (
+        RecordedSemanticPlanningContext(
+            ROOT / "demo/ground_truth/approved_logical_context.yml",
+            ROOT / "demo/ground_truth/planning_mappings.yml",
+            ROOT / "demo/ground_truth/join_contracts.yml",
+        )
+        .load()
+        .registry
+    )
 
 
 def _validated(case: GuidedRequestCase, *, metric_operation: str | None = None):  # type: ignore[no-untyped-def]
@@ -96,6 +143,31 @@ def test_north_star_resolves_approved_assets_normalization_role_map_and_fanout()
     }
 
 
+def test_active_generation_is_bound_into_the_plan_even_when_registry_content_is_unchanged() -> None:
+    context = _context()
+    validated = _validated(GuidedRequestCase.NORTH_STAR)
+    generation_one = PlanSemanticRequest(
+        ActivePlanningContext(context, 1, "1" * 64),
+        ResolutionLimits(),
+    ).execute(validated)
+    generation_two = PlanSemanticRequest(
+        ActivePlanningContext(context, 2, "2" * 64),
+        ResolutionLimits(),
+    ).execute(validated)
+
+    assert generation_one.activation_generation == 1
+    assert generation_two.activation_generation == 2
+    expected_scope = semantic_registry_scope_fingerprint(
+        ActivePlanningContext(context, 1, "1" * 64).scope
+    )
+    assert generation_one.active_scope_fingerprint == expected_scope
+    assert generation_two.active_scope_fingerprint == expected_scope
+    assert generation_one.context_fingerprint == generation_two.context_fingerprint
+    assert resolved_semantic_plan_fingerprint(generation_one) != resolved_semantic_plan_fingerprint(
+        generation_two
+    )
+
+
 def test_plain_customer_count_is_automatically_mitigated_but_intent_remains_visible() -> None:
     resolved = _planner().execute(
         _validated(GuidedRequestCase.NORTH_STAR, metric_operation="count")
@@ -125,6 +197,57 @@ def test_relationship_count_and_no_join_keep_their_explicit_meaning() -> None:
     assert any(item.code == "no_join_required" for item in no_join.assumptions)
 
 
+def test_reversed_one_to_many_preserves_explicit_relationship_count() -> None:
+    validated = BuildGuidedRequest(
+        RecordedRequestContextAdapter(ROOT / "demo/ground_truth/approved_logical_context.yml")
+    ).execute(
+        GuidedRequestInput(
+            primary_entity="AccountHolder",
+            dimensions=(),
+            metrics=(
+                GuidedMetricInput(
+                    operation="count",
+                    field="Customer.customer_key",
+                    alias="customer_relationships",
+                ),
+            ),
+            limit=25,
+        )
+    )
+
+    resolved = _planner().execute(validated)
+    aggregate = resolved.query_plan.projections[0].expression
+
+    assert isinstance(aggregate, AggregateExpression)
+    assert aggregate.operation is MetricOperation.COUNT
+    assert resolved.fanout_mitigations == ()
+
+
+def test_reversed_many_to_one_fails_closed_without_an_approved_inverse_policy() -> None:
+    validated = BuildGuidedRequest(
+        RecordedRequestContextAdapter(ROOT / "demo/ground_truth/approved_logical_context.yml")
+    ).execute(
+        GuidedRequestInput(
+            primary_entity="Account",
+            dimensions=(GuidedDimensionInput(field="AccountHolder.account_key"),),
+            metrics=(
+                GuidedMetricInput(
+                    operation="count",
+                    field="Account.account_key",
+                    alias="account_count",
+                ),
+            ),
+            limit=25,
+        )
+    )
+
+    with pytest.raises(SemanticResolutionError) as captured:
+        _planner().execute(validated)
+
+    assert captured.value.code is ResolutionErrorCode.UNSUPPORTED_FANOUT
+    assert "reversed many_to_one" in str(captured.value)
+
+
 def test_unique_shortest_path_resolves_two_approved_contracts_within_three_tables() -> None:
     builder = BuildGuidedRequest(
         RecordedRequestContextAdapter(ROOT / "demo/ground_truth/approved_logical_context.yml")
@@ -132,12 +255,12 @@ def test_unique_shortest_path_resolves_two_approved_contracts_within_three_table
     validated = builder.execute(
         GuidedRequestInput(
             primary_entity="Customer",
-            dimensions=(),
+            dimensions=(GuidedDimensionInput(field="Account.account_key"),),
             metrics=(
                 GuidedMetricInput(
-                    operation="sum",
-                    field="Account.current_balance",
-                    alias="total_balance",
+                    operation="count",
+                    field="AccountHolder.account_key",
+                    alias="holder_relationships",
                 ),
             ),
             limit=25,
@@ -152,6 +275,87 @@ def test_unique_shortest_path_resolves_two_approved_contracts_within_three_table
     assert [resolved.query_plan.root_scan.dataset.root] + [
         join.right_scan.dataset.root for join in resolved.query_plan.joins
     ] == ["crm.customers", "bank.account_holders", "bank.accounts"]
+
+
+def test_measure_downstream_of_prior_fanout_fails_closed() -> None:
+    validated = BuildGuidedRequest(
+        RecordedRequestContextAdapter(ROOT / "demo/ground_truth/approved_logical_context.yml")
+    ).execute(
+        GuidedRequestInput(
+            primary_entity="Customer",
+            dimensions=(),
+            metrics=(
+                GuidedMetricInput(
+                    operation="sum",
+                    field="Account.current_balance",
+                    alias="total_balance",
+                ),
+            ),
+            limit=25,
+        )
+    )
+
+    with pytest.raises(SemanticResolutionError) as captured:
+        _planner().execute(validated)
+
+    assert captured.value.code is ResolutionErrorCode.UNSUPPORTED_FANOUT
+    assert "downstream of fanout contract customer_to_account_holder" in str(captured.value)
+
+
+def test_plain_count_on_attribute_is_not_silently_changed_to_distinct_values() -> None:
+    validated = BuildGuidedRequest(
+        RecordedRequestContextAdapter(ROOT / "demo/ground_truth/approved_logical_context.yml")
+    ).execute(
+        GuidedRequestInput(
+            primary_entity="Customer",
+            dimensions=(GuidedDimensionInput(field="AccountHolder.holder_role"),),
+            metrics=(
+                GuidedMetricInput(
+                    operation="count",
+                    field="Customer.country_code",
+                    alias="country_values",
+                ),
+            ),
+            limit=25,
+        )
+    )
+
+    with pytest.raises(SemanticResolutionError) as captured:
+        _planner().execute(validated)
+
+    assert captured.value.code is ResolutionErrorCode.UNSUPPORTED_FANOUT
+    assert "not the exact approved one-side key Customer.customer_key" in str(captured.value)
+
+
+@pytest.mark.parametrize(
+    ("operation", "field"),
+    (("count_distinct", "Account.account_key"), ("min", "Account.current_balance")),
+)
+def test_duplication_invariant_downstream_metrics_remain_explicitly_safe(
+    operation: str,
+    field: str,
+) -> None:
+    validated = BuildGuidedRequest(
+        RecordedRequestContextAdapter(ROOT / "demo/ground_truth/approved_logical_context.yml")
+    ).execute(
+        GuidedRequestInput(
+            primary_entity="Customer",
+            dimensions=(),
+            metrics=(
+                GuidedMetricInput(
+                    operation=operation,
+                    field=field,
+                    alias="safe_downstream_metric",
+                ),
+            ),
+            limit=25,
+        )
+    )
+
+    resolved = _planner().execute(validated)
+
+    assert resolved.fanout_mitigations[0].automatic is False
+    assert resolved.fanout_mitigations[0].applied_operation.value == operation
 
 
 def test_stale_request_unapproved_mapping_and_unapproved_join_block_with_typed_codes() -> None:
@@ -169,7 +373,11 @@ def test_stale_request_unapproved_mapping_and_unapproved_join_block_with_typed_c
     )
     rejected_mapping = target.mapping.model_copy(update={"status": ApprovalStatus.REJECTED})
     replacements = tuple(
-        GovernedFieldMapping(mapping=rejected_mapping, physical_type=target.physical_type)
+        GovernedFieldMapping(
+            mapping=rejected_mapping,
+            physical_type=target.physical_type,
+            logical_field_version=target.logical_field_version,
+        )
         if item == target
         else item
         for item in context.mapping_set.mappings
@@ -242,6 +450,7 @@ def test_disconnected_approved_mappings_do_not_manufacture_a_dataset_path() -> N
     moved = GovernedFieldMapping(
         mapping=moved_mapping,
         physical_type=target.physical_type,
+        logical_field_version=target.logical_field_version,
         approval_decision_id=target.approval_decision_id,
     )
     mappings = tuple(moved if item == target else item for item in context.mapping_set.mappings)

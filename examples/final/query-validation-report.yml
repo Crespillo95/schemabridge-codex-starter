@@ -1,0 +1,45 @@
+artifact_kind: recorded_observation_revalidated_by_current_compiler_and_guard
+catalog_mode: recorded synthetic planning context
+source_mode: recorded synthetic PostgreSQL observation
+sql_policy:
+  status: accepted
+  findings: []
+query_fingerprint: b81cc0de555200592339e36ffcfd78a237cda32ccf32a7ec58e3327735b84066
+parameters:
+- ^[0-9]+$
+- ^[0-9]+$
+- PRIMARY
+- PRIMARY
+- SECONDARY
+- SECONDARY
+- '2'
+- SECONDARY
+- CO_HOLDER
+- SECONDARY
+- SECONDARY
+preview:
+  columns:
+  - registration_date
+  - secondary_holder_customers
+  rows:
+  - - '2026-01-01'
+    - 2
+  - - '2026-01-02'
+    - 1
+  - - '2026-01-03'
+    - 1
+  database_user: schemabridge_reader (recorded observation)
+  transaction_read_only: true
+  statement_timeout_ms: 5000
+  truncated: false
+rejected_source_safety:
+  database_user: schemabridge_reader (recorded observation)
+  transaction_read_only: true
+  statement_timeout_ms: 5000
+  total_records: 3
+  truncated: false
+limitations:
+- This artifact replays one fingerprint-bound synthetic observation; it is not a live
+  database claim.
+- The full local path recompiles, reparses, and executes with the dedicated read-only
+  PostgreSQL role.

@@ -1,0 +1,35 @@
+source: recorded:demo/ground_truth/registries/synthetic_enterprise.yml
+model:
+  id: Customer
+  description: Approved synthetic customer context for guided request evaluation.
+  fields:
+  - id: Customer.customer_key
+    canonical_type: string
+    role: identifier
+    definition: Stable identifier for a customer across approved source representations.
+    allowed_values: []
+    status: approved
+    version: 1
+  - id: Customer.registration_date
+    canonical_type: date
+    role: temporal
+    definition: Calendar date on which the customer was registered.
+    allowed_values: []
+    status: approved
+    version: 1
+  - id: Customer.country_code
+    canonical_type: string
+    role: attribute
+    definition: Approved country code associated with the customer.
+    allowed_values: []
+    status: approved
+    version: 1
+  - id: Customer.customer_status
+    canonical_type: string
+    role: attribute
+    definition: Approved lifecycle status of the customer.
+    allowed_values: []
+    status: approved
+    version: 1
+  status: approved
+  version: 1

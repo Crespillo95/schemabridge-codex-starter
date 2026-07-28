@@ -1,24 +1,36 @@
-version: 1
+version: 2
 fixture_notice: >-
   Small synthetic SchemaBridge release-candidate evaluation. Raw counts only; no confidence
   interval or production-quality claim is statistically justified.
 source_versions:
   semantic_mappings: 1
-  query_cases: 1
+  query_cases: 2
   join_contracts: 1
   approved_logical_context: 1
   planning_mappings: 1
   sql_guard_cases: 1
-  query_recipe: 1
+  query_recipe: 4
+  semantic_registry: 1
 query_cases:
   - id: secondary_holders_by_registration_date
-    guided_case: north_star
     intent_alternative: count-distinct-customers
+    recipe_reference: true
   - id: active_customers_by_country
-    guided_case: no_join
     intent_skip_reason: >-
       The deterministic M11 parser intentionally has no active-customer control phrase; this
       query remains evaluated for planning, execution, and result correctness.
+  - id: active_products_by_category
+    intent_skip_reason: >-
+      The deterministic M11 parser is intentionally Customer-focused until M27; this typed
+      Product request remains evaluated for planning, execution, and exact results.
+  - id: delivered_orders_by_month
+    intent_skip_reason: >-
+      The deterministic M11 parser is intentionally Customer-focused until M27; this typed
+      fulfillment request remains evaluated for planning, fanout, execution, and exact results.
+  - id: commerce_revenue_by_category_month
+    intent_skip_reason: >-
+      The deterministic M11 parser is intentionally Customer-focused until M27; this typed
+      three-table commerce request remains evaluated end to end.
 recipe_reuse_cases:
   - id: current_recipe
     mutation: none

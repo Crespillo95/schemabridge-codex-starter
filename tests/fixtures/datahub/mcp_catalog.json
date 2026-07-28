@@ -30,6 +30,42 @@
       "fields": ["report_date", "customer_key_text", "account_number", "holder_role_normalized"],
       "row_count": 6,
       "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.reporting.customer_accounts,PROD)"
+    },
+    {
+      "described_fields": ["product_code", "category_code", "unit_price", "is_active"],
+      "fields": ["product_code", "category_code", "unit_price", "is_active", "created_at"],
+      "row_count": 40,
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.commerce.products,PROD)"
+    },
+    {
+      "described_fields": ["item_no", "item_name", "price_text"],
+      "fields": ["item_no", "item_name", "category_cd", "price_text", "active_flag", "loaded_at"],
+      "row_count": 42,
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.legacy.item_master,PROD)"
+    },
+    {
+      "described_fields": ["order_id", "ordered_at", "status_code", "order_total"],
+      "fields": ["order_id", "ordered_at", "status_code", "sales_channel", "region_code", "order_total"],
+      "row_count": 60,
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.sales.orders,PROD)"
+    },
+    {
+      "described_fields": ["order_ref", "product_no", "discount_amount"],
+      "fields": ["line_id", "order_ref", "product_no", "quantity", "net_amount", "discount_amount"],
+      "row_count": 180,
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.sales.order_lines,PROD)"
+    },
+    {
+      "described_fields": ["order_ref", "status_code", "shipped_at", "delivered_at"],
+      "fields": ["shipment_id", "order_ref", "status_code", "shipped_at", "delivered_at"],
+      "row_count": 75,
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.fulfillment.shipments,PROD)"
+    },
+    {
+      "described_fields": ["order_id", "product_id", "customer_id", "case_summary"],
+      "fields": ["case_id", "order_id", "product_id", "customer_id", "status", "priority", "opened_at", "closed_at", "case_summary"],
+      "row_count": 30,
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.support.order_cases,PROD)"
     }
   ],
   "fields": ["customer_id", "registration_date", "country_cd", "customer_status"],

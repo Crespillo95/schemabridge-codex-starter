@@ -1,0 +1,229 @@
+{
+  "acceptance_passed": true,
+  "acceptance_status": "passed",
+  "backend": {
+    "cache_context": "warm-after-correctness",
+    "deployment_connection_capacity": 16,
+    "indexed_database_read": true,
+    "kind": "postgresql-keyset",
+    "label": "postgres-catalog-v4",
+    "pool_max_size_per_process": 16,
+    "replica_count": 1
+  },
+  "configuration": {
+    "asset_cases": {
+      "large": 5434,
+      "small": 10
+    },
+    "load_concurrency": 16,
+    "load_page_size": 17,
+    "load_read_count": 5000,
+    "maximum_full_refresh_seconds": 60.0,
+    "minimum_large_field_count": 40000,
+    "page_sizes": [
+      1,
+      17,
+      50
+    ]
+  },
+  "correctness": [
+    {
+      "asset_count": 10,
+      "case": "small",
+      "elapsed_milliseconds": 433.02,
+      "inventory_digest": "2fc59c364cf517985cb9d03a0a0a8d13e7dc7f833d6d54b467c6cf3df171097b",
+      "maximum_materialized_items": 1,
+      "maximum_rows_read": 2,
+      "page_count": 10,
+      "page_size": 1,
+      "passed": true
+    },
+    {
+      "asset_count": 10,
+      "case": "small",
+      "elapsed_milliseconds": 49.195,
+      "inventory_digest": "2fc59c364cf517985cb9d03a0a0a8d13e7dc7f833d6d54b467c6cf3df171097b",
+      "maximum_materialized_items": 10,
+      "maximum_rows_read": 10,
+      "page_count": 1,
+      "page_size": 17,
+      "passed": true
+    },
+    {
+      "asset_count": 10,
+      "case": "small",
+      "elapsed_milliseconds": 83.977,
+      "inventory_digest": "2fc59c364cf517985cb9d03a0a0a8d13e7dc7f833d6d54b467c6cf3df171097b",
+      "maximum_materialized_items": 10,
+      "maximum_rows_read": 10,
+      "page_count": 1,
+      "page_size": 50,
+      "passed": true
+    },
+    {
+      "asset_count": 5434,
+      "case": "large",
+      "elapsed_milliseconds": 29219.355,
+      "inventory_digest": "759e721fbd323be66af90be84d887c593e97dd07436c1f574b5dc702d9861f47",
+      "maximum_materialized_items": 1,
+      "maximum_rows_read": 2,
+      "page_count": 5434,
+      "page_size": 1,
+      "passed": true
+    },
+    {
+      "asset_count": 5434,
+      "case": "large",
+      "elapsed_milliseconds": 1217.25,
+      "inventory_digest": "759e721fbd323be66af90be84d887c593e97dd07436c1f574b5dc702d9861f47",
+      "maximum_materialized_items": 17,
+      "maximum_rows_read": 18,
+      "page_count": 320,
+      "page_size": 17,
+      "passed": true
+    },
+    {
+      "asset_count": 5434,
+      "case": "large",
+      "elapsed_milliseconds": 414.279,
+      "inventory_digest": "759e721fbd323be66af90be84d887c593e97dd07436c1f574b5dc702d9861f47",
+      "maximum_materialized_items": 50,
+      "maximum_rows_read": 51,
+      "page_count": 109,
+      "page_size": 50,
+      "passed": true
+    }
+  ],
+  "environment": {
+    "environment_variables_recorded": false,
+    "hostname_recorded": false,
+    "logical_cpu_count": 10,
+    "machine": "arm64",
+    "operating_system": "Darwin",
+    "operating_system_release": "25.5.0",
+    "physical_memory_bytes": 17179869184,
+    "python_implementation": "CPython",
+    "python_version": "3.13.13",
+    "rss_measurement": "resource.getrusage.ru_maxrss_peak"
+  },
+  "evidence_kind": "local_scale_regression",
+  "evidence_profile": "postgres-acceptance",
+  "format_version": 2,
+  "index_plan": {
+    "expected_indexes": {
+      "assets": "catalog_assets_keyset_idx",
+      "fields": "catalog_fields_keyset_idx"
+    },
+    "field_probe_field_count": 64,
+    "forbidden_nodes": [],
+    "index_used": {
+      "assets": true,
+      "fields": true
+    },
+    "node_types": {
+      "assets": [
+        "Index Scan",
+        "Limit"
+      ],
+      "fields": [
+        "Index Scan",
+        "Limit"
+      ]
+    },
+    "parameters_recorded": false,
+    "passed": true,
+    "plan_digests": {
+      "assets": "c93881e6760ee3fafa08e65fcf2b7fbe2e44b3ee7113bbe2ef10c262486a8271",
+      "fields": "163be575660590d6bb9fbfbe4ab8deb375500549f1e1bc9746acce7506799fcf"
+    },
+    "planner_control": "default_postgres_planner",
+    "sql_recorded": false,
+    "status": "reviewed_postgres_index_plan"
+  },
+  "limitations": [
+    "Local regression evidence only; this report is not a production SLO.",
+    "PostgreSQL acceptance remains local regression evidence, not a production SLO.",
+    "Peak RSS is process-level and allocator/platform dependent.",
+    "No availability, autoscaling, multi-region, or production-traffic claim is made."
+  ],
+  "load": {
+    "concurrency": 16,
+    "elapsed_seconds": 8.645162,
+    "error_count": 0,
+    "latency_milliseconds": {
+      "maximum": 81.658,
+      "p50": 26.5,
+      "p95": 41.762,
+      "p99": 54.951
+    },
+    "maximum_materialized_items": 17,
+    "maximum_rows_read": 18,
+    "page_size": 17,
+    "passed": true,
+    "pool_wait_milliseconds": {
+      "observation_count": 5000,
+      "p95": 12.266,
+      "p99": 21.651,
+      "status": "measured"
+    },
+    "read_count": 5000,
+    "reads_per_second": 578.358,
+    "regression_budgets": {
+      "p95_milliseconds": 250.0,
+      "p99_milliseconds": 500.0,
+      "production_slo": false
+    },
+    "zero_unexpected_errors": true
+  },
+  "measured_at": "2026-07-23T22:13:57.935067+00:00",
+  "memory": {
+    "heap_delta_large_minus_small_bytes": 126601,
+    "heap_regression_budget_bytes": 16777216,
+    "large": {
+      "heap_peak_bytes": 177170,
+      "materialized_items": 50,
+      "rows_read": 51
+    },
+    "method": "single-bounded-page-comparison",
+    "page_size": 50,
+    "passed": true,
+    "production_slo": false,
+    "rss_delta_large_after_small_bytes": 0,
+    "rss_peak_after_large_bytes": 66437120,
+    "rss_peak_after_small_bytes": 66437120,
+    "rss_peak_before_bytes": 66306048,
+    "rss_regression_budget_bytes": 67108864,
+    "small": {
+      "heap_peak_bytes": 50569,
+      "materialized_items": 10,
+      "rows_read": 10
+    }
+  },
+  "mode": "benchmark",
+  "operated_postgres": {
+    "active_connection_count": 2,
+    "asset_count": 5434,
+    "field_count": 41028,
+    "identifiers_recorded": false,
+    "measurement_basis": "durable-active-generation-aggregate",
+    "minimum_field_count": 40000,
+    "multi_connection_observed": true,
+    "parameters_recorded": false,
+    "passed": true,
+    "postgresql_version": "16.13",
+    "refresh": {
+      "complete": true,
+      "mode": "full",
+      "persisted_page_count": 110,
+      "regression_budget_seconds": 60.0,
+      "request_to_completion_seconds": 29.685331
+    },
+    "sql_recorded": false,
+    "status": "measured",
+    "timestamps_recorded": false
+  },
+  "passed": true,
+  "preflight_passed": null,
+  "production_slo": false,
+  "regression_passed": true
+}

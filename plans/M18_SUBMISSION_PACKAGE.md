@@ -1,6 +1,6 @@
 # M18: README, examples, video, and Devpost submission package
 
-- Status: planned
+- Status: partial; deterministic package/copy ready, release media and public acceptance pending
 - Timebox: 5 hours
 - Recommended Codex: GPT-5.6 Sol — Extra High (xhigh)
 - Dependencies: M15–M17

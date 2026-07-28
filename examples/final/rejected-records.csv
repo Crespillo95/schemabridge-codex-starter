@@ -1,0 +1,4 @@
+logical_field,physical_field,source_value,code,reason
+Customer.customer_key,bank.account_holders.gf_customer_id,127.5,non_integral_identifier,127.5 is fractional and was rejected without truncation.
+Customer.customer_key,bank.account_holders.gf_customer_id,NaN,non_finite_identifier,NaN is non-finite and cannot be a governed identifier.
+Customer.customer_key,bank.account_holders.gf_customer_id,NULL,null_join_key,"NULL was preserved, reported separately, and excluded from the join."

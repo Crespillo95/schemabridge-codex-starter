@@ -53,6 +53,7 @@ printf '%s\n' '[4/8] Quality, integration, and acceptance suites'
 make check
 make test-integration
 make test-acceptance
+make coverage
 
 printf '%s\n' '[5/8] Deterministic evaluation without rewriting checked-in evidence'
 DATABASE_URL="$SCHEMABRIDGE_RELEASE_DATABASE_URL" .venv/bin/python -m schemabridge.entrypoints.cli.main evaluate \

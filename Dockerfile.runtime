@@ -1,0 +1,23 @@
+FROM python:3.13.13-slim-bookworm@sha256:355bfa66770995d7e9a0da4b3473b44d0cb451f6b56f5615ad9c39e3c4eca03f
+
+ARG SCHEMABRIDGE_RELEASE_REF=release-ref-not-supplied
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    SCHEMABRIDGE_RELEASE_REF=${SCHEMABRIDGE_RELEASE_REF}
+
+RUN useradd --create-home --uid 10001 schemabridge
+WORKDIR /opt/schemabridge
+
+COPY pyproject.toml README.md LICENSE ./
+COPY src ./src
+COPY migrations ./migrations
+RUN python -m pip install --no-cache-dir '.[api,postgres,sql]'
+
+RUN chown -R schemabridge:schemabridge /opt/schemabridge
+USER 10001:10001
+
+EXPOSE 8520
+
+CMD ["schemabridge-api"]

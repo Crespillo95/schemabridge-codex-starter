@@ -8,6 +8,7 @@ from typing import TypeVar
 
 from pydantic import ValidationError
 
+from schemabridge.application.ports.planning import GovernedSemanticRegistryPort
 from schemabridge.application.ports.requests import (
     ApprovedRequestContextPort,
     RequestDraftStorePort,
@@ -18,6 +19,7 @@ from schemabridge.application.ports.requests import (
 )
 from schemabridge.domain.concepts import LogicalFieldRef, LogicalModelRef
 from schemabridge.domain.request_context import (
+    ApprovedLogicalContext,
     ValidatedAnalyticalRequest,
     validate_analytical_request,
 )
@@ -182,10 +184,10 @@ class ReloadedRequestDraft:
 
 @dataclass(frozen=True, slots=True)
 class BuildGuidedRequest:
-    context: ApprovedRequestContextPort
+    context: GovernedSemanticRegistryPort | ApprovedRequestContextPort
 
     def options(self) -> GuidedRequestOptions:
-        approved_context = self.context.load()
+        approved_context = _load_approved_context(self.context)
         return GuidedRequestOptions(
             context_source=approved_context.source,
             models=tuple(model.id.root for model in approved_context.models),
@@ -205,7 +207,7 @@ class BuildGuidedRequest:
         )
 
     def execute(self, guided_input: GuidedRequestInput) -> ValidatedAnalyticalRequest:
-        approved_context = self.context.load()
+        approved_context = _load_approved_context(self.context)
         parsing_findings: list[ValidationFinding] = []
         known_models = approved_context.model_index()
         known_fields = approved_context.field_index()
@@ -357,10 +359,22 @@ class BuildGuidedRequest:
         return self.validate(request)
 
     def validate(self, request: AnalyticalRequest) -> ValidatedAnalyticalRequest:
-        validation = validate_analytical_request(request, self.context.load())
+        validation = validate_analytical_request(
+            request,
+            _load_approved_context(self.context),
+        )
         if validation.validated_request is None:
             raise GuidedRequestValidationError(validation.result)
         return validation.validated_request
+
+
+def _load_approved_context(
+    context: GovernedSemanticRegistryPort | ApprovedRequestContextPort,
+) -> ApprovedLogicalContext:
+    loaded = context.load()
+    if isinstance(loaded, ApprovedLogicalContext):
+        return loaded
+    return loaded.registry.logical_context
 
 
 @dataclass(frozen=True, slots=True)

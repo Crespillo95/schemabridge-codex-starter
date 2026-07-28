@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import stat
 import urllib.request
 from dataclasses import dataclass
@@ -12,6 +13,11 @@ from pathlib import Path
 from typing import Any
 
 from schemabridge.application.ports.workflows import WorkflowError, WorkflowErrorCode
+from schemabridge.domain.publication_audit import (
+    PublicationAuditOutcome,
+    PublicationFamily,
+    PublicationTargetAuditRecord,
+)
 from schemabridge.domain.workflows import (
     WorkflowPublicationApproval,
     WorkflowPublicationProposal,
@@ -73,40 +79,73 @@ class DataHubWorkflowPublicationAdapter:
     ) -> WorkflowPublicationResult:
         _validate_approval(proposal, approval)
         document_ref = _document_urn(proposal)
+        previous_fingerprint: str | None = None
         try:
             self._verify_runtime_identity()
             client = self._client()
-            if self._is_current(client, proposal):
-                return WorkflowPublicationResult(
-                    status=WorkflowPublicationStatus.ALREADY_CURRENT,
-                    idempotency_key=proposal.idempotency_key,
-                    document_ref=document_ref,
-                    published_at=approval.approved_at,
+            previous_fingerprint = self._current_fingerprint(client, proposal)
+            if previous_fingerprint is not None and previous_fingerprint != proposal.fingerprint:
+                return _result(
+                    proposal,
+                    approval,
+                    document_ref,
+                    WorkflowPublicationStatus.FAILED,
+                    previous_fingerprint,
+                    datetime.now(UTC),
+                    failure_code="workflow_version_conflict",
+                )
+            if self._is_current(client, proposal, approval):
+                return _result(
+                    proposal,
+                    approval,
+                    document_ref,
+                    WorkflowPublicationStatus.ALREADY_CURRENT,
+                    previous_fingerprint,
+                    approval.approved_at,
                 )
             logger.info(
                 "datahub_workflow_publish operation=upsert_document target=%s",
                 document_ref,
             )
-            self._upsert_document(client, proposal, approval)
-            if not self._is_current(client, proposal):
+            success_audit = _audit_record(
+                proposal,
+                approval,
+                document_ref,
+                PublicationAuditOutcome.SUCCEEDED,
+                previous_fingerprint,
+            )
+            self._upsert_document(client, proposal, approval, success_audit)
+            if not self._is_current(
+                client,
+                proposal,
+                approval,
+                expected_audit=success_audit,
+            ):
                 raise ValueError("workflow document read-back did not match")
-            return WorkflowPublicationResult(
-                status=WorkflowPublicationStatus.CREATED,
-                idempotency_key=proposal.idempotency_key,
-                document_ref=document_ref,
-                published_at=datetime.now(UTC),
+            return _result(
+                proposal,
+                approval,
+                document_ref,
+                WorkflowPublicationStatus.CREATED,
+                previous_fingerprint,
+                datetime.now(UTC),
             )
         except WorkflowError:
             raise
-        except Exception as error:
+        except Exception:
             logger.warning(
                 "datahub_workflow_publish_failed operation=upsert_document target=%s",
                 document_ref,
             )
-            raise WorkflowError(
-                WorkflowErrorCode.PUBLICATION_FAILED,
-                "DataHub workflow-context publication failed",
-            ) from error
+            return _result(
+                proposal,
+                approval,
+                document_ref,
+                WorkflowPublicationStatus.FAILED,
+                previous_fingerprint,
+                datetime.now(UTC),
+                failure_code="datahub_publication_failed",
+            )
 
     def _client(self) -> Any:
         try:
@@ -119,27 +158,76 @@ class DataHubWorkflowPublicationAdapter:
                 "DataHub support is not installed; install schemabridge[datahub]",
             ) from error
 
-    def _is_current(self, client: Any, proposal: WorkflowPublicationProposal) -> bool:
+    def _is_current(
+        self,
+        client: Any,
+        proposal: WorkflowPublicationProposal,
+        approval: WorkflowPublicationApproval,
+        *,
+        expected_audit: PublicationTargetAuditRecord | None = None,
+    ) -> bool:
         from datahub.metadata.schema_classes import DocumentInfoClass
 
         document = client._graph.get_aspect(_document_urn(proposal), DocumentInfoClass)
         if document is None:
             return False
         properties = document.customProperties
-        return bool(
-            properties.get("schemabridge.workflowFingerprint") == proposal.fingerprint
+        fingerprints_match = bool(
+            properties.get("schemabridge.workflowId") == proposal.workflow_id
+            and properties.get("schemabridge.workflowFingerprint") == proposal.fingerprint
             and properties.get("schemabridge.workflowIdempotencyKey") == proposal.idempotency_key
             and properties.get("schemabridge.planFingerprint") == proposal.plan_fingerprint
             and properties.get("schemabridge.executionFingerprint")
             == proposal.execution_fingerprint
             and properties.get("schemabridge.requestFingerprint") == proposal.request_fingerprint
         )
+        approval_matches = bool(
+            properties.get("schemabridge.approvalId") == approval.id
+            and properties.get("schemabridge.approvedBy") == approval.actor
+            and properties.get("schemabridge.approvedAt") == approval.approved_at.isoformat()
+        )
+        serialized_audit = properties.get("schemabridge.publicationAudit")
+        if not fingerprints_match or not approval_matches or not isinstance(serialized_audit, str):
+            return False
+        try:
+            audit_record = PublicationTargetAuditRecord.model_validate_json(serialized_audit)
+        except ValueError:
+            return False
+        if expected_audit is not None:
+            return audit_record == expected_audit
+        return bool(
+            audit_record.family is PublicationFamily.WORKFLOW
+            and audit_record.operation == "upsert_document"
+            and audit_record.target == _document_urn(proposal)
+            and audit_record.approval_id == approval.id
+            and audit_record.actor == approval.actor
+            and audit_record.approved_at == approval.approved_at
+            and audit_record.new_fingerprint == proposal.fingerprint
+            and audit_record.outcome is PublicationAuditOutcome.SUCCEEDED
+            and audit_record.reason_code is None
+            and not audit_record.decision_ids
+        )
+
+    @staticmethod
+    def _current_fingerprint(client: Any, proposal: WorkflowPublicationProposal) -> str | None:
+        from datahub.metadata.schema_classes import DocumentInfoClass
+
+        document = client._graph.get_aspect(_document_urn(proposal), DocumentInfoClass)
+        if document is None:
+            return None
+        fingerprint = document.customProperties.get("schemabridge.workflowFingerprint")
+        if fingerprint is None:
+            return None
+        if not isinstance(fingerprint, str) or re.fullmatch(r"[0-9a-f]{64}", fingerprint) is None:
+            raise ValueError("DataHub workflow fingerprint is invalid")
+        return fingerprint
 
     def _upsert_document(
         self,
         client: Any,
         proposal: WorkflowPublicationProposal,
         approval: WorkflowPublicationApproval,
+        audit_record: PublicationTargetAuditRecord,
     ) -> None:
         from datahub.sdk.document import Document
 
@@ -159,7 +247,10 @@ class DataHubWorkflowPublicationAdapter:
                 "schemabridge.planFingerprint": proposal.plan_fingerprint,
                 "schemabridge.executionFingerprint": proposal.execution_fingerprint,
                 "schemabridge.requestFingerprint": proposal.request_fingerprint,
+                "schemabridge.approvalId": approval.id,
                 "schemabridge.approvedBy": approval.actor,
+                "schemabridge.approvedAt": approval.approved_at.isoformat(),
+                "schemabridge.publicationAudit": audit_record.model_dump_json(),
             },
         )
         client.entities.upsert(document)
@@ -242,6 +333,63 @@ def _validate_approval(
             WorkflowErrorCode.PUBLICATION_FAILED,
             "workflow publication approval does not match the proposal",
         )
+
+
+def _result(
+    proposal: WorkflowPublicationProposal,
+    approval: WorkflowPublicationApproval,
+    document_ref: str,
+    status: WorkflowPublicationStatus,
+    previous_fingerprint: str | None,
+    published_at: datetime,
+    *,
+    failure_code: str | None = None,
+) -> WorkflowPublicationResult:
+    outcome = {
+        WorkflowPublicationStatus.CREATED: PublicationAuditOutcome.SUCCEEDED,
+        WorkflowPublicationStatus.ALREADY_CURRENT: PublicationAuditOutcome.ALREADY_CURRENT,
+        WorkflowPublicationStatus.FAILED: PublicationAuditOutcome.FAILED,
+    }[status]
+    return WorkflowPublicationResult(
+        status=status,
+        approval_id=approval.id,
+        proposal_fingerprint=proposal.fingerprint,
+        idempotency_key=proposal.idempotency_key,
+        document_ref=document_ref,
+        published_at=published_at,
+        failure_code=failure_code,
+        audit_record=_audit_record(
+            proposal,
+            approval,
+            document_ref,
+            outcome,
+            previous_fingerprint,
+            reason_code=failure_code,
+        ),
+    )
+
+
+def _audit_record(
+    proposal: WorkflowPublicationProposal,
+    approval: WorkflowPublicationApproval,
+    document_ref: str,
+    outcome: PublicationAuditOutcome,
+    previous_fingerprint: str | None,
+    *,
+    reason_code: str | None = None,
+) -> PublicationTargetAuditRecord:
+    return PublicationTargetAuditRecord(
+        family=PublicationFamily.WORKFLOW,
+        operation="upsert_document",
+        target=document_ref,
+        approval_id=approval.id,
+        actor=approval.actor,
+        approved_at=approval.approved_at,
+        previous_fingerprint=previous_fingerprint,
+        new_fingerprint=proposal.fingerprint,
+        outcome=outcome,
+        reason_code=reason_code,
+    )
 
 
 def _document_id(proposal: WorkflowPublicationProposal) -> str:

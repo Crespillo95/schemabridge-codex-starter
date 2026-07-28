@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -11,7 +12,6 @@ from pydantic import ValidationError
 from schemabridge.application.ports.evaluation import EvaluationError, EvaluationErrorCode
 from schemabridge.domain.evaluation import (
     EvaluationGroundTruth,
-    EvaluationGuidedCase,
     EvaluationJoinGroundTruth,
     EvaluationQueryGroundTruth,
     EvaluationRecipeReuseGroundTruth,
@@ -42,6 +42,9 @@ class RecordedEvaluationGroundTruthAdapter:
             "planning_mappings": self._root / "demo/ground_truth/planning_mappings.yml",
             "sql_guard_cases": self._root / "tests/fixtures/security/sql_guard_cases.yml",
             "query_recipe": self._root / "examples/query-recipe-secondary-holders.yml",
+            "semantic_registry": (
+                self._root / "demo/ground_truth/registries/synthetic_enterprise.yml"
+            ),
         }
 
     def load(self) -> EvaluationGroundTruth:
@@ -123,7 +126,7 @@ class RecordedEvaluationGroundTruthAdapter:
         case_id = _string(raw.get("id"))
         config = config_by_id[case_id]
         expected_rows = tuple(
-            {str(key): value for key, value in row.items()}
+            {str(key): _expected_value(value) for key, value in row.items()}
             for row in _object_list(raw.get("expected_rows"))
         )
         rejections = tuple(
@@ -132,7 +135,6 @@ class RecordedEvaluationGroundTruthAdapter:
         alternative = config.get("intent_alternative")
         return EvaluationQueryGroundTruth(
             id=case_id,
-            guided_case=EvaluationGuidedCase(_string(config.get("guided_case"))),
             question=_string(raw.get("question_es")),
             expected_request=AnalyticalRequest.model_validate(raw.get("interpretation")),
             expected_join_contracts=tuple(
@@ -146,6 +148,7 @@ class RecordedEvaluationGroundTruthAdapter:
             intent_skip_reason=(
                 _string(config.get("intent_skip_reason")) if alternative is None else None
             ),
+            recipe_reference=_boolean(config.get("recipe_reference", False)),
         )
 
 
@@ -163,7 +166,13 @@ class StaticEvaluationRecipeAdapter:
             published_at=recipe.created_at,
         )
 
-    def find_current(self, intent_fingerprint: str) -> PublishedQueryRecipe | None:
+    def find_current(
+        self,
+        intent_fingerprint: str,
+        *,
+        scope_fingerprint: str | None = None,
+    ) -> PublishedQueryRecipe | None:
+        del scope_fingerprint
         if self._published.recipe.intent_fingerprint != intent_fingerprint:
             return None
         return self._published
@@ -204,3 +213,20 @@ def _integer(value: object) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError("evaluation value must be an integer")
     return value
+
+
+def _boolean(value: object) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError("evaluation value must be a boolean")
+    return value
+
+
+def _expected_value(value: object) -> object:
+    if not isinstance(value, dict):
+        return value
+    if set(value) != {"decimal"}:
+        raise ValueError("typed evaluation cell has an unknown representation")
+    try:
+        return Decimal(_string(value["decimal"]))
+    except InvalidOperation as error:
+        raise ValueError("evaluation decimal cell is invalid") from error

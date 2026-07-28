@@ -22,3 +22,23 @@
 | 18 | M17 | blocked | requires accepted M16 |
 | 19 | M18 | blocked | requires M15–M17 |
 | 20 | M19 | optional | only after accepted M18 |
+
+## Productionization continuation
+
+This track follows the locally verified development baseline without accepting the blocked public
+M17/M18 release evidence.
+
+| Order | ID | Status | Dependency note |
+|---:|---|---|---|
+| 21 | M20 | locally complete; accepted as productionization baseline | identity/RBAC/workflow isolation evidence recorded |
+| 22 | M21 | complete; accepted as productionization baseline | atomic registry and diverse corpus gates pass |
+| 23 | M22 | complete; accepted | live DataHub registry and browser gates pass |
+| 24 | M23 | complete; accepted as productionization baseline | durable activation, migrations, rollback, reconciliation, recovery, and browser gates pass |
+| 25 | M24 | complete; accepted locally | authenticated API, queues/workers, leases, cancellation, and idempotency |
+| 26 | M25 | complete; accepted locally | dynamic inventory, scale, full gate, and browser evidence recorded |
+| 27 | M26 | complete; accepted locally | all 30 criteria and final technical/browser gates recorded |
+| 28 | M27 | complete; accepted locally | dynamic governed matching and final gates recorded |
+| 29 | M28 | complete; accepted locally | governed connector routing, cost controls, full gate, and browser evidence recorded |
+| 30 | M29 | eligible; not started | M28 accepted locally; separate plan/prompt still required |
+| 31 | M30 | blocked | requires accepted M29 |
+| 32 | M31 | blocked | requires accepted M30 |

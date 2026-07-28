@@ -10,6 +10,9 @@ import pytest
 from schemabridge.adapters.planning.recorded import RecordedSemanticPlanningContext
 from schemabridge.adapters.postgres.rejections import PsycopgRejectedSourceReporter
 from schemabridge.adapters.requests.recorded_context import RecordedRequestContextAdapter
+from schemabridge.adapters.semantic_change.postgres_read import (
+    PostgresSemanticChangeGateReader,
+)
 from schemabridge.adapters.sql.compiler import PostgresQueryCompiler
 from schemabridge.adapters.sql.guard import SqlGlotPolicyGuard
 from schemabridge.application.governed_execution import (
@@ -24,6 +27,12 @@ from schemabridge.application.guided_requests import (
 )
 from schemabridge.application.ports.planning import PlanningPortError, PlanningPortErrorCode
 from schemabridge.application.query_execution import QueryPreviewResult, ValidatedQuery
+from schemabridge.bootstrap import (
+    build_governed_request_executor,
+    build_governed_request_preparer,
+    build_semantic_registry,
+)
+from schemabridge.config import Settings
 from schemabridge.domain.resolution import (
     RejectedSourceReport,
     RejectionCheck,
@@ -144,3 +153,66 @@ def test_governed_application_use_case_has_no_concrete_adapter_imports() -> None
     assert "schemabridge.adapters" not in source
     assert "psycopg" not in source
     assert "sqlglot" not in source
+
+
+def test_rejection_allowlist_is_derived_from_the_active_registry() -> None:
+    settings = Settings.model_validate(
+        {
+            "DATABASE_URL": "postgresql://reader:synthetic@invalid.example/synthetic",
+        }
+    )
+    registry = build_semantic_registry(repository_root=ROOT, settings=settings)
+    prepare = build_governed_request_preparer(
+        repository_root=ROOT,
+        settings=settings,
+        registry=registry,
+    )
+
+    executor = build_governed_request_executor(
+        repository_root=ROOT,
+        settings=settings,
+        prepare=prepare,
+    )
+
+    assert "sales.orders.order_id" in executor.rejection_reporter.allowed_fields  # type: ignore[attr-defined]
+    assert "fulfillment.shipments.order_ref" in executor.rejection_reporter.allowed_fields  # type: ignore[attr-defined]
+    assert not any(  # type: ignore[attr-defined]
+        item.startswith("support.order_cases.")
+        for item in executor.rejection_reporter.allowed_fields
+    )
+
+
+def test_active_postgres_preparer_composes_mandatory_pre_compiler_semantic_gate() -> None:
+    settings = Settings(
+        _env_file=None,
+        SCHEMABRIDGE_CONTROL_PLANE_MODE="postgres",
+        SCHEMABRIDGE_CONTROL_DATABASE_URL=(
+            "postgresql://schemabridge_runtime:password@control.example.test/control"
+        ),
+        SCHEMABRIDGE_CONTROL_AUDIT_SIGNING_KEY=(
+            "runtime-audit-signing-key-with-enough-diversity-123"
+        ),
+        SCHEMABRIDGE_IDENTITY_MIGRATION_KEY=("runtime-identity-migration-key-with-diversity-456"),
+        SCHEMABRIDGE_REGISTRY_MODE="live",
+        SCHEMABRIDGE_SEMANTIC_REGISTRY_SELECTION="active",
+        SCHEMABRIDGE_ALLOW_LOCAL_LIVE_READS=True,
+        SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY=ROOT / ".local/test-connectors",
+    )
+    registry = build_semantic_registry(
+        repository_root=ROOT,
+        settings=Settings.model_validate({}),
+    )
+
+    prepare = build_governed_request_preparer(
+        repository_root=ROOT,
+        settings=settings,
+        registry=registry,
+        workspace_id="local-demo",
+    )
+
+    assert prepare.semantic_gate is not None
+    assert isinstance(prepare.semantic_gate.gate, PostgresSemanticChangeGateReader)
+    assert prepare.semantic_scope is not None
+    assert prepare.semantic_scope.workspace_id == "local-demo"
+    assert prepare.target_resolver is not None
+    assert prepare.cost_preflight is not None

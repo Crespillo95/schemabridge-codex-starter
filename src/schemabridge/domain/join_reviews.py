@@ -13,6 +13,11 @@ from pydantic import Field, field_validator, model_validator
 from schemabridge.domain._base import FrozenDomainModel
 from schemabridge.domain.decisions import ApprovalStatus, DecisionAction, DecisionRecord
 from schemabridge.domain.joins import JoinCandidate, JoinContract, JoinContractSet
+from schemabridge.domain.publication_audit import (
+    PublicationAuditOutcome,
+    PublicationFamily,
+    PublicationTargetAuditRecord,
+)
 
 _DRAFT_ID = re.compile(r"^[a-z][a-z0-9_-]*$")
 _FINGERPRINT = re.compile(r"^[0-9a-f]{64}$")
@@ -203,6 +208,7 @@ class JoinPublicationItemResult(FrozenDomainModel):
     target: str = Field(min_length=1)
     status: JoinPublicationItemStatus
     reason_code: str | None = None
+    audit_record: PublicationTargetAuditRecord
 
     @model_validator(mode="after")
     def failure_reason_must_match_status(self) -> JoinPublicationItemResult:
@@ -212,6 +218,20 @@ class JoinPublicationItemResult(FrozenDomainModel):
         }
         if failed != (self.reason_code is not None):
             raise ValueError("failed join publication item must carry exactly one reason code")
+        expected_outcome = {
+            JoinPublicationItemStatus.PUBLISHED: PublicationAuditOutcome.SUCCEEDED,
+            JoinPublicationItemStatus.ALREADY_CURRENT: PublicationAuditOutcome.ALREADY_CURRENT,
+            JoinPublicationItemStatus.FAILED: PublicationAuditOutcome.FAILED,
+            JoinPublicationItemStatus.NOT_ATTEMPTED: PublicationAuditOutcome.NOT_ATTEMPTED,
+        }[self.status]
+        if (
+            self.audit_record.family is not PublicationFamily.JOIN
+            or self.audit_record.operation != self.kind.value
+            or self.audit_record.target != self.target
+            or self.audit_record.outcome is not expected_outcome
+            or self.audit_record.reason_code != self.reason_code
+        ):
+            raise ValueError("join publication item audit does not match its target result")
         return self
 
 
@@ -243,7 +263,21 @@ class JoinPublicationResult(FrozenDomainModel):
             JoinPublicationItemStatus.NOT_ATTEMPTED,
         }:
             raise ValueError("partial join publication requires a failed or skipped item")
+        audits = tuple(item.audit_record for item in self.items)
+        if any(
+            audit.approval_id != self.approval_id or audit.new_fingerprint != self.fingerprint
+            for audit in audits
+        ):
+            raise ValueError("join publication audits must match their approval and payload")
+        if len({(audit.operation, audit.target) for audit in audits}) != len(audits):
+            raise ValueError("join publication audit targets must be unique by operation")
+        if len({(audit.actor, audit.approved_at) for audit in audits}) != 1:
+            raise ValueError("join publication audits must share one approver and timestamp")
         return self
+
+    @property
+    def audit_records(self) -> tuple[PublicationTargetAuditRecord, ...]:
+        return tuple(item.audit_record for item in self.items)
 
 
 class PublishedJoinContext(FrozenDomainModel):

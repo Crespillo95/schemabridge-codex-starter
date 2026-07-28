@@ -16,6 +16,11 @@ from schemabridge.application.query_execution import (
     SqlRejectionCode,
     ValidatedQuery,
 )
+from schemabridge.domain.connectors import (
+    GovernedExecutionTarget,
+    SourceDialect,
+    governed_execution_target_fingerprint,
+)
 from schemabridge.domain.plans import QueryPolicy
 
 _COMMENT_TOKEN = re.compile(r"--|/\*|\*/")
@@ -50,10 +55,12 @@ _SAFE_FUNCTIONS = frozenset(
         "NULLIF",
         "OR",
         "REGEXP_LIKE",
+        "ROUND",
         "SUM",
         "TIMESTAMP_TRUNC",
         "TRIM",
         "TRUNC",
+        "TO_DATE",
     }
 )
 
@@ -66,7 +73,34 @@ def _raise(code: SqlRejectionCode, message: str) -> NoReturn:
 class SqlGlotPolicyGuard:
     """Reparse final SQL and fail closed before any executor receives it."""
 
-    def validate(self, query: CompiledQuery, policy: QueryPolicy) -> ValidatedQuery:
+    dialect: SourceDialect = SourceDialect.POSTGRESQL
+
+    def validate(
+        self,
+        query: CompiledQuery,
+        policy: QueryPolicy,
+        *,
+        target: GovernedExecutionTarget | None = None,
+    ) -> ValidatedQuery:
+        if self.dialect is not SourceDialect.POSTGRESQL or query.dialect is not self.dialect:
+            _raise(
+                SqlRejectionCode.DIALECT_MISMATCH,
+                "compiler output and independent guard must use the supported PostgreSQL dialect",
+            )
+        if target is None:
+            if query.target_fingerprint is not None:
+                _raise(
+                    SqlRejectionCode.TARGET_MISMATCH,
+                    "target-bound compiler output requires the exact governed target",
+                )
+        elif (
+            target.dialect is not self.dialect
+            or query.target_fingerprint != governed_execution_target_fingerprint(target)
+        ):
+            _raise(
+                SqlRejectionCode.TARGET_MISMATCH,
+                "compiler output does not match the exact governed execution target",
+            )
         if _COMMENT_TOKEN.search(query.sql) is not None:
             _raise(
                 SqlRejectionCode.COMMENTS_FORBIDDEN,
@@ -229,6 +263,8 @@ class SqlGlotPolicyGuard:
             parameters=query.parameters,
             max_rows=limit_value,
             statement_timeout_ms=policy.statement_timeout_ms,
+            dialect=query.dialect,
+            target_fingerprint=query.target_fingerprint,
         )
 
     @staticmethod

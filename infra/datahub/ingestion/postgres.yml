@@ -18,6 +18,10 @@ source:
         - "legacy"
         - "bank"
         - "reporting"
+        - "commerce"
+        - "sales"
+        - "fulfillment"
+        - "support"
 
 sink:
   type: datahub-rest

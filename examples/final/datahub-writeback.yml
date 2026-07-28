@@ -1,0 +1,507 @@
+artifact_kind: approval_gated_writeback_contract
+adapter_mode: contract-compatible fake; no DataHub mutation performed by generation
+live_datahub_verification:
+  command: .venv/bin/pytest -m integration tests/integration/test_datahub_writeback.py
+  requires: local DataHub Core plus ignored scoped writer credentials
+  release_run_status: must be regenerated and recorded from the clean release commit
+before: null
+approval:
+  id: submission-customer-canonical-v5
+  draft_id: customer-canonical
+  draft_version: 5
+  payload_fingerprint: e4beda0ac2c4125b814d9af1fe73eb57b37e0a8e300ad958d078479adf9abff6
+  actor: submission-steward
+  approved_at: '2026-07-22T12:05:00Z'
+  decision_ids:
+  - customer-canonical-approve-v2-631ece61a074
+  - customer-canonical-approve-v3-efdf245545a8
+  - customer-canonical-approve-v4-a1590b225aa7
+  - customer-canonical-approve-v5-a9e456869229
+  confirmation: publish-approved-canonical-context
+publication:
+  draft_id: customer-canonical
+  draft_version: 5
+  logical_model:
+    id: Customer
+    name: Customer
+    description: Governed canonical Customer context for the synthetic demo sources.
+    fields:
+    - Customer.customer_key
+    - Customer.registration_date
+    status: approved
+    version: 5
+  fields:
+  - id: Customer.customer_key
+    canonical_name: customer_key
+    canonical_type: string
+    definition: Stable identifier for a customer across source systems.
+    format_policy:
+      version: 1
+      null_policy: preserve
+      leading_zero_policy: strip
+      pad_to_length: null
+      trim_whitespace: true
+      empty_string_policy: reject
+  - id: Customer.registration_date
+    canonical_name: registration_date
+    canonical_type: date
+    definition: Calendar date on which the customer registration became effective.
+    format_policy: null
+  mappings:
+  - logical_field: Customer.customer_key
+    physical_field: crm.customers.customer_id
+    confidence: 0.781
+    status: approved
+    evidence:
+    - normalized name and description identify the CRM customer key
+    - normalized overlap matches the bounded synthetic evidence
+    risks: []
+    transformation_plan:
+      version: 1
+      steps:
+      - operation: preserve_null
+      - operation: trim
+      - operation: validate_regex
+        pattern: ^[0-9]+$
+      - operation: strip_leading_zeros
+      - operation: reject_invalid
+    version: 2
+  - logical_field: Customer.customer_key
+    physical_field: legacy.client_master.client_no
+    confidence: 0.768
+    status: approved
+    evidence:
+    - description identifies the legacy customer number
+    - normalized overlap matches the bounded synthetic evidence
+    risks: []
+    transformation_plan:
+      version: 1
+      steps:
+      - operation: preserve_null
+      - operation: cast_integer_to_string
+      - operation: strip_leading_zeros
+      - operation: reject_invalid
+    version: 2
+  - logical_field: Customer.customer_key
+    physical_field: bank.account_holders.gf_customer_id
+    confidence: 0.638
+    status: approved
+    evidence:
+    - description identifies the bank global customer identifier
+    - integral finite values overlap after deterministic normalization
+    risks:
+    - floating-point storage can lose identifier precision
+    - non-finite and fractional values require explicit rejection
+    transformation_plan:
+      version: 1
+      steps:
+      - operation: preserve_null
+      - operation: validate_finite
+      - operation: validate_integral
+      - operation: cast_integer_to_string
+      - operation: strip_leading_zeros
+      - operation: reject_invalid
+    version: 2
+  - logical_field: Customer.registration_date
+    physical_field: crm.customers.registration_date
+    confidence: 1.0
+    status: approved
+    evidence:
+    - the typed CRM registration date is the approved north-star source
+    risks: []
+    transformation_plan:
+      version: 1
+      steps:
+      - operation: identity
+    version: 2
+  decisions:
+  - id: customer-canonical-approve-v2-631ece61a074
+    target_type: column_mapping
+    target_id: crm.customers.customer_id->Customer.customer_key
+    action: approve
+    status: approved
+    actor: submission-steward
+    decided_at: '2026-07-22T12:00:00Z'
+    source_version: 1
+    resulting_version: 2
+    rationale: Approved synthetic evidence for the generated submission artifact.
+    evidence:
+    - normalized name and description identify the CRM customer key
+    - normalized overlap matches the bounded synthetic evidence
+    risks: []
+  - id: customer-canonical-approve-v3-efdf245545a8
+    target_type: column_mapping
+    target_id: legacy.client_master.client_no->Customer.customer_key
+    action: approve
+    status: approved
+    actor: submission-steward
+    decided_at: '2026-07-22T12:00:00Z'
+    source_version: 2
+    resulting_version: 3
+    rationale: Approved synthetic evidence for the generated submission artifact.
+    evidence:
+    - description identifies the legacy customer number
+    - normalized overlap matches the bounded synthetic evidence
+    risks: []
+  - id: customer-canonical-approve-v4-a1590b225aa7
+    target_type: column_mapping
+    target_id: bank.account_holders.gf_customer_id->Customer.customer_key
+    action: approve
+    status: approved
+    actor: submission-steward
+    decided_at: '2026-07-22T12:00:00Z'
+    source_version: 3
+    resulting_version: 4
+    rationale: Approved synthetic evidence for the generated submission artifact.
+    evidence:
+    - description identifies the bank global customer identifier
+    - integral finite values overlap after deterministic normalization
+    risks:
+    - floating-point storage can lose identifier precision
+    - non-finite and fractional values require explicit rejection
+  - id: customer-canonical-approve-v5-a9e456869229
+    target_type: column_mapping
+    target_id: crm.customers.registration_date->Customer.registration_date
+    action: approve
+    status: approved
+    actor: submission-steward
+    decided_at: '2026-07-22T12:00:00Z'
+    source_version: 4
+    resulting_version: 5
+    rationale: Approved synthetic evidence for the generated submission artifact.
+    evidence:
+    - the typed CRM registration date is the approved north-star source
+    risks: []
+  fingerprint: e4beda0ac2c4125b814d9af1fe73eb57b37e0a8e300ad958d078479adf9abff6
+result:
+  approval_id: submission-customer-canonical-v5
+  draft_id: customer-canonical
+  fingerprint: e4beda0ac2c4125b814d9af1fe73eb57b37e0a8e300ad958d078479adf9abff6
+  status: published
+  items:
+  - kind: structured_property
+    target: urn:li:structuredProperty:io.schemabridge.decisionRef
+    status: published
+    decision_refs:
+    - id: customer-canonical-approve-v2-631ece61a074
+      target_id: crm.customers.customer_id->Customer.customer_key
+      version: 2
+    - id: customer-canonical-approve-v3-efdf245545a8
+      target_id: legacy.client_master.client_no->Customer.customer_key
+      version: 3
+    - id: customer-canonical-approve-v4-a1590b225aa7
+      target_id: bank.account_holders.gf_customer_id->Customer.customer_key
+      version: 4
+    - id: customer-canonical-approve-v5-a9e456869229
+      target_id: crm.customers.registration_date->Customer.registration_date
+      version: 5
+    reason_code: null
+    audit_record:
+      family: canonical
+      operation: structured_property
+      target: urn:li:structuredProperty:io.schemabridge.decisionRef
+      approval_id: submission-customer-canonical-v5
+      actor: submission-steward
+      approved_at: '2026-07-22T12:05:00Z'
+      previous_fingerprint: null
+      new_fingerprint: e4beda0ac2c4125b814d9af1fe73eb57b37e0a8e300ad958d078479adf9abff6
+      outcome: succeeded
+      decision_ids:
+      - customer-canonical-approve-v2-631ece61a074
+      - customer-canonical-approve-v3-efdf245545a8
+      - customer-canonical-approve-v4-a1590b225aa7
+      - customer-canonical-approve-v5-a9e456869229
+      reason_code: null
+  - kind: glossary_term
+    target: urn:li:glossaryTerm:SchemaBridge.Customer.customer_key
+    status: published
+    decision_refs:
+    - id: customer-canonical-approve-v2-631ece61a074
+      target_id: crm.customers.customer_id->Customer.customer_key
+      version: 2
+    - id: customer-canonical-approve-v3-efdf245545a8
+      target_id: legacy.client_master.client_no->Customer.customer_key
+      version: 3
+    - id: customer-canonical-approve-v4-a1590b225aa7
+      target_id: bank.account_holders.gf_customer_id->Customer.customer_key
+      version: 4
+    - id: customer-canonical-approve-v5-a9e456869229
+      target_id: crm.customers.registration_date->Customer.registration_date
+      version: 5
+    reason_code: null
+    audit_record:
+      family: canonical
+      operation: glossary_term
+      target: urn:li:glossaryTerm:SchemaBridge.Customer.customer_key
+      approval_id: submission-customer-canonical-v5
+      actor: submission-steward
+      approved_at: '2026-07-22T12:05:00Z'
+      previous_fingerprint: null
+      new_fingerprint: e4beda0ac2c4125b814d9af1fe73eb57b37e0a8e300ad958d078479adf9abff6
+      outcome: succeeded
+      decision_ids:
+      - customer-canonical-approve-v2-631ece61a074
+      - customer-canonical-approve-v3-efdf245545a8
+      - customer-canonical-approve-v4-a1590b225aa7
+      - customer-canonical-approve-v5-a9e456869229
+      reason_code: null
+  - kind: glossary_term
+    target: urn:li:glossaryTerm:SchemaBridge.Customer.registration_date
+    status: published
+    decision_refs:
+    - id: customer-canonical-approve-v2-631ece61a074
+      target_id: crm.customers.customer_id->Customer.customer_key
+      version: 2
+    - id: customer-canonical-approve-v3-efdf245545a8
+      target_id: legacy.client_master.client_no->Customer.customer_key
+      version: 3
+    - id: customer-canonical-approve-v4-a1590b225aa7
+      target_id: bank.account_holders.gf_customer_id->Customer.customer_key
+      version: 4
+    - id: customer-canonical-approve-v5-a9e456869229
+      target_id: crm.customers.registration_date->Customer.registration_date
+      version: 5
+    reason_code: null
+    audit_record:
+      family: canonical
+      operation: glossary_term
+      target: urn:li:glossaryTerm:SchemaBridge.Customer.registration_date
+      approval_id: submission-customer-canonical-v5
+      actor: submission-steward
+      approved_at: '2026-07-22T12:05:00Z'
+      previous_fingerprint: null
+      new_fingerprint: e4beda0ac2c4125b814d9af1fe73eb57b37e0a8e300ad958d078479adf9abff6
+      outcome: succeeded
+      decision_ids:
+      - customer-canonical-approve-v2-631ece61a074
+      - customer-canonical-approve-v3-efdf245545a8
+      - customer-canonical-approve-v4-a1590b225aa7
+      - customer-canonical-approve-v5-a9e456869229
+      reason_code: null
+  - kind: logical_model
+    target: urn:li:dataset:(urn:li:dataPlatform:logical,schemabridge.Customer,PROD)
+    status: published
+    decision_refs:
+    - id: customer-canonical-approve-v2-631ece61a074
+      target_id: crm.customers.customer_id->Customer.customer_key
+      version: 2
+    - id: customer-canonical-approve-v3-efdf245545a8
+      target_id: legacy.client_master.client_no->Customer.customer_key
+      version: 3
+    - id: customer-canonical-approve-v4-a1590b225aa7
+      target_id: bank.account_holders.gf_customer_id->Customer.customer_key
+      version: 4
+    - id: customer-canonical-approve-v5-a9e456869229
+      target_id: crm.customers.registration_date->Customer.registration_date
+      version: 5
+    reason_code: null
+    audit_record:
+      family: canonical
+      operation: logical_model
+      target: urn:li:dataset:(urn:li:dataPlatform:logical,schemabridge.Customer,PROD)
+      approval_id: submission-customer-canonical-v5
+      actor: submission-steward
+      approved_at: '2026-07-22T12:05:00Z'
+      previous_fingerprint: null
+      new_fingerprint: e4beda0ac2c4125b814d9af1fe73eb57b37e0a8e300ad958d078479adf9abff6
+      outcome: succeeded
+      decision_ids:
+      - customer-canonical-approve-v2-631ece61a074
+      - customer-canonical-approve-v3-efdf245545a8
+      - customer-canonical-approve-v4-a1590b225aa7
+      - customer-canonical-approve-v5-a9e456869229
+      reason_code: null
+  - kind: physical_link
+    target: bank.account_holders
+    status: published
+    decision_refs:
+    - id: customer-canonical-approve-v2-631ece61a074
+      target_id: crm.customers.customer_id->Customer.customer_key
+      version: 2
+    - id: customer-canonical-approve-v3-efdf245545a8
+      target_id: legacy.client_master.client_no->Customer.customer_key
+      version: 3
+    - id: customer-canonical-approve-v4-a1590b225aa7
+      target_id: bank.account_holders.gf_customer_id->Customer.customer_key
+      version: 4
+    - id: customer-canonical-approve-v5-a9e456869229
+      target_id: crm.customers.registration_date->Customer.registration_date
+      version: 5
+    reason_code: null
+    audit_record:
+      family: canonical
+      operation: physical_link
+      target: bank.account_holders
+      approval_id: submission-customer-canonical-v5
+      actor: submission-steward
+      approved_at: '2026-07-22T12:05:00Z'
+      previous_fingerprint: null
+      new_fingerprint: e4beda0ac2c4125b814d9af1fe73eb57b37e0a8e300ad958d078479adf9abff6
+      outcome: succeeded
+      decision_ids:
+      - customer-canonical-approve-v2-631ece61a074
+      - customer-canonical-approve-v3-efdf245545a8
+      - customer-canonical-approve-v4-a1590b225aa7
+      - customer-canonical-approve-v5-a9e456869229
+      reason_code: null
+  - kind: physical_link
+    target: crm.customers
+    status: published
+    decision_refs:
+    - id: customer-canonical-approve-v2-631ece61a074
+      target_id: crm.customers.customer_id->Customer.customer_key
+      version: 2
+    - id: customer-canonical-approve-v3-efdf245545a8
+      target_id: legacy.client_master.client_no->Customer.customer_key
+      version: 3
+    - id: customer-canonical-approve-v4-a1590b225aa7
+      target_id: bank.account_holders.gf_customer_id->Customer.customer_key
+      version: 4
+    - id: customer-canonical-approve-v5-a9e456869229
+      target_id: crm.customers.registration_date->Customer.registration_date
+      version: 5
+    reason_code: null
+    audit_record:
+      family: canonical
+      operation: physical_link
+      target: crm.customers
+      approval_id: submission-customer-canonical-v5
+      actor: submission-steward
+      approved_at: '2026-07-22T12:05:00Z'
+      previous_fingerprint: null
+      new_fingerprint: e4beda0ac2c4125b814d9af1fe73eb57b37e0a8e300ad958d078479adf9abff6
+      outcome: succeeded
+      decision_ids:
+      - customer-canonical-approve-v2-631ece61a074
+      - customer-canonical-approve-v3-efdf245545a8
+      - customer-canonical-approve-v4-a1590b225aa7
+      - customer-canonical-approve-v5-a9e456869229
+      reason_code: null
+  - kind: physical_link
+    target: legacy.client_master
+    status: published
+    decision_refs:
+    - id: customer-canonical-approve-v2-631ece61a074
+      target_id: crm.customers.customer_id->Customer.customer_key
+      version: 2
+    - id: customer-canonical-approve-v3-efdf245545a8
+      target_id: legacy.client_master.client_no->Customer.customer_key
+      version: 3
+    - id: customer-canonical-approve-v4-a1590b225aa7
+      target_id: bank.account_holders.gf_customer_id->Customer.customer_key
+      version: 4
+    - id: customer-canonical-approve-v5-a9e456869229
+      target_id: crm.customers.registration_date->Customer.registration_date
+      version: 5
+    reason_code: null
+    audit_record:
+      family: canonical
+      operation: physical_link
+      target: legacy.client_master
+      approval_id: submission-customer-canonical-v5
+      actor: submission-steward
+      approved_at: '2026-07-22T12:05:00Z'
+      previous_fingerprint: null
+      new_fingerprint: e4beda0ac2c4125b814d9af1fe73eb57b37e0a8e300ad958d078479adf9abff6
+      outcome: succeeded
+      decision_ids:
+      - customer-canonical-approve-v2-631ece61a074
+      - customer-canonical-approve-v3-efdf245545a8
+      - customer-canonical-approve-v4-a1590b225aa7
+      - customer-canonical-approve-v5-a9e456869229
+      reason_code: null
+  - kind: decision_document
+    target: urn:li:document:schemabridge-customer-canonical-v5
+    status: published
+    decision_refs:
+    - id: customer-canonical-approve-v2-631ece61a074
+      target_id: crm.customers.customer_id->Customer.customer_key
+      version: 2
+    - id: customer-canonical-approve-v3-efdf245545a8
+      target_id: legacy.client_master.client_no->Customer.customer_key
+      version: 3
+    - id: customer-canonical-approve-v4-a1590b225aa7
+      target_id: bank.account_holders.gf_customer_id->Customer.customer_key
+      version: 4
+    - id: customer-canonical-approve-v5-a9e456869229
+      target_id: crm.customers.registration_date->Customer.registration_date
+      version: 5
+    reason_code: null
+    audit_record:
+      family: canonical
+      operation: decision_document
+      target: urn:li:document:schemabridge-customer-canonical-v5
+      approval_id: submission-customer-canonical-v5
+      actor: submission-steward
+      approved_at: '2026-07-22T12:05:00Z'
+      previous_fingerprint: null
+      new_fingerprint: e4beda0ac2c4125b814d9af1fe73eb57b37e0a8e300ad958d078479adf9abff6
+      outcome: succeeded
+      decision_ids:
+      - customer-canonical-approve-v2-631ece61a074
+      - customer-canonical-approve-v3-efdf245545a8
+      - customer-canonical-approve-v4-a1590b225aa7
+      - customer-canonical-approve-v5-a9e456869229
+      reason_code: null
+  - kind: publication_marker
+    target: urn:li:dataset:(urn:li:dataPlatform:logical,schemabridge.Customer,PROD)
+    status: published
+    decision_refs:
+    - id: customer-canonical-approve-v2-631ece61a074
+      target_id: crm.customers.customer_id->Customer.customer_key
+      version: 2
+    - id: customer-canonical-approve-v3-efdf245545a8
+      target_id: legacy.client_master.client_no->Customer.customer_key
+      version: 3
+    - id: customer-canonical-approve-v4-a1590b225aa7
+      target_id: bank.account_holders.gf_customer_id->Customer.customer_key
+      version: 4
+    - id: customer-canonical-approve-v5-a9e456869229
+      target_id: crm.customers.registration_date->Customer.registration_date
+      version: 5
+    reason_code: null
+    audit_record:
+      family: canonical
+      operation: publication_marker
+      target: urn:li:dataset:(urn:li:dataPlatform:logical,schemabridge.Customer,PROD)
+      approval_id: submission-customer-canonical-v5
+      actor: submission-steward
+      approved_at: '2026-07-22T12:05:00Z'
+      previous_fingerprint: null
+      new_fingerprint: e4beda0ac2c4125b814d9af1fe73eb57b37e0a8e300ad958d078479adf9abff6
+      outcome: succeeded
+      decision_ids:
+      - customer-canonical-approve-v2-631ece61a074
+      - customer-canonical-approve-v3-efdf245545a8
+      - customer-canonical-approve-v4-a1590b225aa7
+      - customer-canonical-approve-v5-a9e456869229
+      reason_code: null
+after:
+  logical_model_urn: urn:li:dataset:(urn:li:dataPlatform:logical,schemabridge.Customer,PROD)
+  fingerprint: e4beda0ac2c4125b814d9af1fe73eb57b37e0a8e300ad958d078479adf9abff6
+  fields:
+  - Customer.customer_key
+  - Customer.registration_date
+  physical_links:
+  - bank.account_holders
+  - crm.customers
+  - legacy.client_master
+  glossary_terms:
+  - urn:li:glossaryTerm:SchemaBridge.Customer.customer_key
+  - urn:li:glossaryTerm:SchemaBridge.Customer.registration_date
+  decision_document_urn: urn:li:document:schemabridge-customer-canonical-v5
+  decision_refs:
+  - id: customer-canonical-approve-v2-631ece61a074
+    target_id: crm.customers.customer_id->Customer.customer_key
+    version: 2
+  - id: customer-canonical-approve-v3-efdf245545a8
+    target_id: legacy.client_master.client_no->Customer.customer_key
+    version: 3
+  - id: customer-canonical-approve-v4-a1590b225aa7
+    target_id: bank.account_holders.gf_customer_id->Customer.customer_key
+    version: 4
+  - id: customer-canonical-approve-v5-a9e456869229
+    target_id: crm.customers.registration_date->Customer.registration_date
+    version: 5
+reuse_rule: Published context is retrieved by fingerprint; query recipes never execute
+  saved SQL and must pass current planning and SQL validation again.

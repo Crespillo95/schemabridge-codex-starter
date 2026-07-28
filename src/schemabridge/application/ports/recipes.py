@@ -15,7 +15,14 @@ from schemabridge.domain.recipes import (
 
 class RecipeErrorCode(StrEnum):
     NOT_FOUND = "recipe_not_found"
+    WORKFLOW_STORE_UNAVAILABLE = "recipe_workflow_store_unavailable"
+    ACTIVE_POINTER_NOT_FOUND = "recipe_active_pointer_not_found"
+    REGISTRY_CONTROL_UNAVAILABLE = "recipe_registry_control_unavailable"
     INVALID_WORKFLOW = "recipe_invalid_workflow"
+    STALE_WORKFLOW = "recipe_stale_workflow"
+    INTENT_MISMATCH = "recipe_migration_intent_mismatch"
+    MIGRATION_NOT_REQUIRED = "recipe_migration_not_required"
+    CURRENT_CHANGED = "recipe_current_changed"
     APPROVAL_REQUIRED = "recipe_approval_required"
     APPROVAL_MISMATCH = "recipe_approval_mismatch"
     VERSION_CONFLICT = "recipe_version_conflict"
@@ -34,7 +41,12 @@ class RecipeError(RuntimeError):
 
 
 class QueryRecipeReadPort(Protocol):
-    def find_current(self, intent_fingerprint: str) -> PublishedQueryRecipe | None:
+    def find_current(
+        self,
+        intent_fingerprint: str,
+        *,
+        scope_fingerprint: str | None = None,
+    ) -> PublishedQueryRecipe | None:
         """Return the current recipe for one exact normalized intent, if present."""
 
 

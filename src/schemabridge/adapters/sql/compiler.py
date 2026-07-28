@@ -7,6 +7,12 @@ from dataclasses import dataclass, field
 from sqlglot import exp
 
 from schemabridge.application.query_execution import CompiledQuery, QueryCompilationError
+from schemabridge.domain.connectors import (
+    GovernedExecutionTarget,
+    SourceConnectorKind,
+    SourceDialect,
+    governed_execution_target_fingerprint,
+)
 from schemabridge.domain.joins import JoinType
 from schemabridge.domain.plans import (
     AggregateExpression,
@@ -23,10 +29,13 @@ from schemabridge.domain.plans import (
 from schemabridge.domain.requests import FilterOperator, MetricOperation, SortDirection
 from schemabridge.domain.transformations import (
     CastIntegerToStringStep,
+    CastTimestampToDateStep,
     EmptyToNullStep,
     IdentityStep,
     MapValuesStep,
+    NormalizeDecimalScaleStep,
     PadLeftStep,
+    ParseDateStep,
     PreserveNullStep,
     RejectInvalidStep,
     StripLeadingZerosStep,
@@ -50,20 +59,38 @@ class _CompilerState:
 class PostgresQueryCompiler:
     """Build PostgreSQL from typed nodes without accepting SQL fragments."""
 
-    def compile(self, plan: QueryPlan, *, max_preview_rows: int) -> CompiledQuery:
+    def compile(
+        self,
+        plan: QueryPlan,
+        *,
+        max_preview_rows: int,
+        target: GovernedExecutionTarget | None = None,
+    ) -> CompiledQuery:
         if max_preview_rows < 1:
             raise QueryCompilationError(
                 "invalid_preview_limit",
                 "maximum preview rows must be positive",
             )
-        state = _CompilerState()
-        projections = [
-            exp.alias_(
-                self._compile_select(item.expression, state),
-                item.alias.root,
+        if target is not None and (
+            target.connector_kind is not SourceConnectorKind.POSTGRESQL
+            or target.dialect is not SourceDialect.POSTGRESQL
+        ):
+            raise QueryCompilationError(
+                "connector_dialect_unsupported",
+                "the governed execution target has no PostgreSQL compiler capability",
             )
-            for item in plan.projections
-        ]
+        state = _CompilerState()
+        projections: list[exp.Expression] = []
+        parameterized_projection_positions: list[tuple[QueryValueExpression, int]] = []
+        for position, item in enumerate(plan.projections, start=1):
+            parameter_count = len(state.parameters)
+            compiled = self._compile_select(item.expression, state)
+            projections.append(exp.alias_(compiled, item.alias.root))
+            if (
+                not isinstance(item.expression, AggregateExpression)
+                and len(state.parameters) > parameter_count
+            ):
+                parameterized_projection_positions.append((item.expression, position))
         query = exp.select(*projections).from_(self._compile_scan(plan.root_scan))
 
         for join in plan.joins:
@@ -85,13 +112,24 @@ class PostgresQueryCompiler:
             query = query.where(exp.and_(*predicates))
         if plan.group_by:
             query = query.group_by(
-                *(self._compile_value(expression, state) for expression in plan.group_by)
+                *(
+                    self._compile_grouping_reference(
+                        expression,
+                        state,
+                        parameterized_projection_positions,
+                    )
+                    for expression in plan.group_by
+                )
             )
         if plan.order_by:
             query = query.order_by(
                 *(
                     exp.Ordered(
-                        this=self._compile_value(item.expression, state),
+                        this=self._compile_grouping_reference(
+                            item.expression,
+                            state,
+                            parameterized_projection_positions,
+                        ),
                         desc=item.direction is SortDirection.DESC,
                     )
                     for item in plan.order_by
@@ -110,7 +148,22 @@ class PostgresQueryCompiler:
             sql=sql,
             parameters=tuple(state.parameters),
             effective_limit=effective_limit,
+            dialect=SourceDialect.POSTGRESQL,
+            target_fingerprint=(
+                governed_execution_target_fingerprint(target) if target is not None else None
+            ),
         )
+
+    def _compile_grouping_reference(
+        self,
+        expression: QueryValueExpression,
+        state: _CompilerState,
+        parameterized_projection_positions: list[tuple[QueryValueExpression, int]],
+    ) -> exp.Expression:
+        for projected, position in parameterized_projection_positions:
+            if projected == expression:
+                return exp.Literal.number(position)
+        return self._compile_value(expression, state)
 
     @staticmethod
     def _compile_scan(scan: DatasetScan) -> exp.Table:
@@ -178,6 +231,7 @@ class PostgresQueryCompiler:
         validity_conditions: list[exp.Expression] = []
         invalidity_conditions: list[exp.Expression] = []
         cast_integer_to_string = False
+        float_identifier_validation = False
 
         for step in mapped.transformation_plan.steps:
             if isinstance(step, (IdentityStep, PreserveNullStep, RejectInvalidStep)):
@@ -197,6 +251,7 @@ class PostgresQueryCompiler:
                 )
                 continue
             if isinstance(step, ValidateFiniteStep):
+                float_identifier_validation = True
                 double_type = exp.DataType.build("DOUBLE PRECISION", dialect="postgres")
                 unsafe_values = [
                     exp.Cast(this=exp.Literal.string(value), to=double_type.copy())
@@ -229,17 +284,37 @@ class PostgresQueryCompiler:
                 )
                 continue
             if isinstance(step, CastIntegerToStringStep):
-                max_safe_integer = exp.Literal.number(9_007_199_254_740_991)
-                invalidity_conditions.extend(
-                    (
-                        exp.LT(
-                            this=current.copy(),
-                            expression=exp.Literal.number(0),
-                        ),
-                        exp.GT(this=current.copy(), expression=max_safe_integer.copy()),
+                invalidity_conditions.append(
+                    exp.LT(
+                        this=current.copy(),
+                        expression=exp.Literal.number(0),
                     )
                 )
+                if float_identifier_validation:
+                    invalidity_conditions.append(
+                        exp.GT(
+                            this=current.copy(),
+                            expression=exp.Literal.number(9_007_199_254_740_991),
+                        )
+                    )
                 cast_integer_to_string = True
+                continue
+            if isinstance(step, CastTimestampToDateStep):
+                current = exp.Cast(this=current, to=exp.DataType.build("DATE"))
+                continue
+            if isinstance(step, ParseDateStep):
+                current = exp.func(
+                    "TO_DATE",
+                    current,
+                    state.placeholder(step.format),
+                )
+                continue
+            if isinstance(step, NormalizeDecimalScaleStep):
+                current = exp.func(
+                    "ROUND",
+                    exp.Cast(this=current, to=exp.DataType.build("NUMERIC")),
+                    exp.Literal.number(step.scale),
+                )
                 continue
             if isinstance(step, MapValuesStep):
                 current = exp.Case(

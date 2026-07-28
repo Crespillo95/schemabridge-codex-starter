@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 
 from schemabridge.application.ports.intents import IntentParserPort
+from schemabridge.application.ports.planning import GovernedSemanticRegistryPort
 from schemabridge.application.ports.requests import ApprovedRequestContextPort
 from schemabridge.domain.concepts import LogicalFieldRef, LogicalModelRef
 from schemabridge.domain.intents import (
@@ -143,11 +144,11 @@ class IntentConfirmationError(RuntimeError):
 @dataclass(frozen=True, slots=True)
 class ResolveNaturalLanguageIntent:
     parser: IntentParserPort
-    context: ApprovedRequestContextPort
+    context: GovernedSemanticRegistryPort | ApprovedRequestContextPort
     adapter_label: str
 
     def preview(self, text: str, language: UserLanguage) -> IntentPreview:
-        approved = self.context.load()
+        approved = _load_approved_context(self.context)
         vocabulary = build_intent_vocabulary(approved)
         parse_input = IntentParseInput(text=text, language=language, vocabulary=vocabulary)
         output = self.parser.parse(parse_input)
@@ -202,7 +203,7 @@ class ResolveNaturalLanguageIntent:
                 "intent_interpretation_changed",
                 "The interpretation changed; inspect a new preview before confirming.",
             )
-        current_context = self.context.load()
+        current_context = _load_approved_context(self.context)
         if intent_vocabulary_fingerprint(
             build_intent_vocabulary(current_context)
         ) != intent_vocabulary_fingerprint(preview.vocabulary):
@@ -236,6 +237,15 @@ class ResolveNaturalLanguageIntent:
                 "The confirmed request is not valid against the current approved context.",
             )
         return validation.validated_request
+
+
+def _load_approved_context(
+    context: GovernedSemanticRegistryPort | ApprovedRequestContextPort,
+) -> ApprovedLogicalContext:
+    loaded = context.load()
+    if isinstance(loaded, ApprovedLogicalContext):
+        return loaded
+    return loaded.registry.logical_context
 
 
 def build_intent_vocabulary(context: ApprovedLogicalContext) -> IntentVocabulary:

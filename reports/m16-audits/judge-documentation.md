@@ -13,7 +13,8 @@ Owner of dispositions: main M16 agent.
 - Impact: no immutable release source, clean-checkout proof, or revision-bound evaluation.
 - Proposed test: create/review the RC commit, require a clean tree, regenerate artifacts, and assert
   their revision equals `git rev-parse HEAD`.
-- Disposition: accepted as `RC-001`; it blocks release and no commit was created automatically.
+- Disposition: accepted. `HEAD` `231187a` now exists, closing the original missing-identity finding;
+  the newer fanout/audit remediation remains uncommitted as `RC-002` and still blocks release proof.
 
 ### JDG-002 — High — README did not provide the implemented judge path
 

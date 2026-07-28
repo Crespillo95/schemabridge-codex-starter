@@ -1,0 +1,159 @@
+format_version: 1
+canonicalization: typed-json-lines-v1
+schemas:
+  - bank
+  - commerce
+  - crm
+  - fulfillment
+  - legacy
+  - reporting
+  - sales
+  - support
+tables:
+  bank.account_holders:
+    columns:
+      - holder_link_id
+      - account_number
+      - gf_customer_id
+      - holder_type
+      - relationship_start_date
+      - relationship_end_date
+    order_by:
+      - holder_link_id
+    row_count: 9
+    data_sha256: 432eab4052910b3cb04699738079c15d2a42a9d0a75abfea7f0f166c1d18ef04
+  bank.accounts:
+    columns:
+      - account_number
+      - opening_date
+      - account_status
+      - current_balance
+    order_by:
+      - account_number
+    row_count: 9
+    data_sha256: d524a8c6472ee75846332a51f3ab5f1c93bd3bf65951b53d370b038aab251762
+  commerce.products:
+    columns:
+      - product_code
+      - category_code
+      - unit_price
+      - is_active
+      - created_at
+    order_by:
+      - product_code
+    row_count: 40
+    data_sha256: 4c06a9a26813a5e1eb8c128382b23ac03736456883f93b3aa5d325ab4c213d4f
+  crm.customers:
+    columns:
+      - customer_id
+      - registration_date
+      - country_cd
+      - customer_status
+    order_by:
+      - customer_id
+    row_count: 7
+    data_sha256: 42d07efcbde1b0a547bff1a862911ad69535419efa9ef752a2599726b8e20814
+  fulfillment.shipments:
+    columns:
+      - shipment_id
+      - order_ref
+      - status_code
+      - shipped_at
+      - delivered_at
+    order_by:
+      - shipment_id
+    row_count: 75
+    data_sha256: e928fbca720d5eeb01f9ae74236bca5423bf83f825bc69291f6f8831fa3af28c
+  legacy.client_master:
+    columns:
+      - client_no
+      - created_dt
+      - country
+      - status_code
+    order_by:
+      - client_no
+    row_count: 7
+    data_sha256: d20fa64d386aa6a91338af0a89813e4e10b992486c7324133faeae6d5194f4b5
+  legacy.item_master:
+    columns:
+      - item_no
+      - item_name
+      - category_cd
+      - price_text
+      - active_flag
+      - loaded_at
+    order_by:
+      - item_no
+    row_count: 42
+    data_sha256: bec4bab4fe0b985aaa4eb1493edbee33326aee67eb6c19740429b8159479e272
+  reporting.customer_accounts:
+    columns:
+      - report_date
+      - customer_key_text
+      - account_number
+      - holder_role_normalized
+    order_by:
+      - report_date
+      - customer_key_text
+      - account_number
+    row_count: 6
+    data_sha256: 8ce207b6dbde06cedb8ff4b7405e83fafc4855324549c61a46ac37c6da287a80
+  sales.order_lines:
+    columns:
+      - line_id
+      - order_ref
+      - product_no
+      - quantity
+      - net_amount
+      - discount_amount
+    order_by:
+      - line_id
+    row_count: 180
+    data_sha256: b0050b5ffda07430e40fef41332426e9724af6f70a8a36b8da0317faa8f474a5
+  sales.orders:
+    columns:
+      - order_id
+      - ordered_at
+      - status_code
+      - sales_channel
+      - region_code
+      - order_total
+    order_by:
+      - order_id
+    row_count: 60
+    data_sha256: fef95d510a3a2b75c5f8b15db06d908a19b152df31619fb5d2f54e7457959597
+  support.order_cases:
+    columns:
+      - case_id
+      - order_id
+      - product_id
+      - customer_id
+      - status
+      - priority
+      - opened_at
+      - closed_at
+      - case_summary
+    order_by:
+      - case_id
+    row_count: 30
+    data_sha256: 22f94f29beea5505a1997267f3977037f466334312c2eb1e59e3aad401ed8bfd
+schema_sha256: 15f5305fa070ba41fe912906cdbb8aec629c7b30b579f6324ebddd166968f3f7
+constraints_sha256: b5a6a49b03784eafa558a0f74f2435eb968ad47f8dbd1246a5a7b89fd7998c5c
+safety:
+  database: schemabridge
+  user: schemabridge_reader
+  default_transaction_read_only: "on"
+  transaction_read_only: "on"
+  statement_timeout: 5s
+  lock_timeout: 1s
+  tracked_schema_count: 8
+  tracked_table_count: 11
+  total_row_count: 465
+  schema_usage_count: 8
+  schema_create_count: 0
+  selectable_table_count: 11
+  insertable_table_count: 0
+  updateable_table_count: 0
+  deletable_table_count: 0
+  truncatable_table_count: 0
+global_sha256: 487388495115265d5fac5a17675e05c236fd4eb4c430613ef02050a5f6010654

@@ -1,6 +1,6 @@
 # M17: Stable judge deployment and operations
 
-- Status: planned
+- Status: partial; package and recorded path verified locally, public release/manual test blocked
 - Timebox: 3 hours
 - Recommended Codex: GPT-5.6 Sol — Extra High (xhigh)
 - Dependencies: M16
@@ -34,11 +34,11 @@ Judges need easy access, but deployment constraints must not cause misleading cl
 ## Acceptance criteria
 
 - [ ] The public URL works without payment or hidden operator steps for judges.
-- [ ] Live versus recorded/fake DataHub and LLM modes are unambiguously labeled.
-- [ ] The public path produces the expected north-star result and safety/rejection evidence.
-- [ ] Secrets are stored outside Git and scoped to demo assets.
+- [x] Live versus recorded/fake DataHub and LLM modes are unambiguously labeled.
+- [x] The packaged public path produces the expected north-star result and safety/rejection evidence locally.
+- [x] The hosted recorded runtime requires no secrets; local live credentials remain ignored/scoped.
 - [ ] A clean deploy from the release commit is documented and repeatable.
-- [ ] Local full-DataHub instructions remain functional even if the hosted mode uses a constrained fallback.
+- [x] Local full-DataHub instructions remain functional even if the hosted mode uses a constrained fallback.
 
 ## Required automated checks
 

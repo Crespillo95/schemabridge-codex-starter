@@ -4,10 +4,28 @@ Concrete adapters will be wired here as milestones are implemented. Business
 logic must not import this module.
 """
 
-from dataclasses import dataclass
+import hashlib
+import hmac
+import importlib.util
+import secrets
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
+from urllib.parse import unquote, urlsplit
 
+from schemabridge.adapters.control_plane.migration_paths import (
+    resolve_control_plane_migrations_path,
+)
+from schemabridge.application.api_workflows import (
+    CancelExecutionJob,
+    InspectExecutionJob,
+    SubmitExecutionJob,
+)
+from schemabridge.application.authentication import AuthenticationBoundaryError
+from schemabridge.application.authorization import DenyByDefaultAuthorizationPolicy
 from schemabridge.application.candidate_demo import build_customer_key_concept
 from schemabridge.application.candidate_engine import (
     EvaluateSemanticCandidates,
@@ -23,6 +41,7 @@ from schemabridge.application.canonical_review import (
     StartCanonicalReview,
 )
 from schemabridge.application.catalog_inspection import InspectCatalogAsset
+from schemabridge.application.connectors import ExactExecutionTargetResolver
 from schemabridge.application.evaluation import RunReleaseEvaluation
 from schemabridge.application.governed_execution import (
     ExecuteGovernedRequest,
@@ -35,7 +54,19 @@ from schemabridge.application.guided_requests import (
     SaveRequestDraft,
     SubmitGuidedRequest,
 )
+from schemabridge.application.identity_rotation import (
+    ApproveIdentityRotation,
+    CompleteReservedIdentityRotation,
+    InitializeVerifiedIdentityState,
+    PrepareIdentityRotation,
+    ResolveReservedIdentityRotation,
+)
 from schemabridge.application.intent_resolution import ResolveNaturalLanguageIntent
+from schemabridge.application.job_worker import (
+    RunOneJobWorker,
+    WorkerExecutionRouteContext,
+    WorkerOrchestratorFactoryPort,
+)
 from schemabridge.application.join_discovery import (
     DecideJoinCandidate,
     DiscoverJoinCandidates,
@@ -45,16 +76,45 @@ from schemabridge.application.join_discovery import (
     PublishJoinContracts,
     StartJoinReview,
 )
+from schemabridge.application.legacy_import import (
+    ApplyLegacyControlPlaneImport,
+    InspectLegacyControlPlaneImport,
+    PrepareLegacyControlPlaneImport,
+)
+from schemabridge.application.ports.authentication import BearerAuthenticationPort
+from schemabridge.application.ports.background_jobs import (
+    BackgroundJobApiStorePort,
+    BackgroundJobStorePort,
+)
 from schemabridge.application.ports.candidates import CandidateEvidencePort
 from schemabridge.application.ports.catalog import CatalogReadPort
+from schemabridge.application.ports.connectors import ExecutionTargetResolverPort
+from schemabridge.application.ports.control_plane_migrations import (
+    ControlPlaneMigrationInspection,
+    ControlPlaneMigrationPort,
+)
+from schemabridge.application.ports.control_plane_operations import (
+    ControlPlaneBackupPort,
+    ControlPlaneRestorePort,
+)
 from schemabridge.application.ports.evaluation import EvaluationReportWriterPort
 from schemabridge.application.ports.intents import (
     IntentParserError,
     IntentParserErrorCode,
     IntentParserPort,
 )
-from schemabridge.application.ports.planning import SemanticPlanningContextPort
+from schemabridge.application.ports.planning import GovernedSemanticRegistryPort
+from schemabridge.application.ports.publication_audit import (
+    PublicationAuditStoreError,
+    PublicationAuditStorePort,
+)
 from schemabridge.application.ports.recipes import QueryRecipeRepositoryPort
+from schemabridge.application.ports.registry_control import (
+    ActiveRegistryPointerReadPort,
+    RegistryControlStorePort,
+    RegistryProjectionPort,
+    RegistryVersionReadPort,
+)
 from schemabridge.application.ports.relationships import (
     JoinContextReadPort,
     JoinContextWritePort,
@@ -66,11 +126,16 @@ from schemabridge.application.ports.reviews import (
     CatalogWritePort,
     ReviewStorePort,
 )
-from schemabridge.application.ports.workflows import WorkflowPublicationPort
+from schemabridge.application.ports.workflow_access import WorkflowAccessStorePort
+from schemabridge.application.ports.workflows import (
+    WorkflowDraftStorePort,
+    WorkflowPublicationPort,
+)
 from schemabridge.application.postgres_health import (
     CheckDatabaseReadiness,
     DatabaseConfigurationError,
 )
+from schemabridge.application.query_cost import AssessGovernedQueryCost
 from schemabridge.application.query_execution import (
     PrepareQuery,
     PreviewQuery,
@@ -80,22 +145,130 @@ from schemabridge.application.query_recipes import (
     AssessQueryRecipeReuse,
     PrepareQueryRecipe,
     PrepareStoredQueryRecipe,
+    PrepareStoredStaleQueryRecipeMigration,
     PublishQueryRecipe,
+    PublishStaleQueryRecipeMigration,
+)
+from schemabridge.application.registry_control import (
+    CommitRegistryActivation,
+    InspectRegistryReconciliation,
+    PrepareRegistryActivation,
+    PrepareRegistryRollback,
+    ReconcileRegistryProjection,
+)
+from schemabridge.application.semantic_change import AssertSemanticContextCurrent
+from schemabridge.application.semantic_registry import (
+    PrepareGovernedSemanticRegistryPublicationApproval,
+    PublishGovernedSemanticRegistryVersion,
 )
 from schemabridge.application.ui_view_models import (
     JudgeUiViewFactory,
     UiMode,
+    UiRegistryProjectionStatus,
     build_ui_reference_data,
 )
-from schemabridge.application.ui_workflow import JudgeUiService
+from schemabridge.application.ui_workflow import (
+    DeniedJudgeUiViewFactory,
+    JudgeUiService,
+)
 from schemabridge.application.workflow_orchestration import AgentWorkflowOrchestrator
-from schemabridge.config import Settings, get_settings
+from schemabridge.config import CONTROL_PLANE_SCHEMA, Settings, get_settings
+from schemabridge.domain.identity import (
+    AuthenticatedPrincipal,
+    AuthenticationMethod,
+    IdentityRole,
+    WorkflowPermission,
+)
 from schemabridge.domain.plans import QueryPolicy
+from schemabridge.domain.query_studio_matching import (
+    GOVERNED_DESCRIPTION_MATCHER_VERSION,
+)
+from schemabridge.domain.registry_control import registry_projection_fingerprint
 from schemabridge.domain.resolution import ResolutionLimits
+from schemabridge.domain.semantic_registry import (
+    ScopedSemanticRegistrySnapshot,
+    SemanticRegistryScope,
+)
+
+QueryStudioRuntimeSettings = Settings
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
+
+    from schemabridge.adapters.connectors.local_secrets import (
+        OwnerOnlyConnectorSecretResolver,
+    )
+    from schemabridge.adapters.control_plane.identity_evidence import (
+        IdentityEvidenceFileReader,
+    )
+    from schemabridge.adapters.control_plane.postgres_identity_bindings import (
+        PostgresIdentityBindingResolver,
+    )
+    from schemabridge.adapters.control_plane.postgres_identity_rotation import (
+        PostgresIdentityRotationStore,
+    )
+    from schemabridge.adapters.control_plane.postgres_pool import PostgresControlPool
+    from schemabridge.adapters.storage.postgres import (
+        ControlConnectionProvider,
+        PostgresWorkflowAccessStore,
+        PostgresWorkflowDraftStore,
+    )
+    from schemabridge.application.catalog_indexer import RunOneCatalogRefresh
+    from schemabridge.application.catalog_inventory import ApplyTenantCapacityPolicy
+    from schemabridge.application.connector_route_operator import ConnectorRouteOperator
+    from schemabridge.application.database_separation import (
+        VerifySourceControlDatabaseSeparation,
+    )
+    from schemabridge.application.ports.query_studio import (
+        DescriptionExpansionPort,
+        PhysicalFieldDiscoveryPort,
+    )
+    from schemabridge.application.query_studio import (
+        BrowseGuidedGovernedFields,
+        ConfirmGuidedQueryStudioPreview,
+        ConfirmQueryStudioPreview,
+        DiscoverPhysicalFields,
+        PrepareGuidedSelectionQueryStudioPreview,
+        PrepareNaturalLanguageQueryStudioPreview,
+        RecomputeNaturalLanguageQueryStudioPreview,
+        SearchGovernedFields,
+    )
+    from schemabridge.application.query_studio_ai_policy import TenantAiPolicyOperator
+    from schemabridge.application.semantic_change import InspectSemanticChange
+    from schemabridge.application.semantic_change_reconciler import (
+        RunOneSemanticChangeScan,
+    )
+    from schemabridge.application.semantic_dependency_reconciler import (
+        ReconcileSemanticDependencies,
+        SemanticDependencyReconciliationResult,
+    )
+    from schemabridge.application.semantic_profile_worker import RunOneSemanticJoinProfile
+    from schemabridge.domain.query_studio import (
+        PhysicalDiscoveryCardinality,
+        ProviderConfigurationFacts,
+    )
+    from schemabridge.domain.semantic_change_scans import SemanticChangeScanRequest
+    from schemabridge.entrypoints.catalog.main import CatalogProcessRuntime
+    from schemabridge.entrypoints.http.app import ApiHttpServices
+    from schemabridge.entrypoints.semantic_change.main import SemanticChangeOperatorRuntime
+    from schemabridge.entrypoints.semantic_profile_worker.main import (
+        SemanticProfileWorkerProcessRuntime,
+    )
+    from schemabridge.entrypoints.semantic_reconciler.main import (
+        SemanticReconcilerProcessRuntime,
+    )
 
 _DEMO_EVALUATION_DATABASE_URL = (
     "postgresql://schemabridge_reader:schemabridge_reader@127.0.0.1:55433/schemabridge"
 )
+ControlPlaneCredential = Literal[
+    "runtime",
+    "reconciler",
+    "migrator",
+    "api",
+    "worker",
+    "catalog",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,10 +282,278 @@ class ApplicationContainer:
     settings: Settings
 
 
+@dataclass(frozen=True, slots=True)
+class StreamlitRuntimeOptions:
+    """Non-secret entrypoint defaults resolved only at the composition root."""
+
+    profile: Literal["development", "hosted-demo", "staging", "production"]
+    auth_mode: Literal["local-demo", "oidc"]
+    catalog_kind: Literal["live", "recorded"]
+    registry_kind: Literal["live", "recorded"]
+    publication_kind: Literal["live", "fake"]
+    execution_kind: Literal["live", "recorded"]
+    oidc_provider: str | None
+    oidc_audience: str | None
+    oidc_issuer: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class QueryStudioRuntimeServices:
+    """Server-side Query Studio use cases exposed to the Streamlit entrypoint."""
+
+    scope: SemanticRegistryScope
+    ai_mode: Literal["disabled", "fake", "live"]
+    configuration: "ProviderConfigurationFacts" = field(repr=False)
+    search: "SearchGovernedFields" = field(repr=False)
+    browse_guided: "BrowseGuidedGovernedFields" = field(repr=False)
+    prepare_guided: "PrepareGuidedSelectionQueryStudioPreview" = field(repr=False)
+    confirm_guided: "ConfirmGuidedQueryStudioPreview" = field(repr=False)
+    catalog_cardinality: "PhysicalDiscoveryCardinality"
+    governed_mapping_count: int
+    prepare_natural: "PrepareNaturalLanguageQueryStudioPreview | None" = field(
+        default=None,
+        repr=False,
+    )
+    confirm_natural: "ConfirmQueryStudioPreview | None" = field(
+        default=None,
+        repr=False,
+    )
+    recompute_natural: "RecomputeNaturalLanguageQueryStudioPreview | None" = field(
+        default=None,
+        repr=False,
+    )
+    discover_physical: "DiscoverPhysicalFields | None" = field(default=None, repr=False)
+    expansion: "DescriptionExpansionPort | None" = field(default=None, repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class ApiProcessRuntime:
+    """Fully composed API process with only non-secret server settings exposed."""
+
+    application: "FastAPI" = field(repr=False)
+    log_level: str
+    bind_host: str
+    port: int
+    graceful_shutdown_seconds: int
+
+
+@dataclass(frozen=True, slots=True)
+class WorkerProcessRuntime:
+    """Fully composed worker process or a completed readiness-only preflight."""
+
+    worker: RunOneJobWorker | None = field(repr=False)
+    log_level: str
+    poll_interval_seconds: float
+    control_pool: "PostgresControlPool | None" = field(default=None, repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class LegacyControlPlaneImportServices:
+    """Explicit inspect, dry-run, and apply operations over one offline source."""
+
+    inspect: InspectLegacyControlPlaneImport
+    prepare: PrepareLegacyControlPlaneImport
+    apply: ApplyLegacyControlPlaneImport
+
+
+@dataclass(frozen=True, slots=True)
+class IdentityRotationServices:
+    """Approval-gated identity operations sharing one bounded durable store."""
+
+    initialize: InitializeVerifiedIdentityState
+    prepare: PrepareIdentityRotation
+    approve: ApproveIdentityRotation
+    resolve: ResolveReservedIdentityRotation
+    complete: CompleteReservedIdentityRotation
+
+
+@dataclass(frozen=True, slots=True)
+class _ControlPlaneReadiness:
+    """Expose only a read-only current-schema check to the HTTP boundary."""
+
+    check: Callable[[], object]
+
+    def require_ready(self) -> None:
+        self.check()
+
+
 def build_container(settings: Settings | None = None) -> ApplicationContainer:
     """Create the application dependency graph."""
 
     return ApplicationContainer(settings=settings or get_settings())
+
+
+def resolve_runtime_profile(
+    settings: Settings | None = None,
+) -> Literal["development", "hosted-demo", "staging", "production"]:
+    """Expose only the profile an entrypoint needs, keeping configuration at the root."""
+
+    return (settings or get_settings()).runtime_profile
+
+
+def build_streamlit_runtime_options(
+    settings: Settings | None = None,
+) -> StreamlitRuntimeOptions:
+    resolved = settings or get_settings()
+    _reject_operator_credentials_in_managed_web(resolved)
+    if resolved.auth_mode == "oidc" and importlib.util.find_spec("authlib") is None:
+        raise RuntimeError("OIDC authentication support is unavailable; install schemabridge[ui]")
+    return StreamlitRuntimeOptions(
+        profile=resolved.runtime_profile,
+        auth_mode=resolved.auth_mode,
+        catalog_kind=resolved.catalog_mode,
+        registry_kind=resolved.registry_mode,
+        publication_kind=resolved.publication_mode,
+        execution_kind=resolved.execution_mode,
+        oidc_provider=resolved.oidc_provider,
+        oidc_audience=resolved.oidc_audience,
+        oidc_issuer=resolved.oidc_issuer,
+    )
+
+
+def build_streamlit_principal(
+    *,
+    claims: Mapping[str, object] | None = None,
+    now: datetime | None = None,
+    settings: Settings | None = None,
+) -> AuthenticatedPrincipal:
+    """Resolve one local-demo or authenticated OIDC principal at the composition root."""
+
+    from schemabridge.adapters.identity.local import LocalDemoPrincipalFactory
+    from schemabridge.adapters.identity.oidc import OidcClaimError, OidcPrincipalMapper
+    from schemabridge.adapters.workflows.system import SystemWorkflowClock
+
+    resolved = settings or get_settings()
+    current = now or SystemWorkflowClock().now()
+    if resolved.auth_mode == "local-demo":
+        if claims is not None:
+            raise ValueError("local demo identity does not accept browser claims")
+        return LocalDemoPrincipalFactory(
+            workspace=resolved.local_workspace,
+            subject=resolved.local_subject,
+            roles=frozenset(IdentityRole(role) for role in resolved.local_roles),
+        ).create(now=current)
+    if claims is None:
+        raise ValueError("OIDC identity requires authenticated Streamlit claims")
+    assert resolved.oidc_issuer is not None
+    assert resolved.oidc_audience is not None
+    assert resolved.pseudonymization_key is not None
+    allowed_groups = {
+        group: frozenset(IdentityRole(role) for role in roles)
+        for group, roles in resolved.oidc_allowed_groups.items()
+    }
+    try:
+        return OidcPrincipalMapper(
+            expected_issuer=resolved.oidc_issuer,
+            expected_audience=resolved.oidc_audience,
+            allowed_group_roles=allowed_groups,
+            allowed_tenants=frozenset(resolved.oidc_allowed_tenants),
+            pseudonymization_key=resolved.pseudonymization_key.get_secret_value().encode(),
+            pseudonymization_key_version=resolved.pseudonymization_key_version,
+            workspace_claim=resolved.oidc_tenant_claim,
+            groups_claim=resolved.oidc_role_claim,
+            max_session_age=timedelta(seconds=resolved.oidc_max_session_age_seconds),
+        ).map_claims(claims, now=current)
+    except OidcClaimError as error:
+        raise AuthenticationBoundaryError(error.code.value) from error
+
+
+def build_bearer_authenticator(
+    settings: Settings | None = None,
+) -> BearerAuthenticationPort:
+    """Compose either the development token or signed OIDC bearer boundary."""
+
+    resolved = settings or get_settings()
+    if resolved.auth_mode == "local-demo":
+        from schemabridge.adapters.identity.local import LocalDemoPrincipalFactory
+        from schemabridge.adapters.identity.local_bearer import LocalBearerAuthenticator
+
+        if resolved.api_local_bearer_token is None:
+            raise DatabaseConfigurationError(
+                "SCHEMABRIDGE_API_LOCAL_BEARER_TOKEN is required for the local API"
+            )
+        return LocalBearerAuthenticator(
+            configured_token=resolved.api_local_bearer_token,
+            principal_factory=LocalDemoPrincipalFactory(
+                workspace=resolved.local_workspace,
+                subject=resolved.local_subject,
+                roles=frozenset(IdentityRole(role) for role in resolved.local_roles),
+            ),
+            runtime_profile=resolved.runtime_profile,
+        )
+
+    from schemabridge.adapters.identity.oidc import OidcPrincipalMapper
+    from schemabridge.adapters.identity.oidc_bearer import OidcBearerAuthenticator
+
+    if resolved.api_oidc_jwks_url is None:
+        raise DatabaseConfigurationError(
+            "SCHEMABRIDGE_API_OIDC_JWKS_URL is required for the OIDC API"
+        )
+    assert resolved.oidc_issuer is not None
+    assert resolved.oidc_audience is not None
+    assert resolved.pseudonymization_key is not None
+    mapper = OidcPrincipalMapper(
+        expected_issuer=resolved.oidc_issuer,
+        expected_audience=resolved.oidc_audience,
+        allowed_group_roles={
+            group: frozenset(IdentityRole(role) for role in roles)
+            for group, roles in resolved.oidc_allowed_groups.items()
+        },
+        allowed_tenants=frozenset(resolved.oidc_allowed_tenants),
+        pseudonymization_key=resolved.pseudonymization_key.get_secret_value().encode(),
+        pseudonymization_key_version=resolved.pseudonymization_key_version,
+        workspace_claim=resolved.oidc_tenant_claim,
+        groups_claim=resolved.oidc_role_claim,
+        max_session_age=timedelta(seconds=resolved.oidc_max_session_age_seconds),
+    )
+    issuer = urlsplit(resolved.oidc_issuer)
+    allow_insecure_loopback = (
+        resolved.runtime_profile == "development"
+        and issuer.scheme == "http"
+        and issuer.hostname in {"127.0.0.1", "::1", "localhost"}
+    )
+    return OidcBearerAuthenticator(
+        mapper=mapper,
+        jwks_url=resolved.api_oidc_jwks_url,
+        algorithms=resolved.api_oidc_algorithms,
+        expected_authorized_party=resolved.oidc_audience,
+        allow_insecure_loopback=allow_insecure_loopback,
+    )
+
+
+def resolve_control_operator_actor(
+    supplied_actor: str | None,
+    *,
+    required_role: str,
+    settings: Settings | None = None,
+) -> str:
+    """Resolve an auditable operator without trusting managed CLI identity input."""
+
+    resolved = settings or get_settings()
+    if resolved.runtime_profile in {"staging", "production"}:
+        if supplied_actor is not None:
+            raise DatabaseConfigurationError(
+                "managed control-plane actor identity cannot be supplied on the command line"
+            )
+        actor = resolved.control_operator_actor_id
+        roles = set(resolved.control_operator_roles)
+        if actor is None:
+            raise DatabaseConfigurationError(
+                "managed control-plane commands require a trusted configured operator identity"
+            )
+    else:
+        principal = build_streamlit_principal(settings=resolved)
+        actor = principal.actor_id
+        roles = {role.value for role in principal.roles}
+        if supplied_actor is not None and supplied_actor != actor:
+            raise DatabaseConfigurationError(
+                "local control-plane actor must match the authenticated local principal"
+            )
+    if required_role not in roles and IdentityRole.PLATFORM_ADMIN.value not in roles:
+        raise DatabaseConfigurationError(
+            "control-plane operator lacks the required configured role"
+        )
+    return actor
 
 
 def build_postgres_health_check(settings: Settings | None = None) -> CheckDatabaseReadiness:
@@ -136,6 +577,596 @@ def build_postgres_health_check(settings: Settings | None = None) -> CheckDataba
         expected_user=resolved_settings.postgres_reader_user,
         expected_statement_timeout_ms=resolved_settings.statement_timeout_ms,
     )
+
+
+def build_source_control_database_separation(
+    settings: Settings | None = None,
+) -> "VerifySourceControlDatabaseSeparation":
+    """Compose a server-observed, read-only source/control separation proof."""
+
+    from schemabridge.adapters.postgres.database_identity import (
+        PsycopgDatabaseIdentityProbe,
+    )
+    from schemabridge.application.database_separation import (
+        VerifySourceControlDatabaseSeparation,
+    )
+
+    resolved = settings or get_settings()
+    if resolved.database_url is None:
+        raise DatabaseConfigurationError(
+            "DATABASE_URL is required to verify source/control database separation"
+        )
+    control_dsn = _control_plane_dsn(resolved, "runtime")
+    control_user = unquote(urlsplit(control_dsn).username or "")
+    if not control_user:
+        raise DatabaseConfigurationError("control runtime database user is invalid")
+    return VerifySourceControlDatabaseSeparation(
+        source=PsycopgDatabaseIdentityProbe(
+            resolved.database_url,
+            expected_user=resolved.postgres_reader_user,
+            statement_timeout_ms=resolved.statement_timeout_ms,
+        ),
+        control=PsycopgDatabaseIdentityProbe(
+            control_dsn,
+            expected_user=control_user,
+            statement_timeout_ms=resolved.statement_timeout_ms,
+        ),
+    )
+
+
+def build_control_plane_migrator(
+    *,
+    credential_kind: ControlPlaneCredential = "migrator",
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+    connection_provider: "ControlConnectionProvider | None" = None,
+) -> ControlPlaneMigrationPort:
+    """Compose explicit control-plane migration access with one selected credential.
+
+    Runtime composition calls only ``require_current`` through the runtime credential.
+    DDL remains available solely when an operator explicitly selects the migrator.
+    """
+
+    from schemabridge.adapters.control_plane.postgres_migrations import (
+        PostgresControlPlaneMigrator,
+    )
+
+    resolved = settings or get_settings()
+    _require_supported_control_plane_schema(resolved)
+    root = (repository_root or Path.cwd()).resolve()
+    migrator = PostgresControlPlaneMigrator(
+        dsn=_control_plane_dsn(resolved, credential_kind),
+        migrations_path=resolve_control_plane_migrations_path(root),
+        application_name=f"schemabridge-control-{credential_kind}",
+        connection_factory=(
+            None
+            if connection_provider is None
+            else lambda _dsn, _timeout: connection_provider.connection()
+        ),
+    )
+    known = migrator.known_migrations()
+    if known[-1].version != resolved.control_plane_schema_version:
+        raise DatabaseConfigurationError(
+            "configured control-plane schema version does not match this release"
+        )
+    return migrator
+
+
+def require_current_control_plane_schema(
+    *,
+    credential_kind: Literal[
+        "runtime",
+        "reconciler",
+        "api",
+        "worker",
+        "catalog",
+    ] = "runtime",
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+    connection_provider: "ControlConnectionProvider | None" = None,
+) -> ControlPlaneMigrationInspection:
+    """Verify exact schema history without applying migrations or other DDL."""
+
+    return build_control_plane_migrator(
+        credential_kind=credential_kind,
+        repository_root=repository_root,
+        settings=settings,
+        connection_provider=connection_provider,
+    ).require_current()
+
+
+def build_control_plane_pool(
+    *,
+    credential_kind: Literal["api", "worker", "catalog", "reconciler"],
+    settings: Settings | None = None,
+) -> "PostgresControlPool":
+    """Build one closed, bounded pool for an isolated long-running process."""
+
+    from schemabridge.adapters.control_plane.postgres_pool import (
+        ControlPoolSettings,
+        PostgresControlPool,
+    )
+
+    resolved = settings or get_settings()
+    if resolved.runtime_component != credential_kind:
+        raise DatabaseConfigurationError(
+            "control pool credential does not match the isolated runtime component"
+        )
+    return PostgresControlPool(
+        ControlPoolSettings(
+            dsn=_control_plane_dsn(resolved, credential_kind),
+            application_name=f"schemabridge-control-{credential_kind}",
+            min_size=resolved.control_pool_min_size,
+            max_size=resolved.control_pool_max_size,
+            max_waiting=resolved.control_pool_max_waiting,
+            acquisition_timeout_seconds=(resolved.control_pool_acquisition_timeout_seconds),
+            startup_timeout_seconds=resolved.control_pool_startup_timeout_seconds,
+            close_timeout_seconds=resolved.control_pool_close_timeout_seconds,
+            statement_timeout_ms=resolved.statement_timeout_ms,
+            max_idle_seconds=resolved.control_pool_max_idle_seconds,
+            max_lifetime_seconds=resolved.control_pool_max_lifetime_seconds,
+        )
+    )
+
+
+def build_registry_control_store(
+    *,
+    credential_kind: Literal["runtime", "reconciler"] = "runtime",
+    settings: Settings | None = None,
+) -> RegistryControlStorePort:
+    """Compose the authoritative PostgreSQL registry store with a bounded role."""
+
+    from schemabridge.adapters.control_plane.postgres_registry_control import (
+        PostgresRegistryControlStore,
+    )
+
+    resolved = settings or get_settings()
+    _require_supported_control_plane_schema(resolved)
+    return PostgresRegistryControlStore(
+        dsn=_control_plane_dsn(resolved, credential_kind),
+        audit_signing_keys=_control_audit_keys(resolved),
+        active_audit_key_version=resolved.control_audit_key_version,
+        schema=resolved.control_plane_schema,
+    )
+
+
+def build_active_registry_pointer_reader(
+    *,
+    credential_kind: Literal["runtime", "worker", "reconciler"] = "runtime",
+    settings: Settings | None = None,
+    connection_provider: "ControlConnectionProvider | None" = None,
+) -> ActiveRegistryPointerReadPort:
+    """Compose the pointer-only reader without any control-audit signing key."""
+
+    from schemabridge.adapters.control_plane.postgres_active_registry import (
+        PostgresActiveRegistryPointerReader,
+    )
+
+    resolved = settings or get_settings()
+    _require_supported_control_plane_schema(resolved)
+    return PostgresActiveRegistryPointerReader(
+        dsn=_control_plane_dsn(resolved, credential_kind),
+        schema=resolved.control_plane_schema,
+        application_name=f"schemabridge-control-{credential_kind}",
+        connection_provider=connection_provider,
+    )
+
+
+def _build_postgres_identity_rotation_store(
+    settings: Settings,
+) -> "PostgresIdentityRotationStore":
+    from schemabridge.adapters.control_plane.postgres_identity_rotation import (
+        PostgresIdentityRotationStore,
+    )
+
+    return PostgresIdentityRotationStore(
+        dsn=_control_plane_dsn(settings, "runtime"),
+        audit_signing_keys=_control_audit_keys(settings),
+        active_audit_key_version=settings.control_audit_key_version,
+        schema=settings.control_plane_schema,
+    )
+
+
+def build_identity_rotation_store(
+    *,
+    settings: Settings | None = None,
+) -> "PostgresIdentityRotationStore":
+    """Compose opaque identity lineage resolution through the runtime role."""
+
+    resolved = settings or get_settings()
+    if resolved.control_plane_kind != "postgres":
+        raise DatabaseConfigurationError("identity rotation requires the PostgreSQL control plane")
+    _require_supported_control_plane_schema(resolved)
+    return _build_postgres_identity_rotation_store(resolved)
+
+
+def build_identity_binding_resolver(
+    *,
+    credential_kind: Literal["api", "worker"],
+    settings: Settings | None = None,
+    connection_provider: "ControlConnectionProvider | None" = None,
+) -> "PostgresIdentityBindingResolver":
+    """Compose same-lineage reads without audit/HMAC or mutation capability."""
+
+    from schemabridge.adapters.control_plane.postgres_identity_bindings import (
+        PostgresIdentityBindingResolver,
+    )
+
+    resolved = settings or get_settings()
+    if resolved.control_plane_kind != "postgres":
+        raise DatabaseConfigurationError(
+            "identity binding resolution requires the PostgreSQL control plane"
+        )
+    _require_supported_control_plane_schema(resolved)
+    return PostgresIdentityBindingResolver(
+        dsn=_control_plane_dsn(resolved, credential_kind),
+        schema=resolved.control_plane_schema,
+        application_name=f"schemabridge-control-{credential_kind}",
+        connection_provider=connection_provider,
+    )
+
+
+def build_identity_evidence_reader(
+    path: Path,
+    *,
+    clock: Callable[[], datetime] | None = None,
+    settings: Settings | None = None,
+) -> "IdentityEvidenceFileReader":
+    """Compose an owner-only evidence reader from the configured migration key."""
+
+    from schemabridge.adapters.control_plane.identity_evidence import (
+        IdentityEvidenceFileReader,
+    )
+
+    resolved = settings or get_settings()
+    if resolved.identity_migration_key is None:
+        raise DatabaseConfigurationError("SCHEMABRIDGE_IDENTITY_MIGRATION_KEY is required")
+    return IdentityEvidenceFileReader(
+        path,
+        signing_keys={
+            resolved.identity_migration_key_version: (
+                resolved.identity_migration_key.get_secret_value().encode()
+            )
+        },
+        clock=clock or (lambda: datetime.now(UTC)),
+    )
+
+
+def build_identity_rotation_services(
+    *,
+    settings: Settings | None = None,
+) -> IdentityRotationServices:
+    """Compose initialization, prepare, approve, and completion on one current schema."""
+
+    resolved = settings or get_settings()
+    require_current_control_plane_schema(
+        credential_kind="runtime",
+        settings=resolved,
+    )
+    store = build_identity_rotation_store(settings=resolved)
+    return IdentityRotationServices(
+        initialize=InitializeVerifiedIdentityState(store),
+        prepare=PrepareIdentityRotation(store),
+        approve=ApproveIdentityRotation(store),
+        resolve=ResolveReservedIdentityRotation(store),
+        complete=CompleteReservedIdentityRotation(store),
+    )
+
+
+def build_legacy_control_plane_import(
+    source_path: Path,
+    *,
+    settings: Settings | None = None,
+) -> LegacyControlPlaneImportServices:
+    """Compose one offline SQLite inspection and transactional PostgreSQL import."""
+
+    from schemabridge.adapters.control_plane.legacy_import import (
+        PostgresLegacyControlPlaneImportStore,
+        SqliteLegacyControlPlaneSource,
+    )
+
+    resolved = settings or get_settings()
+    if resolved.control_plane_kind != "postgres":
+        raise DatabaseConfigurationError("legacy import requires the PostgreSQL control plane")
+    require_current_control_plane_schema(
+        credential_kind="runtime",
+        settings=resolved,
+    )
+    source = SqliteLegacyControlPlaneSource(source_path)
+    store = PostgresLegacyControlPlaneImportStore(
+        dsn=_control_plane_dsn(resolved, "runtime"),
+        schema=resolved.control_plane_schema,
+    )
+    return LegacyControlPlaneImportServices(
+        inspect=InspectLegacyControlPlaneImport(source),
+        prepare=PrepareLegacyControlPlaneImport(source, store),
+        apply=ApplyLegacyControlPlaneImport(source, store),
+    )
+
+
+def build_registry_version_reader(
+    *,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+) -> RegistryVersionReadPort:
+    """Compose the exact-version, mutation-free DataHub registry reader."""
+
+    from schemabridge.adapters.semantic_registry.datahub import DataHubRegistryReadConfig
+    from schemabridge.adapters.semantic_registry.datahub_control import (
+        DataHubRegistryVersionReader,
+    )
+
+    root = (repository_root or Path.cwd()).resolve()
+    resolved = settings or get_settings()
+    reader_env_path = resolved.semantic_registry_reader_env_path
+    if not reader_env_path.is_absolute():
+        reader_env_path = root / reader_env_path
+    return DataHubRegistryVersionReader(
+        config=DataHubRegistryReadConfig.from_env_file(reader_env_path.resolve())
+    )
+
+
+def build_registry_activation_preparer(
+    *,
+    workspace_id: str,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+) -> PrepareRegistryActivation:
+    """Compose read-only preparation of one exact forward activation."""
+
+    root = (repository_root or Path.cwd()).resolve()
+    resolved = settings or get_settings()
+    require_current_control_plane_schema(
+        credential_kind="runtime",
+        repository_root=root,
+        settings=resolved,
+    )
+    return PrepareRegistryActivation(
+        store=build_registry_control_store(settings=resolved),
+        versions=build_registry_version_reader(
+            repository_root=root,
+            settings=resolved,
+        ),
+        scope=_semantic_registry_scope(resolved, workspace_id),
+    )
+
+
+def build_registry_rollback_preparer(
+    *,
+    workspace_id: str,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+) -> PrepareRegistryRollback:
+    """Compose read-only preparation of a new generation for an approved prior version."""
+
+    root = (repository_root or Path.cwd()).resolve()
+    resolved = settings or get_settings()
+    require_current_control_plane_schema(
+        credential_kind="runtime",
+        repository_root=root,
+        settings=resolved,
+    )
+    return PrepareRegistryRollback(
+        store=build_registry_control_store(settings=resolved),
+        versions=build_registry_version_reader(
+            repository_root=root,
+            settings=resolved,
+        ),
+        scope=_semantic_registry_scope(resolved, workspace_id),
+    )
+
+
+def build_registry_activation_committer(
+    *,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+) -> CommitRegistryActivation:
+    """Compose the atomic runtime-role activation commit without preparing an approval."""
+
+    root = (repository_root or Path.cwd()).resolve()
+    resolved = settings or get_settings()
+    require_current_control_plane_schema(
+        credential_kind="runtime",
+        repository_root=root,
+        settings=resolved,
+    )
+    return CommitRegistryActivation(
+        store=build_registry_control_store(settings=resolved),
+        versions=build_registry_version_reader(
+            repository_root=root,
+            settings=resolved,
+        ),
+    )
+
+
+def build_registry_projection(
+    *,
+    repository_root: Path | None = None,
+) -> RegistryProjectionPort:
+    """Compose the bounded DataHub active-pointer projection adapter."""
+
+    from schemabridge.adapters.semantic_registry.datahub import DataHubRegistryWriteConfig
+    from schemabridge.adapters.semantic_registry.datahub_projection import (
+        DataHubRegistryProjectionAdapter,
+    )
+
+    root = (repository_root or Path.cwd()).resolve()
+    return DataHubRegistryProjectionAdapter(
+        config=DataHubRegistryWriteConfig.from_env_file(root / ".local/datahub/writer.env")
+    )
+
+
+def build_registry_reconciliation_inspector(
+    *,
+    workspace_id: str,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+) -> InspectRegistryReconciliation:
+    """Compose read-only reconciliation inspection with the reconciler role."""
+
+    root = (repository_root or Path.cwd()).resolve()
+    resolved = settings or get_settings()
+    require_current_control_plane_schema(
+        credential_kind="reconciler",
+        repository_root=root,
+        settings=resolved,
+    )
+    return InspectRegistryReconciliation(
+        store=build_registry_control_store(
+            credential_kind="reconciler",
+            settings=resolved,
+        ),
+        versions=build_registry_version_reader(
+            repository_root=root,
+            settings=resolved,
+        ),
+        projection=build_registry_projection(repository_root=root),
+        scope=_semantic_registry_scope(resolved, workspace_id),
+    )
+
+
+def build_registry_reconciliation_repairer(
+    *,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+) -> ReconcileRegistryProjection:
+    """Compose approval-gated DataHub repair with the bounded reconciler role."""
+
+    root = (repository_root or Path.cwd()).resolve()
+    resolved = settings or get_settings()
+    require_current_control_plane_schema(
+        credential_kind="reconciler",
+        repository_root=root,
+        settings=resolved,
+    )
+    return ReconcileRegistryProjection(
+        store=build_registry_control_store(
+            credential_kind="reconciler",
+            settings=resolved,
+        ),
+        versions=build_registry_version_reader(
+            repository_root=root,
+            settings=resolved,
+        ),
+        projection=build_registry_projection(repository_root=root),
+    )
+
+
+def build_control_plane_backup(
+    *,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+) -> ControlPlaneBackupPort:
+    """Compose backup only with the dedicated migrator credential and audit key."""
+
+    from schemabridge.adapters.control_plane.postgres_operations import (
+        PostgresControlPlaneBackup,
+    )
+
+    root = (repository_root or Path.cwd()).resolve()
+    resolved = settings or get_settings()
+    _require_supported_control_plane_schema(resolved)
+    migrations_path = resolve_control_plane_migrations_path(root)
+    build_control_plane_migrator(
+        credential_kind="migrator",
+        repository_root=root,
+        settings=resolved,
+    )
+    return PostgresControlPlaneBackup(
+        dsn=_control_plane_dsn(resolved, "migrator"),
+        migrations_path=migrations_path,
+        audit_signing_keys=_control_audit_keys(resolved),
+        active_audit_key_version=resolved.control_audit_key_version,
+    )
+
+
+def build_control_plane_restore(
+    *,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+) -> ControlPlaneRestorePort:
+    """Compose restore from a dedicated secret target credential, never process arguments."""
+
+    from schemabridge.adapters.control_plane.postgres_operations import (
+        PostgresControlPlaneRestore,
+    )
+
+    root = (repository_root or Path.cwd()).resolve()
+    resolved = settings or get_settings()
+    _require_supported_control_plane_schema(resolved)
+    if resolved.control_restore_database_url is None:
+        raise DatabaseConfigurationError("SCHEMABRIDGE_CONTROL_RESTORE_DATABASE_URL is required")
+    target_dsn = resolved.control_restore_database_url.get_secret_value()
+    from schemabridge.adapters.control_plane.postgres_migrations import (
+        PostgresControlPlaneMigrator,
+    )
+
+    target_migrator = PostgresControlPlaneMigrator(
+        target_dsn,
+        resolve_control_plane_migrations_path(root),
+    )
+    if target_migrator.known_migrations()[-1].version != resolved.control_plane_schema_version:
+        raise DatabaseConfigurationError(
+            "configured control-plane schema version does not match this release"
+        )
+    return PostgresControlPlaneRestore(
+        target_dsn=target_dsn,
+        migrations_path=resolve_control_plane_migrations_path(root),
+        audit_signing_keys=_control_audit_keys(resolved),
+    )
+
+
+def _control_plane_dsn(settings: Settings, credential_kind: ControlPlaneCredential) -> str:
+    configured = {
+        "runtime": settings.control_database_url,
+        "reconciler": settings.control_reconciler_database_url,
+        "migrator": settings.control_migrator_database_url,
+        "api": settings.control_api_database_url,
+        "worker": settings.control_worker_database_url,
+        "catalog": settings.control_catalog_database_url,
+    }[credential_kind]
+    if configured is None:
+        variable = {
+            "runtime": "SCHEMABRIDGE_CONTROL_DATABASE_URL",
+            "reconciler": "SCHEMABRIDGE_CONTROL_RECONCILER_DATABASE_URL",
+            "migrator": "SCHEMABRIDGE_CONTROL_MIGRATOR_DATABASE_URL",
+            "api": "SCHEMABRIDGE_CONTROL_API_DATABASE_URL",
+            "worker": "SCHEMABRIDGE_CONTROL_WORKER_DATABASE_URL",
+            "catalog": "SCHEMABRIDGE_CONTROL_CATALOG_DATABASE_URL",
+        }[credential_kind]
+        raise DatabaseConfigurationError(f"{variable} is required")
+    return configured.get_secret_value()
+
+
+def _control_audit_keys(settings: Settings) -> dict[str, bytes]:
+    if settings.control_audit_signing_key is None:
+        raise DatabaseConfigurationError("SCHEMABRIDGE_CONTROL_AUDIT_SIGNING_KEY is required")
+    return {
+        settings.control_audit_key_version: (
+            settings.control_audit_signing_key.get_secret_value().encode()
+        )
+    }
+
+
+def _require_supported_control_plane_schema(settings: Settings) -> None:
+    if settings.control_plane_schema != CONTROL_PLANE_SCHEMA:
+        raise DatabaseConfigurationError(
+            "configured control-plane schema is not supported by this release"
+        )
+
+
+def _reject_operator_credentials_in_managed_web(settings: Settings) -> None:
+    if settings.runtime_profile in {"staging", "production"} and (
+        settings.control_reconciler_database_url is not None
+        or settings.control_migrator_database_url is not None
+        or settings.control_api_database_url is not None
+        or settings.control_worker_database_url is not None
+        or settings.control_catalog_database_url is not None
+        or settings.control_restore_database_url is not None
+        or settings.control_operator_actor_id is not None
+        or settings.control_operator_roles
+    ):
+        raise RuntimeError("managed web runtime must not receive operator credentials or identity")
 
 
 def build_query_preparer(policy: QueryPolicy) -> PrepareQuery:
@@ -315,7 +1346,7 @@ def build_evaluation_runner(
             settings=resolved,
         ),
         join_proposals=build_north_star_join_proposals(),
-        guided=build_guided_request_builder(repository_root=root),
+        guided=build_guided_request_builder(repository_root=root, settings=resolved),
         deterministic_intent=build_natural_language_intent_resolver(
             "fake",
             repository_root=root,
@@ -351,33 +1382,86 @@ def build_evaluation_report_writer(
     return FileEvaluationReportWriter((repository_root or Path.cwd()).resolve())
 
 
-def build_review_store(settings: Settings | None = None) -> ReviewStorePort:
-    """Compose the local SQLite draft and immutable-decision store."""
-
-    from schemabridge.adapters.storage.reviews import SqliteReviewStore
+def build_review_store(
+    settings: Settings | None = None,
+    *,
+    workspace_id: str | None = None,
+) -> ReviewStorePort:
+    """Compose canonical-review state for the selected control plane."""
 
     resolved = settings or get_settings()
+    if resolved.control_plane_kind == "postgres":
+        from schemabridge.adapters.storage.postgres import PostgresReviewStore
+
+        return PostgresReviewStore(
+            _control_plane_dsn(resolved, "runtime"),
+            workspace_id=_control_workspace(resolved, workspace_id),
+            schema=resolved.control_plane_schema,
+        )
+    from schemabridge.adapters.storage.reviews import SqliteReviewStore
+
     return SqliteReviewStore(resolved.draft_store_path.resolve())
 
 
-def build_review_start(settings: Settings | None = None) -> StartCanonicalReview:
-    return StartCanonicalReview(build_review_store(settings))
+def build_publication_audit_store(
+    settings: Settings | None = None,
+    *,
+    workspace_id: str | None = None,
+) -> PublicationAuditStorePort:
+    """Compose the mandatory append-only publication audit store."""
+
+    resolved = settings or get_settings()
+    if resolved.control_plane_kind == "postgres":
+        from schemabridge.adapters.storage.postgres import PostgresPublicationAuditStore
+
+        return PostgresPublicationAuditStore(
+            _control_plane_dsn(resolved, "runtime"),
+            workspace_id=_control_workspace(resolved, workspace_id),
+            schema=resolved.control_plane_schema,
+        )
+    from schemabridge.adapters.storage.publication_audit import SqlitePublicationAuditStore
+
+    return SqlitePublicationAuditStore(resolved.draft_store_path.resolve())
 
 
-def build_review_inspector(settings: Settings | None = None) -> InspectCanonicalReview:
-    return InspectCanonicalReview(build_review_store(settings))
+def build_review_start(
+    settings: Settings | None = None,
+    *,
+    workspace_id: str | None = None,
+) -> StartCanonicalReview:
+    return StartCanonicalReview(build_review_store(settings, workspace_id=workspace_id))
 
 
-def build_review_decider(settings: Settings | None = None) -> DecideCanonicalMapping:
-    return DecideCanonicalMapping(build_review_store(settings))
+def build_review_inspector(
+    settings: Settings | None = None,
+    *,
+    workspace_id: str | None = None,
+) -> InspectCanonicalReview:
+    return InspectCanonicalReview(build_review_store(settings, workspace_id=workspace_id))
 
 
-def build_review_editor(settings: Settings | None = None) -> EditCanonicalReview:
-    return EditCanonicalReview(build_review_store(settings))
+def build_review_decider(
+    settings: Settings | None = None,
+    *,
+    workspace_id: str | None = None,
+) -> DecideCanonicalMapping:
+    return DecideCanonicalMapping(build_review_store(settings, workspace_id=workspace_id))
 
 
-def build_publication_preparer(settings: Settings | None = None) -> PrepareCanonicalPublication:
-    return PrepareCanonicalPublication(build_review_store(settings))
+def build_review_editor(
+    settings: Settings | None = None,
+    *,
+    workspace_id: str | None = None,
+) -> EditCanonicalReview:
+    return EditCanonicalReview(build_review_store(settings, workspace_id=workspace_id))
+
+
+def build_publication_preparer(
+    settings: Settings | None = None,
+    *,
+    workspace_id: str | None = None,
+) -> PrepareCanonicalPublication:
+    return PrepareCanonicalPublication(build_review_store(settings, workspace_id=workspace_id))
 
 
 def build_catalog_writer(
@@ -402,10 +1486,15 @@ def build_review_publisher(
     *,
     repository_root: Path | None = None,
     settings: Settings | None = None,
+    workspace_id: str | None = None,
 ) -> PublishCanonicalReview:
     return PublishCanonicalReview(
-        store=build_review_store(settings),
+        store=build_review_store(settings, workspace_id=workspace_id),
         writer=build_catalog_writer(adapter_kind, repository_root=repository_root),
+        audit_store=build_publication_audit_store(
+            settings,
+            workspace_id=workspace_id,
+        ),
     )
 
 
@@ -414,10 +1503,12 @@ def build_published_context_reader(
     *,
     repository_root: Path | None = None,
     settings: Settings | None = None,
+    workspace_id: str | None = None,
 ) -> ReadPublishedCanonicalContext:
     writer = build_catalog_writer(adapter_kind, repository_root=repository_root)
     return ReadPublishedCanonicalContext(
-        build_review_store(settings), cast(CanonicalContextReadPort, writer)
+        build_review_store(settings, workspace_id=workspace_id),
+        cast(CanonicalContextReadPort, writer),
     )
 
 
@@ -449,27 +1540,55 @@ def build_join_discoverer(
     )
 
 
-def build_join_review_store(settings: Settings | None = None) -> JoinReviewStorePort:
+def build_join_review_store(
+    settings: Settings | None = None,
+    *,
+    workspace_id: str | None = None,
+) -> JoinReviewStorePort:
+    resolved = settings or get_settings()
+    if resolved.control_plane_kind == "postgres":
+        from schemabridge.adapters.storage.postgres import PostgresJoinReviewStore
+
+        return PostgresJoinReviewStore(
+            _control_plane_dsn(resolved, "runtime"),
+            workspace_id=_control_workspace(resolved, workspace_id),
+            schema=resolved.control_plane_schema,
+        )
     from schemabridge.adapters.storage.relationships import SqliteJoinReviewStore
 
-    resolved = settings or get_settings()
     return SqliteJoinReviewStore(resolved.draft_store_path.resolve())
 
 
-def build_join_review_start(settings: Settings | None = None) -> StartJoinReview:
-    return StartJoinReview(build_join_review_store(settings))
+def build_join_review_start(
+    settings: Settings | None = None,
+    *,
+    workspace_id: str | None = None,
+) -> StartJoinReview:
+    return StartJoinReview(build_join_review_store(settings, workspace_id=workspace_id))
 
 
-def build_join_review_inspector(settings: Settings | None = None) -> InspectJoinReview:
-    return InspectJoinReview(build_join_review_store(settings))
+def build_join_review_inspector(
+    settings: Settings | None = None,
+    *,
+    workspace_id: str | None = None,
+) -> InspectJoinReview:
+    return InspectJoinReview(build_join_review_store(settings, workspace_id=workspace_id))
 
 
-def build_join_review_decider(settings: Settings | None = None) -> DecideJoinCandidate:
-    return DecideJoinCandidate(build_join_review_store(settings))
+def build_join_review_decider(
+    settings: Settings | None = None,
+    *,
+    workspace_id: str | None = None,
+) -> DecideJoinCandidate:
+    return DecideJoinCandidate(build_join_review_store(settings, workspace_id=workspace_id))
 
 
-def build_join_publication_preparer(settings: Settings | None = None) -> PrepareJoinPublication:
-    return PrepareJoinPublication(build_join_review_store(settings))
+def build_join_publication_preparer(
+    settings: Settings | None = None,
+    *,
+    workspace_id: str | None = None,
+) -> PrepareJoinPublication:
+    return PrepareJoinPublication(build_join_review_store(settings, workspace_id=workspace_id))
 
 
 def build_join_context_adapter(
@@ -492,10 +1611,15 @@ def build_join_publisher(
     *,
     repository_root: Path | None = None,
     settings: Settings | None = None,
+    workspace_id: str | None = None,
 ) -> PublishJoinContracts:
     return PublishJoinContracts(
-        store=build_join_review_store(settings),
+        store=build_join_review_store(settings, workspace_id=workspace_id),
         writer=build_join_context_adapter(adapter_kind, repository_root=repository_root),
+        audit_store=build_publication_audit_store(
+            settings,
+            workspace_id=workspace_id,
+        ),
     )
 
 
@@ -511,17 +1635,347 @@ def build_join_context_loader(
 def build_guided_request_builder(
     *,
     repository_root: Path | None = None,
+    settings: Settings | None = None,
+    registry: GovernedSemanticRegistryPort | None = None,
+    workspace_id: str | None = None,
 ) -> BuildGuidedRequest:
-    """Compose the explicit synthetic approved context; no live fallback is implied."""
+    """Compose guided requests from the same atomic registry used by planning."""
 
-    from schemabridge.adapters.requests.recorded_context import RecordedRequestContextAdapter
-
-    root = (repository_root or Path.cwd()).resolve()
     return BuildGuidedRequest(
-        context=RecordedRequestContextAdapter(
-            root / "demo/ground_truth/approved_logical_context.yml"
+        context=registry
+        or build_semantic_registry(
+            repository_root=repository_root,
+            settings=settings,
+            workspace_id=workspace_id,
         )
     )
+
+
+def build_query_studio_runtime(
+    *,
+    principal: AuthenticatedPrincipal,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+) -> QueryStudioRuntimeServices:
+    """Compose dynamic governed retrieval and an explicit fake/live/disabled AI lane."""
+
+    from schemabridge.adapters.query_studio.fake_language import (
+        DeterministicDescriptionExpansion,
+        DeterministicQueryStudioIntent,
+        fake_query_studio_configuration,
+    )
+    from schemabridge.adapters.query_studio.recorded import (
+        RecordedGovernedBindingFactsSearch,
+    )
+    from schemabridge.adapters.query_studio.security import (
+        HmacQueryStudioCandidateIds,
+        HmacQueryStudioPreviewTokens,
+        SecureQueryStudioNonce,
+        SystemQueryStudioClock,
+    )
+    from schemabridge.application.ports.query_studio import (
+        DescriptionExpansionPort,
+        GovernedBindingFactsSearchPort,
+        QueryStudioIntentPort,
+    )
+    from schemabridge.application.query_studio import (
+        BrowseGuidedGovernedFields,
+        ConfirmGuidedQueryStudioPreview,
+        ConfirmQueryStudioPreview,
+        DiscoverPhysicalFields,
+        InspectPhysicalDiscoveryCardinality,
+        PrepareGuidedSelectionQueryStudioPreview,
+        PrepareNaturalLanguageQueryStudioPreview,
+        RecomputeGuidedQueryStudioEvidence,
+        RecomputeNaturalLanguageQueryStudioPreview,
+        RegistryAwareGovernedFieldSearch,
+        SearchGovernedFields,
+    )
+    from schemabridge.domain.query_studio import (
+        LOCAL_AI_ATTEMPT_POLICY_VERSION,
+        QUERY_STUDIO_ORCHESTRATION_POLICY_VERSION,
+        ProviderConfigurationFacts,
+    )
+    from schemabridge.domain.semantic_registry import (
+        semantic_registry_scope_fingerprint,
+    )
+
+    root = (repository_root or Path.cwd()).resolve()
+    resolved = settings or get_settings()
+    if principal.workspace_id != principal.workspace_id.strip():
+        raise ValueError("Query Studio principal workspace is not canonical")
+    registry = build_semantic_registry(
+        repository_root=root,
+        settings=resolved,
+        workspace_id=principal.workspace_id,
+    )
+    scoped_registry = registry.load()
+    facts: GovernedBindingFactsSearchPort
+    if (
+        resolved.control_plane_kind == "postgres"
+        and resolved.semantic_registry_selection == "active"
+    ):
+        from schemabridge.adapters.catalog.postgres_governed_search import (
+            PostgresGovernedBindingFactsSearch,
+        )
+
+        facts = PostgresGovernedBindingFactsSearch(
+            _control_plane_dsn(resolved, "runtime"),
+            schema=resolved.control_plane_schema,
+        )
+    else:
+        facts = RecordedGovernedBindingFactsSearch(
+            scoped_registry,
+            root / "demo/datahub/catalog_snapshot.json",
+        )
+    registry_search = RegistryAwareGovernedFieldSearch(
+        registry=registry,
+        facts=facts,
+    )
+    search = SearchGovernedFields(registry=registry, search=registry_search)
+    signing_key = _query_studio_signing_key(resolved)
+    candidate_ids = HmacQueryStudioCandidateIds(signing_key)
+    preview_tokens = HmacQueryStudioPreviewTokens(signing_key)
+    clock = SystemQueryStudioClock()
+    nonces = SecureQueryStudioNonce()
+    physical_discovery: object
+    if (
+        resolved.control_plane_kind == "postgres"
+        and resolved.semantic_registry_selection == "active"
+    ):
+        from schemabridge.adapters.catalog.postgres_physical_discovery import (
+            PostgresPhysicalFieldDiscovery,
+        )
+
+        physical_discovery = PostgresPhysicalFieldDiscovery.from_signing_key(
+            dsn=_control_plane_dsn(resolved, "runtime"),
+            cursor_signing_key=signing_key,
+            schema=resolved.control_plane_schema,
+        )
+    else:
+        from schemabridge.adapters.query_studio.recorded_physical import (
+            RecordedPhysicalFieldDiscovery,
+        )
+
+        physical_discovery = RecordedPhysicalFieldDiscovery(
+            root / "demo/datahub/catalog_snapshot.json",
+            signing_key,
+        )
+    discover_physical = DiscoverPhysicalFields(
+        cast("PhysicalFieldDiscoveryPort", physical_discovery)
+    )
+    catalog_cardinality = InspectPhysicalDiscoveryCardinality(
+        cast("PhysicalFieldDiscoveryPort", physical_discovery)
+    ).execute(scoped_registry.scope)
+    governed_mapping_count = len(scoped_registry.mapping_set.mappings)
+
+    if resolved.query_studio_ai_mode == "disabled":
+        configuration = ProviderConfigurationFacts.create(
+            adapter="disabled",
+            model_snapshot="query-studio-disabled-v1",
+            reasoning_effort="none",
+            endpoint_region="local",
+            prompt_version="m27-disabled-v1",
+            schema_version="m27-v1",
+            matcher_version=GOVERNED_DESCRIPTION_MATCHER_VERSION,
+            orchestration_policy_version=QUERY_STUDIO_ORCHESTRATION_POLICY_VERSION,
+            attempt_policy_version=LOCAL_AI_ATTEMPT_POLICY_VERSION,
+            external_ai=False,
+        )
+        guided_resolver = RecomputeGuidedQueryStudioEvidence(
+            registry=registry,
+            search=registry_search,
+            candidate_ids=candidate_ids,
+        )
+        return QueryStudioRuntimeServices(
+            scope=scoped_registry.scope,
+            ai_mode="disabled",
+            configuration=configuration,
+            search=search,
+            browse_guided=BrowseGuidedGovernedFields(
+                registry=registry,
+                search=registry_search,
+                candidate_ids=candidate_ids,
+                clock=clock,
+                nonces=nonces,
+            ),
+            prepare_guided=PrepareGuidedSelectionQueryStudioPreview(
+                resolver=guided_resolver,
+                preview_tokens=preview_tokens,
+                clock=clock,
+                configuration=configuration,
+            ),
+            confirm_guided=ConfirmGuidedQueryStudioPreview(
+                registry=registry,
+                recompute=guided_resolver,
+                preview_tokens=preview_tokens,
+                clock=clock,
+                configuration=configuration,
+                guided_builder=BuildGuidedRequest(registry),
+            ),
+            catalog_cardinality=catalog_cardinality,
+            governed_mapping_count=governed_mapping_count,
+            discover_physical=discover_physical,
+        )
+
+    expansion: DescriptionExpansionPort
+    interpreter: QueryStudioIntentPort
+    if resolved.query_studio_ai_mode == "fake":
+        expansion = DeterministicDescriptionExpansion()
+        interpreter = DeterministicQueryStudioIntent()
+        configuration = fake_query_studio_configuration()
+    else:
+        from schemabridge.adapters.control_plane.postgres_query_studio_ai import (
+            PostgresQueryStudioAiControl,
+        )
+        from schemabridge.adapters.language.openai_boundary import (
+            OpenAIRegion,
+            OpenAIResponsesConfig,
+            derive_safety_identifier,
+        )
+        from schemabridge.adapters.language.openai_query_studio import (
+            create_openai_query_studio_intent_adapter_from_environment,
+            openai_interpretation_input_token_reservation_bound,
+        )
+        from schemabridge.adapters.query_studio.atomic_preflight import (
+            BoundaryScreenedDescriptionExpansionPreflight,
+        )
+        from schemabridge.application.query_studio_ai_admission import (
+            AdmittedQueryStudioIntent,
+        )
+
+        if resolved.pseudonymization_key is None:
+            raise ValueError("live Query Studio pseudonymization key is unavailable")
+        require_current_control_plane_schema(
+            credential_kind="runtime",
+            repository_root=root,
+            settings=resolved,
+        )
+        pseudonym_key = resolved.pseudonymization_key.get_secret_value().encode("utf-8")
+        openai_config = OpenAIResponsesConfig.for_model(
+            resolved.query_studio_ai_model,
+            region=OpenAIRegion(resolved.query_studio_ai_region),
+        )
+        raw_interpreter = create_openai_query_studio_intent_adapter_from_environment(
+            openai_config,
+            safety_identifier=derive_safety_identifier(
+                pseudonym_key,
+                workspace_identity=principal.workspace_id,
+                actor_identity=principal.actor_id,
+            ),
+            matcher_version=GOVERNED_DESCRIPTION_MATCHER_VERSION,
+            semantic_scope_fingerprint=semantic_registry_scope_fingerprint(scoped_registry.scope),
+            public_metadata_registry_fingerprint=scoped_registry.registry.fingerprint,
+        )
+        configuration = raw_interpreter.configuration
+        control = PostgresQueryStudioAiControl(
+            _control_plane_dsn(resolved, "runtime"),
+            schema=resolved.control_plane_schema,
+        )
+        actor_digest = hmac.new(
+            pseudonym_key,
+            f"schemabridge-ai-audit-v1\0{principal.actor_id}".encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        scope_fingerprint = semantic_registry_scope_fingerprint(scoped_registry.scope)
+        expansion = BoundaryScreenedDescriptionExpansionPreflight()
+        interpreter = AdmittedQueryStudioIntent(
+            delegate=raw_interpreter,
+            control=control,
+            nonces=nonces,
+            workspace_id=principal.workspace_id,
+            actor_digest=actor_digest,
+            semantic_scope_fingerprint=scope_fingerprint,
+            configuration=configuration,
+            estimated_input_tokens=openai_interpretation_input_token_reservation_bound(),
+            estimated_output_tokens=openai_config.interpretation_max_output_tokens,
+        )
+
+    prepare = PrepareNaturalLanguageQueryStudioPreview(
+        registry=registry,
+        search=registry_search,
+        expansion=expansion,
+        interpreter=interpreter,
+        candidate_ids=candidate_ids,
+        preview_tokens=preview_tokens,
+        clock=clock,
+        nonces=nonces,
+        configuration=configuration,
+    )
+    confirm = ConfirmQueryStudioPreview(
+        registry=registry,
+        search=registry_search,
+        candidate_ids=candidate_ids,
+        preview_tokens=preview_tokens,
+        clock=clock,
+        configuration=configuration,
+        guided_builder=BuildGuidedRequest(registry),
+    )
+    recompute_natural = RecomputeNaturalLanguageQueryStudioPreview(
+        registry=registry,
+        search=registry_search,
+        candidate_ids=candidate_ids,
+        preview_tokens=preview_tokens,
+        clock=clock,
+        configuration=configuration,
+    )
+    guided_resolver = RecomputeGuidedQueryStudioEvidence(
+        registry=registry,
+        search=registry_search,
+        candidate_ids=candidate_ids,
+    )
+    return QueryStudioRuntimeServices(
+        scope=scoped_registry.scope,
+        ai_mode=resolved.query_studio_ai_mode,
+        configuration=configuration,
+        search=search,
+        browse_guided=BrowseGuidedGovernedFields(
+            registry=registry,
+            search=registry_search,
+            candidate_ids=candidate_ids,
+            clock=clock,
+            nonces=nonces,
+        ),
+        prepare_guided=PrepareGuidedSelectionQueryStudioPreview(
+            resolver=guided_resolver,
+            preview_tokens=preview_tokens,
+            clock=clock,
+            configuration=configuration,
+        ),
+        confirm_guided=ConfirmGuidedQueryStudioPreview(
+            registry=registry,
+            recompute=guided_resolver,
+            preview_tokens=preview_tokens,
+            clock=clock,
+            configuration=configuration,
+            guided_builder=BuildGuidedRequest(registry),
+        ),
+        catalog_cardinality=catalog_cardinality,
+        governed_mapping_count=governed_mapping_count,
+        prepare_natural=prepare,
+        confirm_natural=confirm,
+        recompute_natural=recompute_natural,
+        discover_physical=discover_physical,
+        expansion=expansion,
+    )
+
+
+@lru_cache(maxsize=1)
+def _local_query_studio_signing_key() -> bytes:
+    """Keep one process-local synthetic key stable across Streamlit reruns."""
+
+    while True:
+        value = secrets.token_bytes(32)
+        if len(set(value)) >= 8:
+            return value
+
+
+def _query_studio_signing_key(settings: Settings) -> bytes:
+    if settings.query_studio_signing_key is None:
+        if settings.runtime_profile in {"staging", "production"}:
+            raise ValueError("managed Query Studio signing key is unavailable")
+        return _local_query_studio_signing_key()
+    return settings.query_studio_signing_key.get_secret_value().encode("utf-8")
 
 
 def build_natural_language_intent_resolver(
@@ -529,13 +1983,16 @@ def build_natural_language_intent_resolver(
     *,
     repository_root: Path | None = None,
     settings: Settings | None = None,
+    registry: GovernedSemanticRegistryPort | None = None,
+    workspace_id: str | None = None,
 ) -> ResolveNaturalLanguageIntent:
     """Compose an explicit fake or live parser; live never falls back without credentials."""
 
-    from schemabridge.adapters.requests.recorded_context import RecordedRequestContextAdapter
-
-    root = (repository_root or Path.cwd()).resolve()
-    context = RecordedRequestContextAdapter(root / "demo/ground_truth/approved_logical_context.yml")
+    context = registry or build_semantic_registry(
+        repository_root=repository_root,
+        settings=settings,
+        workspace_id=workspace_id,
+    )
     parser: IntentParserPort
     if adapter_kind == "fake":
         from schemabridge.adapters.language.fake import FakeIntentParser
@@ -561,25 +2018,46 @@ def build_natural_language_intent_resolver(
     )
 
 
-def build_request_draft_store(settings: Settings | None = None) -> RequestDraftStorePort:
+def build_request_draft_store(
+    settings: Settings | None = None,
+    *,
+    workspace_id: str | None = None,
+) -> RequestDraftStorePort:
+    resolved = settings or get_settings()
+    if resolved.control_plane_kind == "postgres":
+        from schemabridge.adapters.storage.postgres import PostgresRequestDraftStore
+
+        return PostgresRequestDraftStore(
+            _control_plane_dsn(resolved, "runtime"),
+            workspace_id=_control_workspace(resolved, workspace_id),
+            schema=resolved.control_plane_schema,
+        )
     from schemabridge.adapters.storage.request_drafts import SqliteRequestDraftStore
 
-    resolved = settings or get_settings()
     return SqliteRequestDraftStore(resolved.draft_store_path.resolve())
 
 
-def build_request_draft_saver(settings: Settings | None = None) -> SaveRequestDraft:
-    return SaveRequestDraft(build_request_draft_store(settings))
+def build_request_draft_saver(
+    settings: Settings | None = None,
+    *,
+    workspace_id: str | None = None,
+) -> SaveRequestDraft:
+    return SaveRequestDraft(build_request_draft_store(settings, workspace_id=workspace_id))
 
 
 def build_request_draft_loader(
     *,
     repository_root: Path | None = None,
     settings: Settings | None = None,
+    workspace_id: str | None = None,
 ) -> LoadRequestDraft:
     return LoadRequestDraft(
-        store=build_request_draft_store(settings),
-        builder=build_guided_request_builder(repository_root=repository_root),
+        store=build_request_draft_store(settings, workspace_id=workspace_id),
+        builder=build_guided_request_builder(
+            repository_root=repository_root,
+            settings=settings,
+            workspace_id=workspace_id,
+        ),
     )
 
 
@@ -591,39 +2069,401 @@ def build_guided_request_submitter() -> SubmitGuidedRequest:
     return SubmitGuidedRequest(planner=FakeRequestPlanner())
 
 
+def build_semantic_registry(
+    *,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+    workspace_id: str | None = None,
+    control_credential_kind: Literal["runtime", "worker"] = "runtime",
+    control_connection_provider: "ControlConnectionProvider | None" = None,
+) -> GovernedSemanticRegistryPort:
+    """Compose one integrity-checked registry bound to an explicit runtime scope."""
+
+    root = (repository_root or Path.cwd()).resolve()
+    resolved = settings or get_settings()
+    scope = _semantic_registry_scope(resolved, workspace_id)
+    if resolved.semantic_registry_selection == "active":
+        from schemabridge.application.registry_control import (
+            LoadActiveGovernedSemanticRegistry,
+        )
+
+        require_current_control_plane_schema(
+            credential_kind=control_credential_kind,
+            repository_root=root,
+            settings=resolved,
+            connection_provider=control_connection_provider,
+        )
+        return LoadActiveGovernedSemanticRegistry(
+            store=(
+                build_active_registry_pointer_reader(
+                    credential_kind="worker",
+                    settings=resolved,
+                    connection_provider=control_connection_provider,
+                )
+                if control_credential_kind == "worker"
+                else build_registry_control_store(settings=resolved)
+            ),
+            versions=build_registry_version_reader(
+                repository_root=root,
+                settings=resolved,
+            ),
+            _scope=scope,
+        )
+    if resolved.registry_mode == "live":
+        from schemabridge.adapters.semantic_registry.datahub import (
+            DataHubGovernedSemanticRegistry,
+            DataHubRegistryReadConfig,
+        )
+
+        reader_env_path = resolved.semantic_registry_reader_env_path
+        if not reader_env_path.is_absolute():
+            reader_env_path = root / reader_env_path
+        return DataHubGovernedSemanticRegistry(
+            config=DataHubRegistryReadConfig.from_env_file(reader_env_path),
+            _scope=scope,
+            version=resolved.semantic_registry_version,
+        )
+
+    from schemabridge.adapters.semantic_registry.recorded import (
+        RecordedGovernedSemanticRegistry,
+    )
+
+    manifest_path = resolved.semantic_registry_manifest_path
+    if not manifest_path.is_absolute():
+        manifest_path = root / manifest_path
+    return RecordedGovernedSemanticRegistry(
+        manifest_path.resolve(),
+        scope,
+    )
+
+
+def build_recorded_registry_publication_source(
+    *,
+    target_version: int | None = None,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+    workspace_id: str | None = None,
+) -> ScopedSemanticRegistrySnapshot:
+    """Derive one explicit immutable version from the verified approved bundle."""
+
+    from schemabridge.adapters.semantic_registry.recorded import (
+        RecordedGovernedSemanticRegistry,
+    )
+
+    root = (repository_root or Path.cwd()).resolve()
+    resolved = settings or get_settings()
+    manifest_path = resolved.semantic_registry_manifest_path
+    if not manifest_path.is_absolute():
+        manifest_path = root / manifest_path
+    source = RecordedGovernedSemanticRegistry(
+        manifest_path.resolve(),
+        _semantic_registry_scope(resolved, workspace_id),
+    ).load()
+    version = resolved.semantic_registry_version if target_version is None else target_version
+    if version < 1:
+        raise DatabaseConfigurationError("registry publication target version must be positive")
+    return ScopedSemanticRegistrySnapshot.model_validate(
+        {
+            **source.model_dump(mode="python"),
+            "registry": {
+                **source.registry.model_dump(mode="python"),
+                "version": version,
+            },
+        }
+    )
+
+
+def build_semantic_registry_version_publisher(
+    *,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+    workspace_id: str | None = None,
+) -> PublishGovernedSemanticRegistryVersion:
+    """Compose the explicit-approval DataHub writer and durable local audit ledger."""
+
+    from schemabridge.adapters.semantic_registry.datahub import (
+        DataHubRegistryWriteConfig,
+        DataHubSemanticRegistryPublisher,
+    )
+
+    root = (repository_root or Path.cwd()).resolve()
+    resolved = settings or get_settings()
+    if resolved.runtime_profile == "hosted-demo":
+        raise DatabaseConfigurationError(
+            "semantic registry publication is disabled in the hosted demo"
+        )
+    return PublishGovernedSemanticRegistryVersion(
+        publisher=DataHubSemanticRegistryPublisher(
+            DataHubRegistryWriteConfig.from_env_file(root / ".local/datahub/writer.env")
+        ),
+        audit_store=_build_registry_publication_audit_store(
+            resolved,
+            workspace_id=workspace_id,
+        ),
+    )
+
+
+def build_semantic_registry_publication_approval_preparer(
+    *,
+    settings: Settings | None = None,
+    workspace_id: str | None = None,
+) -> PrepareGovernedSemanticRegistryPublicationApproval:
+    """Compose replay-safe registry approval preparation over the durable audit ledger."""
+
+    resolved = settings or get_settings()
+    if resolved.runtime_profile == "hosted-demo":
+        raise DatabaseConfigurationError(
+            "semantic registry publication is disabled in the hosted demo"
+        )
+    return PrepareGovernedSemanticRegistryPublicationApproval(
+        audit_store=_build_registry_publication_audit_store(
+            resolved,
+            workspace_id=workspace_id,
+        )
+    )
+
+
+def _build_registry_publication_audit_store(
+    settings: Settings,
+    *,
+    workspace_id: str | None,
+) -> PublicationAuditStorePort:
+    try:
+        return build_publication_audit_store(settings, workspace_id=workspace_id)
+    except PublicationAuditStoreError as error:
+        raise DatabaseConfigurationError(
+            "semantic registry publication audit store is unavailable"
+        ) from error
+
+
+def _semantic_registry_scope(
+    settings: Settings,
+    workspace_id: str | None,
+) -> SemanticRegistryScope:
+    if workspace_id is None:
+        if settings.auth_mode != "local-demo":
+            raise DatabaseConfigurationError(
+                "OIDC semantic registry composition requires an authenticated workspace"
+            )
+        workspace_id = build_streamlit_principal(settings=settings).workspace_id
+    return SemanticRegistryScope(
+        workspace_id=workspace_id,
+        catalog_scope=settings.semantic_registry_catalog_scope,
+        registry_id=settings.semantic_registry_id,
+    )
+
+
+def build_semantic_registry_scope(
+    *,
+    workspace_id: str,
+    settings: Settings | None = None,
+) -> SemanticRegistryScope:
+    """Compose the configured registry scope around one authenticated workspace."""
+
+    return _semantic_registry_scope(settings or get_settings(), workspace_id)
+
+
+def _control_workspace(settings: Settings, workspace_id: str | None) -> str:
+    if workspace_id is not None:
+        return workspace_id
+    if settings.auth_mode != "local-demo":
+        raise DatabaseConfigurationError(
+            "managed control-plane composition requires an authenticated workspace"
+        )
+    return build_streamlit_principal(settings=settings).workspace_id
+
+
 def build_semantic_planning_context(
     *,
     repository_root: Path | None = None,
-) -> SemanticPlanningContextPort:
-    """Compose the visibly recorded, synthetic M10 planning context."""
+    settings: Settings | None = None,
+    workspace_id: str | None = None,
+) -> GovernedSemanticRegistryPort:
+    """Compatibility alias for callers migrating to :func:`build_semantic_registry`."""
 
-    from schemabridge.adapters.planning.recorded import RecordedSemanticPlanningContext
-
-    root = (repository_root or Path.cwd()).resolve()
-    return RecordedSemanticPlanningContext(
-        root / "demo/ground_truth/approved_logical_context.yml",
-        root / "demo/ground_truth/planning_mappings.yml",
-        root / "demo/ground_truth/join_contracts.yml",
+    return build_semantic_registry(
+        repository_root=repository_root,
+        settings=settings,
+        workspace_id=workspace_id,
     )
+
+
+def _connector_secret_directory(
+    settings: Settings,
+    *,
+    repository_root: Path,
+) -> Path:
+    configured = settings.connector_secret_directory
+    if configured is None:
+        raise DatabaseConfigurationError(
+            "SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY is required for managed connectors"
+        )
+    directory = configured if configured.is_absolute() else repository_root / configured
+    if not directory.is_absolute() or ".." in directory.parts:
+        raise DatabaseConfigurationError(
+            "SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY must be an absolute lexical path"
+        )
+    # Preserve the operator-supplied directory entry.  The owner-only resolvers
+    # deliberately compare it with ``resolve(strict=True)`` and open it with
+    # no-follow semantics; canonicalizing here would erase evidence that the
+    # configured capability entered through a symlink.
+    return directory
+
+
+def _build_connector_secret_resolver(
+    settings: Settings,
+    *,
+    repository_root: Path,
+) -> "OwnerOnlyConnectorSecretResolver":
+    from schemabridge.adapters.connectors.local_secrets import (
+        OwnerOnlyConnectorSecretResolver,
+    )
+
+    return OwnerOnlyConnectorSecretResolver(
+        _connector_secret_directory(settings, repository_root=repository_root)
+    )
+
+
+def _build_runtime_connector_preflight(
+    settings: Settings,
+    *,
+    repository_root: Path,
+    connection_provider: "ControlConnectionProvider | None",
+) -> tuple[ExecutionTargetResolverPort, AssessGovernedQueryCost]:
+    from schemabridge.adapters.connectors.postgres_routing import (
+        PostgresExecutionTargetResolver,
+        PostgresPreflightConnectorRouteReader,
+    )
+    from schemabridge.adapters.connectors.routed_postgres import (
+        RoutedPostgresQueryConnector,
+    )
+
+    dsn = _control_plane_dsn(settings, "runtime")
+    target_resolver = PostgresExecutionTargetResolver(
+        dsn,
+        schema=settings.control_plane_schema,
+        connection_provider=connection_provider,
+    )
+    route_reader = PostgresPreflightConnectorRouteReader(
+        dsn,
+        schema=settings.control_plane_schema,
+        connection_provider=connection_provider,
+    )
+    connector = RoutedPostgresQueryConnector(
+        route_reader.load_secret_reference,
+        _build_connector_secret_resolver(settings, repository_root=repository_root),
+        allowed_fields=frozenset(),
+        max_rows_limit=settings.max_query_rows,
+        max_timeout_ms=settings.statement_timeout_ms,
+        max_rejection_records=settings.max_query_rows,
+    )
+    return target_resolver, AssessGovernedQueryCost(connector)
 
 
 def build_governed_request_preparer(
     *,
     repository_root: Path | None = None,
     settings: Settings | None = None,
+    registry: GovernedSemanticRegistryPort | None = None,
+    workspace_id: str | None = None,
+    semantic_gate: AssertSemanticContextCurrent | None = None,
+    target_resolver: ExecutionTargetResolverPort | None = None,
+    cost_preflight: AssessGovernedQueryCost | None = None,
+    control_credential_kind: Literal["runtime", "worker"] | None = None,
+    control_connection_provider: "ControlConnectionProvider | None" = None,
 ) -> PrepareGovernedRequest:
     """Compose semantic resolution, deterministic compilation, and independent guarding."""
 
     from schemabridge.adapters.sql.compiler import PostgresQueryCompiler
 
+    root = (repository_root or Path.cwd()).resolve()
     resolved = settings or get_settings()
+    active_gate = semantic_gate
+    semantic_scope: SemanticRegistryScope | None = None
+    active_target_resolver = target_resolver
+    active_cost_preflight = cost_preflight
+    if (active_target_resolver is None) != (active_cost_preflight is None):
+        raise DatabaseConfigurationError(
+            "managed target resolution and cost preflight must be configured together"
+        )
+    if resolved.semantic_registry_selection == "active":
+        semantic_scope = _semantic_registry_scope(resolved, workspace_id)
+        active_gate = active_gate or build_semantic_change_gate(
+            settings=resolved,
+            credential_kind=control_credential_kind,
+            connection_provider=control_connection_provider,
+        )
+        if active_target_resolver is None and semantic_gate is None:
+            selected_credential = control_credential_kind or (
+                "worker" if resolved.runtime_component == "worker" else "runtime"
+            )
+            if selected_credential == "worker":
+                raise DatabaseConfigurationError(
+                    "managed worker preparation requires one lease-bound connector target"
+                )
+            active_target_resolver, active_cost_preflight = _build_runtime_connector_preflight(
+                resolved,
+                repository_root=root,
+                connection_provider=control_connection_provider,
+            )
+    elif active_gate is not None:
+        raise DatabaseConfigurationError(
+            "semantic change gating requires authoritative active registry selection"
+        )
     return PrepareGovernedRequest(
         planner=build_semantic_request_planner(
-            repository_root=repository_root,
+            repository_root=root,
             settings=resolved,
+            registry=registry,
+            workspace_id=workspace_id,
         ),
         compiler=PostgresQueryCompiler(),
         guard=build_sql_guard(),
+        semantic_gate=active_gate,
+        semantic_scope=semantic_scope,
+        target_resolver=active_target_resolver,
+        cost_preflight=active_cost_preflight,
+    )
+
+
+def build_semantic_change_gate(
+    *,
+    settings: Settings | None = None,
+    credential_kind: Literal["runtime", "worker"] | None = None,
+    connection_provider: "ControlConnectionProvider | None" = None,
+) -> AssertSemanticContextCurrent:
+    """Compose the minimized exact-evidence gate with a read-only control role."""
+
+    from schemabridge.adapters.semantic_change.postgres_read import (
+        PostgresSemanticChangeGateReader,
+    )
+
+    resolved = settings or get_settings()
+    if (
+        resolved.control_plane_kind != "postgres"
+        or resolved.semantic_registry_selection != "active"
+    ):
+        raise DatabaseConfigurationError(
+            "semantic change gating requires the active PostgreSQL control plane"
+        )
+    selected = credential_kind or (
+        "worker" if resolved.runtime_component == "worker" else "runtime"
+    )
+    if selected == "worker" and resolved.runtime_component != "worker":
+        raise DatabaseConfigurationError(
+            "worker semantic gate requires the isolated worker component"
+        )
+    if selected == "runtime" and resolved.runtime_component != "web":
+        raise DatabaseConfigurationError(
+            "runtime semantic gate requires the isolated web component"
+        )
+    return AssertSemanticContextCurrent(
+        PostgresSemanticChangeGateReader(
+            dsn=_control_plane_dsn(resolved, selected),
+            schema=resolved.control_plane_schema,
+            application_name=f"schemabridge-control-{selected}",
+            connection_provider=connection_provider,
+        )
     )
 
 
@@ -631,12 +2471,19 @@ def build_semantic_request_planner(
     *,
     repository_root: Path | None = None,
     settings: Settings | None = None,
+    registry: GovernedSemanticRegistryPort | None = None,
+    workspace_id: str | None = None,
 ) -> PlanSemanticRequest:
     """Compose typed semantic resolution at the sole application composition root."""
 
     resolved = settings or get_settings()
     return PlanSemanticRequest(
-        context=build_semantic_planning_context(repository_root=repository_root),
+        context=registry
+        or build_semantic_registry(
+            repository_root=repository_root,
+            settings=resolved,
+            workspace_id=workspace_id,
+        ),
         limits=ResolutionLimits(
             max_tables=resolved.max_query_tables,
             max_preview_rows=resolved.max_query_rows,
@@ -647,6 +2494,7 @@ def build_semantic_request_planner(
 
 def build_governed_request_executor(
     *,
+    execution_kind: Literal["live", "recorded"] = "live",
     repository_root: Path | None = None,
     settings: Settings | None = None,
     prepare: PrepareGovernedRequest | None = None,
@@ -654,17 +2502,48 @@ def build_governed_request_executor(
     """Compose bounded PostgreSQL preview and rejected-source reporting behind ports."""
 
     resolved = settings or get_settings()
+    root = (repository_root or Path.cwd()).resolve()
+    if execution_kind == "recorded":
+        from schemabridge.adapters.demo.recorded_execution import RecordedDemoExecutionAdapter
+
+        recorded = RecordedDemoExecutionAdapter(root / "demo/hosted/north_star_execution.json")
+        return ExecuteGovernedRequest(
+            prepare=prepare
+            or build_governed_request_preparer(
+                repository_root=root,
+                settings=resolved,
+            ),
+            executor=recorded,
+            rejection_reporter=recorded,
+        )
+    active_prepare = prepare or build_governed_request_preparer(
+        repository_root=repository_root,
+        settings=resolved,
+    )
+    if active_prepare.target_resolver is not None:
+        from schemabridge.adapters.connectors.routed_postgres import (
+            WorkerOnlyManagedQueryConnector,
+        )
+
+        disabled = WorkerOnlyManagedQueryConnector()
+        return ExecuteGovernedRequest(
+            prepare=active_prepare,
+            executor=disabled,
+            rejection_reporter=disabled,
+        )
     if not resolved.database_url:
         raise DatabaseConfigurationError("DATABASE_URL is required for governed preview")
     from schemabridge.adapters.postgres.preview import PsycopgQueryPreview
     from schemabridge.adapters.postgres.rejections import PsycopgRejectedSourceReporter
 
+    active_registry = active_prepare.planner.context.load().registry
+    rejection_fields = frozenset(
+        key.physical_field.root
+        for contract in active_registry.join_contracts.contracts
+        for key in (contract.left_key, contract.right_key)
+    )
     return ExecuteGovernedRequest(
-        prepare=prepare
-        or build_governed_request_preparer(
-            repository_root=repository_root,
-            settings=resolved,
-        ),
+        prepare=active_prepare,
         executor=PsycopgQueryPreview(
             resolved.database_url,
             expected_user=resolved.postgres_reader_user,
@@ -673,15 +2552,155 @@ def build_governed_request_executor(
         ),
         rejection_reporter=PsycopgRejectedSourceReporter(
             resolved.database_url,
-            allowed_fields=frozenset(
-                {
-                    "crm.customers.customer_id",
-                    "bank.account_holders.gf_customer_id",
-                }
-            ),
+            allowed_fields=rejection_fields,
             expected_user=resolved.postgres_reader_user,
             max_records=resolved.max_query_rows,
         ),
+    )
+
+
+def _build_postgres_workflow_access_store(
+    settings: Settings,
+    *,
+    credential_kind: Literal["runtime", "api", "worker"] = "runtime",
+    connection_provider: "ControlConnectionProvider | None" = None,
+) -> "PostgresWorkflowAccessStore":
+    from schemabridge.adapters.storage.postgres import PostgresWorkflowAccessStore
+
+    return PostgresWorkflowAccessStore(
+        _control_plane_dsn(settings, credential_kind),
+        schema=settings.control_plane_schema,
+        application_name=f"schemabridge-control-{credential_kind}",
+        connection_provider=connection_provider,
+    )
+
+
+def _build_postgres_workflow_draft_store(
+    settings: Settings,
+    *,
+    workspace_id: str,
+    owner_actor_id: str,
+    credential_kind: Literal["runtime", "api", "worker"] = "runtime",
+    connection_provider: "ControlConnectionProvider | None" = None,
+) -> "PostgresWorkflowDraftStore":
+    from schemabridge.adapters.storage.postgres import PostgresWorkflowDraftStore
+
+    return PostgresWorkflowDraftStore(
+        _control_plane_dsn(settings, credential_kind),
+        workspace_id=workspace_id,
+        owner_actor_id=owner_actor_id,
+        schema=settings.control_plane_schema,
+        application_name=f"schemabridge-control-{credential_kind}",
+        connection_provider=connection_provider,
+    )
+
+
+def _require_initialized_oidc_identity(
+    *,
+    resolver: "PostgresIdentityRotationStore",
+    workspace_id: str | None,
+    actor_id: str | None,
+) -> tuple[str, str]:
+    from schemabridge.application.ports.identity_rotation import IdentityRotationStoreError
+
+    if workspace_id is None or actor_id is None:
+        raise DatabaseConfigurationError(
+            "managed OIDC workflow composition requires authenticated workspace and owner"
+        )
+    try:
+        scopes = resolver.resolve_authorization_scopes(workspace_id, actor_id)
+    except IdentityRotationStoreError as error:
+        raise DatabaseConfigurationError(
+            "authenticated OIDC identity is not initialized in the control plane"
+        ) from error
+    if not any(
+        scope.workspace_id == workspace_id and scope.actor_id == actor_id for scope in scopes
+    ):
+        raise DatabaseConfigurationError(
+            "authenticated OIDC identity is not initialized in the control plane"
+        )
+    return workspace_id, actor_id
+
+
+def build_workflow_access_store(
+    *,
+    workspace_id: str | None = None,
+    owner_actor_id: str | None = None,
+    settings: Settings | None = None,
+) -> WorkflowAccessStorePort:
+    """Compose exact local access or verified same-lineage PostgreSQL access."""
+
+    resolved = settings or get_settings()
+    if resolved.control_plane_kind == "postgres":
+        raw = _build_postgres_workflow_access_store(resolved)
+        if resolved.auth_mode != "oidc":
+            return raw
+        from schemabridge.adapters.storage.identity_resolving import (
+            IdentityResolvingWorkflowAccessStore,
+        )
+
+        resolver = build_identity_rotation_store(settings=resolved)
+        _require_initialized_oidc_identity(
+            resolver=resolver,
+            workspace_id=workspace_id,
+            actor_id=owner_actor_id,
+        )
+        return IdentityResolvingWorkflowAccessStore(raw, resolver)
+    from schemabridge.adapters.storage.workflow_access import SqliteWorkflowAccessStore
+
+    return SqliteWorkflowAccessStore(resolved.draft_store_path.resolve())
+
+
+def build_workflow_draft_store(
+    *,
+    workspace_id: str | None = None,
+    owner_actor_id: str | None = None,
+    settings: Settings | None = None,
+) -> WorkflowDraftStorePort:
+    """Compose exact local drafts or verified same-lineage PostgreSQL drafts."""
+
+    resolved = settings or get_settings()
+    if resolved.control_plane_kind == "postgres":
+        if workspace_id is None or owner_actor_id is None:
+            raise DatabaseConfigurationError(
+                "managed workflow composition requires authenticated workspace and owner"
+            )
+        active = _build_postgres_workflow_draft_store(
+            resolved,
+            workspace_id=workspace_id,
+            owner_actor_id=owner_actor_id,
+        )
+        if resolved.auth_mode != "oidc":
+            return active
+        from schemabridge.adapters.storage.identity_resolving import (
+            IdentityResolvingWorkflowDraftStore,
+        )
+
+        resolver = build_identity_rotation_store(settings=resolved)
+        active_workspace_id, active_actor_id = _require_initialized_oidc_identity(
+            resolver=resolver,
+            workspace_id=workspace_id,
+            actor_id=owner_actor_id,
+        )
+        return IdentityResolvingWorkflowDraftStore(
+            active_store=active,
+            resolver=resolver,
+            workspace_id=active_workspace_id,
+            actor_id=active_actor_id,
+            store_factory=lambda historical_workspace_id, historical_actor_id: (
+                _build_postgres_workflow_draft_store(
+                    resolved,
+                    workspace_id=historical_workspace_id,
+                    owner_actor_id=historical_actor_id,
+                )
+            ),
+        )
+    from schemabridge.adapters.storage.workflows import SqliteWorkflowDraftStore
+
+    return SqliteWorkflowDraftStore(
+        resolved.draft_store_path.resolve(),
+        workspace_id=workspace_id,
+        owner_actor_id=owner_actor_id,
     )
 
 
@@ -689,18 +2708,35 @@ def build_agent_workflow_orchestrator(
     catalog_kind: Literal["live", "recorded"] = "recorded",
     *,
     publication_kind: Literal["live", "fake"] = "fake",
+    execution_kind: Literal["live", "recorded"] = "live",
+    workflow_workspace_id: str | None = None,
+    workflow_owner_actor_id: str | None = None,
     repository_root: Path | None = None,
     settings: Settings | None = None,
 ) -> AgentWorkflowOrchestrator:
     """Compose durable orchestration with explicit catalog/publication/recipe adapters."""
 
-    from schemabridge.adapters.storage.workflows import SqliteWorkflowDraftStore
     from schemabridge.adapters.workflows.fake import SqliteFakeWorkflowPublisher
     from schemabridge.adapters.workflows.system import SystemWorkflowClock
 
     root = (repository_root or Path.cwd()).resolve()
     resolved = settings or get_settings()
-    prepare = build_governed_request_preparer(repository_root=root, settings=resolved)
+    registry = build_semantic_registry(
+        repository_root=root,
+        settings=resolved,
+        workspace_id=workflow_workspace_id,
+    )
+    prepare = build_governed_request_preparer(
+        repository_root=root,
+        settings=resolved,
+        registry=registry,
+        workspace_id=workflow_workspace_id,
+    )
+    store = build_workflow_draft_store(
+        workspace_id=workflow_workspace_id,
+        owner_actor_id=workflow_owner_actor_id,
+        settings=resolved,
+    )
     publisher: WorkflowPublicationPort
     if publication_kind == "live":
         from schemabridge.adapters.datahub.workflow_publication import (
@@ -711,6 +2747,10 @@ def build_agent_workflow_orchestrator(
             root / ".local/datahub/writer.env"
         )
     else:
+        if resolved.runtime_profile in {"staging", "production"}:
+            raise DatabaseConfigurationError(
+                "fake workflow publication is available only with the local control plane"
+            )
         publisher = SqliteFakeWorkflowPublisher(resolved.draft_store_path.resolve())
     recipes = build_query_recipe_repository(
         publication_kind,
@@ -718,22 +2758,1402 @@ def build_agent_workflow_orchestrator(
         settings=resolved,
     )
     return AgentWorkflowOrchestrator(
-        store=SqliteWorkflowDraftStore(resolved.draft_store_path.resolve()),
+        store=store,
         clock=SystemWorkflowClock(),
         catalog=build_catalog_reader(catalog_kind, repository_root=root),
         intent=build_natural_language_intent_resolver(
             "fake",
             repository_root=root,
             settings=resolved,
+            registry=registry,
         ),
         prepare=prepare,
         execute=build_governed_request_executor(
+            execution_kind=execution_kind,
             repository_root=root,
             settings=resolved,
             prepare=prepare,
         ),
         publisher=publisher,
-        recipe_assessor=AssessQueryRecipeReuse(recipes),
+        audit_store=build_publication_audit_store(
+            resolved,
+            workspace_id=workflow_workspace_id,
+        ),
+        recipe_assessor=AssessQueryRecipeReuse(
+            recipes,
+            semantic_gate=prepare.semantic_gate,
+            semantic_scope=prepare.semantic_scope,
+        ),
+    )
+
+
+def build_background_job_store(
+    *,
+    credential_kind: Literal["api", "worker"],
+    settings: Settings | None = None,
+    connection_provider: "ControlConnectionProvider | None" = None,
+) -> BackgroundJobStorePort:
+    """Compose the queue only through one dedicated least-privilege role."""
+
+    from schemabridge.adapters.control_plane.postgres_jobs import (
+        PostgresBackgroundJobStore,
+    )
+
+    resolved = settings or get_settings()
+    if resolved.control_plane_kind != "postgres":
+        raise DatabaseConfigurationError("background jobs require the PostgreSQL control plane")
+    return PostgresBackgroundJobStore(
+        dsn=_control_plane_dsn(resolved, credential_kind),
+        schema=resolved.control_plane_schema,
+        application_name=f"schemabridge-control-{credential_kind}",
+        connection_provider=connection_provider,
+    )
+
+
+def build_tenant_capacity_policy_operator(
+    *,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+    control_connection_provider: "ControlConnectionProvider | None" = None,
+) -> "ApplyTenantCapacityPolicy":
+    """Compose the explicit migrator-only tenant-capacity operator."""
+
+    from schemabridge.adapters.catalog.postgres_inventory import (
+        PostgresTenantCapacityPolicyOperator,
+    )
+    from schemabridge.application.catalog_inventory import ApplyTenantCapacityPolicy
+
+    root = (repository_root or Path.cwd()).resolve()
+    resolved = settings or get_settings()
+    if resolved.control_plane_kind != "postgres":
+        raise DatabaseConfigurationError(
+            "tenant capacity policy operations require the PostgreSQL control plane"
+        )
+    build_control_plane_migrator(
+        credential_kind="migrator",
+        repository_root=root,
+        settings=resolved,
+        connection_provider=control_connection_provider,
+    ).require_current()
+    return ApplyTenantCapacityPolicy(
+        PostgresTenantCapacityPolicyOperator(
+            dsn=_control_plane_dsn(resolved, "migrator"),
+            schema=resolved.control_plane_schema,
+            connection_provider=control_connection_provider,
+        )
+    )
+
+
+def build_tenant_ai_policy_operator(
+    *,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+    control_connection_provider: "ControlConnectionProvider | None" = None,
+) -> "TenantAiPolicyOperator":
+    """Compose the exact inspect/prepare/apply tenant-AI policy operator."""
+
+    from schemabridge.adapters.control_plane.postgres_query_studio_policy import (
+        PostgresTenantAiPolicyOperator,
+    )
+    from schemabridge.application.query_studio_ai_policy import TenantAiPolicyOperator
+
+    root = (repository_root or Path.cwd()).resolve()
+    resolved = settings or get_settings()
+    if resolved.control_plane_kind != "postgres":
+        raise DatabaseConfigurationError(
+            "tenant AI policy operations require the PostgreSQL control plane"
+        )
+    build_control_plane_migrator(
+        credential_kind="migrator",
+        repository_root=root,
+        settings=resolved,
+        connection_provider=control_connection_provider,
+    ).require_current()
+    return TenantAiPolicyOperator(
+        PostgresTenantAiPolicyOperator(
+            dsn=_control_plane_dsn(resolved, "migrator"),
+            schema=resolved.control_plane_schema,
+            connection_provider=control_connection_provider,
+        )
+    )
+
+
+def build_connector_route_operator(
+    *,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+    control_connection_provider: "ControlConnectionProvider | None" = None,
+) -> "ConnectorRouteOperator":
+    """Compose the migrator-only inspect/prepare/approve/apply route operator."""
+
+    from schemabridge.adapters.connectors.postgres_route_operator import (
+        PostgresConnectorRouteOperator,
+    )
+    from schemabridge.application.connector_route_operator import ConnectorRouteOperator
+
+    root = (repository_root or Path.cwd()).resolve()
+    resolved = settings or get_settings()
+    if resolved.control_plane_kind != "postgres":
+        raise DatabaseConfigurationError(
+            "connector route operations require the PostgreSQL control plane"
+        )
+    build_control_plane_migrator(
+        credential_kind="migrator",
+        repository_root=root,
+        settings=resolved,
+        connection_provider=control_connection_provider,
+    ).require_current()
+    return ConnectorRouteOperator(
+        PostgresConnectorRouteOperator(
+            dsn=_control_plane_dsn(resolved, "migrator"),
+            schema=resolved.control_plane_schema,
+            connection_provider=control_connection_provider,
+        )
+    )
+
+
+def build_api_http_services(
+    *,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+    control_connection_provider: "ControlConnectionProvider | None" = None,
+) -> "ApiHttpServices":
+    """Compose the API without source, LLM, registry, or DataHub adapters."""
+
+    from schemabridge.adapters.catalog.cursor import SignedInventoryCursorCodec
+    from schemabridge.adapters.catalog.postgres_inventory import (
+        PostgresCatalogConnectionStore,
+        PostgresCatalogInventoryReader,
+        PostgresTenantCapacityStore,
+    )
+    from schemabridge.adapters.catalog.postgres_refresh import (
+        PostgresCatalogRefreshStore,
+    )
+    from schemabridge.adapters.semantic_change.cursor import (
+        SignedSemanticChangeCursorCodec,
+    )
+    from schemabridge.adapters.semantic_change.postgres_read import (
+        PostgresSemanticChangeReadStore,
+    )
+    from schemabridge.adapters.workflows.read_only import ReadOnlyWorkflowInspector
+    from schemabridge.adapters.workflows.system import SystemWorkflowClock
+    from schemabridge.application.api_capacity import AdmitAuthenticatedApiRequest
+    from schemabridge.application.api_workflows import WorkflowOrchestratorPort
+    from schemabridge.application.catalog_inventory import (
+        DisableCatalogConnection,
+        InspectCatalogRefresh,
+        ListCatalogAssets,
+        ListCatalogConnections,
+        ListCatalogFields,
+        RegisterCatalogConnection,
+        RequestCatalogRefresh,
+    )
+    from schemabridge.application.ports.workflow_access import WorkflowAccessStorePort
+    from schemabridge.application.semantic_change_read import (
+        InspectSemanticChangeReport,
+        ListSemanticChangeFindings,
+        ListSemanticChangeImpacts,
+        ListSemanticChangeReports,
+    )
+    from schemabridge.entrypoints.http.app import (
+        ApiHttpServices,
+        CatalogHttpServices,
+        SemanticChangeHttpServices,
+    )
+
+    root = (repository_root or Path.cwd()).resolve()
+    resolved = settings or get_settings()
+    if resolved.runtime_component != "api":
+        raise DatabaseConfigurationError(
+            "authenticated API composition requires SCHEMABRIDGE_COMPONENT=api"
+        )
+    require_current_control_plane_schema(
+        credential_kind="api",
+        repository_root=root,
+        settings=resolved,
+    )
+    raw_job_store = build_background_job_store(
+        credential_kind="api",
+        settings=resolved,
+        connection_provider=control_connection_provider,
+    )
+    clock = SystemWorkflowClock()
+    if resolved.inventory_cursor_signing_key is None:
+        raise DatabaseConfigurationError(
+            "authenticated catalog API requires SCHEMABRIDGE_INVENTORY_CURSOR_SIGNING_KEY"
+        )
+    catalog_connections = PostgresCatalogConnectionStore(
+        dsn=_control_plane_dsn(resolved, "api"),
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-api",
+        connection_provider=control_connection_provider,
+        stale_after_seconds=resolved.catalog_stale_after_seconds,
+    )
+    catalog_inventory = PostgresCatalogInventoryReader(
+        dsn=_control_plane_dsn(resolved, "api"),
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-api",
+        connection_provider=control_connection_provider,
+    )
+    catalog_refreshes = PostgresCatalogRefreshStore(
+        dsn=_control_plane_dsn(resolved, "api"),
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-api",
+        connection_provider=control_connection_provider,
+    )
+    inventory_cursors = SignedInventoryCursorCodec(
+        signing_key=resolved.inventory_cursor_signing_key.get_secret_value().encode("utf-8")
+    )
+    semantic_change_cursors = SignedSemanticChangeCursorCodec(
+        signing_key=resolved.inventory_cursor_signing_key.get_secret_value().encode("utf-8")
+    )
+    semantic_change_store = PostgresSemanticChangeReadStore(
+        dsn=_control_plane_dsn(resolved, "api"),
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-api",
+        connection_provider=control_connection_provider,
+    )
+    capacity = PostgresTenantCapacityStore(
+        dsn=_control_plane_dsn(resolved, "api"),
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-api",
+        connection_provider=control_connection_provider,
+    )
+    authorization = DenyByDefaultAuthorizationPolicy()
+    raw_access_store = _build_postgres_workflow_access_store(
+        resolved,
+        credential_kind="api",
+        connection_provider=control_connection_provider,
+    )
+    identity_resolver = (
+        build_identity_binding_resolver(
+            credential_kind="api",
+            settings=resolved,
+            connection_provider=control_connection_provider,
+        )
+        if resolved.auth_mode == "oidc"
+        else None
+    )
+    store: BackgroundJobApiStorePort
+    if identity_resolver is None:
+        store = raw_job_store
+    else:
+        from schemabridge.adapters.storage.identity_resolving import (
+            IdentityResolvingBackgroundJobApiStore,
+        )
+
+        store = IdentityResolvingBackgroundJobApiStore(
+            raw_job_store,
+            identity_resolver,
+        )
+
+    def access_store_factory(
+        workspace_id: str,
+        actor_id: str,
+    ) -> WorkflowAccessStorePort:
+        del workspace_id, actor_id
+        if identity_resolver is None:
+            return raw_access_store
+        from schemabridge.adapters.storage.identity_resolving import (
+            IdentityResolvingWorkflowAccessStore,
+        )
+
+        return IdentityResolvingWorkflowAccessStore(
+            raw_access_store,
+            identity_resolver,
+        )
+
+    def inspector_factory(
+        workspace_id: str,
+        actor_id: str,
+    ) -> WorkflowOrchestratorPort:
+        return ReadOnlyWorkflowInspector(
+            _build_postgres_workflow_draft_store(
+                resolved,
+                workspace_id=workspace_id,
+                owner_actor_id=actor_id,
+                credential_kind="api",
+                connection_provider=control_connection_provider,
+            )
+        )
+
+    return ApiHttpServices(
+        authenticator=build_bearer_authenticator(resolved),
+        clock=clock,
+        submit=SubmitExecutionJob(
+            job_store=store,
+            access_store_factory=access_store_factory,
+            orchestrator_factory=inspector_factory,
+            authorization=authorization,
+            clock=clock,
+            max_attempts=resolved.worker_max_attempts,
+            authorization_ttl=timedelta(seconds=resolved.api_job_authorization_ttl_seconds),
+        ),
+        inspect=InspectExecutionJob(
+            job_store=store,
+            authorization=authorization,
+            clock=clock,
+        ),
+        cancel=CancelExecutionJob(
+            job_store=store,
+            authorization=authorization,
+            clock=clock,
+        ),
+        readiness=_ControlPlaneReadiness(
+            lambda: require_current_control_plane_schema(
+                credential_kind="api",
+                repository_root=root,
+                settings=resolved,
+                connection_provider=control_connection_provider,
+            )
+        ),
+        catalog=CatalogHttpServices(
+            list_connections=ListCatalogConnections(
+                store=catalog_connections,
+                cursors=inventory_cursors,
+                clock=clock,
+            ),
+            register_connection=RegisterCatalogConnection(
+                store=catalog_connections,
+                clock=clock,
+            ),
+            disable_connection=DisableCatalogConnection(
+                store=catalog_connections,
+                clock=clock,
+            ),
+            list_assets=ListCatalogAssets(
+                connections=catalog_connections,
+                inventory=catalog_inventory,
+                cursors=inventory_cursors,
+                clock=clock,
+            ),
+            list_fields=ListCatalogFields(
+                connections=catalog_connections,
+                inventory=catalog_inventory,
+                cursors=inventory_cursors,
+                clock=clock,
+            ),
+            request_refresh=RequestCatalogRefresh(
+                connections=catalog_connections,
+                refreshes=catalog_refreshes,
+                clock=clock,
+            ),
+            inspect_refresh=InspectCatalogRefresh(
+                refreshes=catalog_refreshes,
+                clock=clock,
+            ),
+        ),
+        admission=AdmitAuthenticatedApiRequest(capacity=capacity),
+        semantic_changes=SemanticChangeHttpServices(
+            list_reports=ListSemanticChangeReports(
+                store=semantic_change_store,
+                cursors=semantic_change_cursors,
+                clock=clock,
+            ),
+            inspect_report=InspectSemanticChangeReport(
+                store=semantic_change_store,
+                clock=clock,
+            ),
+            list_findings=ListSemanticChangeFindings(
+                store=semantic_change_store,
+                cursors=semantic_change_cursors,
+                clock=clock,
+            ),
+            list_impacts=ListSemanticChangeImpacts(
+                store=semantic_change_store,
+                cursors=semantic_change_cursors,
+                clock=clock,
+            ),
+        ),
+    )
+
+
+def build_api_process_runtime(
+    *,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+) -> ApiProcessRuntime:
+    """Load isolated API settings and compose the complete ASGI runtime."""
+
+    from schemabridge.entrypoints.http.app import create_http_app
+
+    resolved = settings or Settings(_env_file=None)
+    control_pool = build_control_plane_pool(
+        credential_kind="api",
+        settings=resolved,
+    )
+    application = create_http_app(
+        build_api_http_services(
+            repository_root=repository_root,
+            settings=resolved,
+            control_connection_provider=control_pool,
+        ),
+        max_body_bytes=resolved.api_max_request_bytes,
+        max_concurrency=resolved.api_limit_concurrency,
+        allowed_hosts=resolved.api_allowed_hosts,
+        docs_enabled=resolved.api_docs_enabled,
+        lifecycle_resources=(control_pool,),
+    )
+    return ApiProcessRuntime(
+        application=application,
+        log_level=resolved.log_level,
+        bind_host=resolved.api_bind_host,
+        port=resolved.api_port,
+        graceful_shutdown_seconds=resolved.api_graceful_shutdown_seconds,
+    )
+
+
+def build_read_only_worker_orchestrator(
+    workspace_id: str,
+    owner_actor_id: str,
+    *,
+    route_context: WorkerExecutionRouteContext,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+    control_connection_provider: "ControlConnectionProvider | None" = None,
+) -> AgentWorkflowOrchestrator:
+    """Compose exact workflow execution with no publication or LLM capability."""
+
+    from schemabridge.adapters.datahub.fake import FakeCatalogAdapter
+    from schemabridge.adapters.storage.publication_audit import (
+        InMemoryPublicationAuditStore,
+    )
+    from schemabridge.adapters.workflows.read_only import DisabledWorkflowPublisher
+    from schemabridge.adapters.workflows.system import SystemWorkflowClock
+
+    root = (repository_root or Path.cwd()).resolve()
+    resolved = settings or get_settings()
+    if (
+        resolved.runtime_component != "worker"
+        or resolved.control_plane_kind != "postgres"
+        or resolved.semantic_registry_selection != "active"
+        or resolved.registry_mode != "live"
+    ):
+        raise DatabaseConfigurationError(
+            "the execution worker requires the active live PostgreSQL control plane"
+        )
+    if route_context.connector_workspace_id != workspace_id:
+        raise DatabaseConfigurationError(
+            "managed execution does not permit cross-workspace connector routing"
+        )
+    workflow_store = _build_postgres_workflow_draft_store(
+        resolved,
+        workspace_id=workspace_id,
+        owner_actor_id=owner_actor_id,
+        credential_kind="worker",
+        connection_provider=control_connection_provider,
+    )
+    bound_draft = workflow_store.load(route_context.workflow_id)
+    if (
+        bound_draft is None
+        or bound_draft.resolved_plan is None
+        or bound_draft.resolved_plan.execution_target is None
+    ):
+        raise DatabaseConfigurationError(
+            "the managed execution workflow has no bound connector target"
+        )
+    target = bound_draft.resolved_plan.execution_target
+    from schemabridge.domain.background_jobs import JobExecutionTargetRef
+
+    if (
+        target.workspace_id != route_context.connector_workspace_id
+        or JobExecutionTargetRef.from_target(target) != route_context.execution_target
+    ):
+        raise DatabaseConfigurationError(
+            "the managed execution workflow connector target does not match its job"
+        )
+    registry = build_semantic_registry(
+        repository_root=root,
+        settings=resolved,
+        workspace_id=workspace_id,
+        control_credential_kind="worker",
+        control_connection_provider=control_connection_provider,
+    )
+    from schemabridge.adapters.connectors.postgres_routing import (
+        ExecutionConnectorLeaseContext,
+        PostgresExecutionConnectorRouteReader,
+    )
+    from schemabridge.adapters.connectors.routed_postgres import (
+        RoutedPostgresQueryConnector,
+    )
+
+    lease = ExecutionConnectorLeaseContext(
+        job_workspace_id=route_context.job_workspace_id,
+        connector_workspace_id=route_context.connector_workspace_id,
+        job_id=route_context.job_id,
+        worker_id=route_context.worker_id,
+        lease_capability=route_context.lease_capability,
+        fencing_token=route_context.fencing_token,
+        connection_id=route_context.execution_target.connection_id,
+        contract_version=route_context.connector_contract_version,
+        route_revision=route_context.execution_target.route_revision,
+        target_fingerprint=route_context.execution_target.target_fingerprint,
+    )
+    route_reader = PostgresExecutionConnectorRouteReader(
+        _control_plane_dsn(resolved, "worker"),
+        schema=resolved.control_plane_schema,
+        connection_provider=control_connection_provider,
+    )
+    active_registry = registry.load().registry
+    rejection_fields = frozenset(
+        key.physical_field.root
+        for contract in active_registry.join_contracts.contracts
+        for key in (contract.left_key, contract.right_key)
+    )
+    connector = RoutedPostgresQueryConnector(
+        lambda current_target: route_reader.load_secret_reference(lease, current_target),
+        _build_connector_secret_resolver(resolved, repository_root=root),
+        allowed_fields=rejection_fields,
+        max_rows_limit=resolved.max_query_rows,
+        max_timeout_ms=resolved.statement_timeout_ms,
+        max_rejection_records=resolved.max_query_rows,
+    )
+    prepare = build_governed_request_preparer(
+        repository_root=root,
+        settings=resolved,
+        registry=registry,
+        workspace_id=workspace_id,
+        target_resolver=ExactExecutionTargetResolver(target),
+        cost_preflight=AssessGovernedQueryCost(connector),
+        control_credential_kind="worker",
+        control_connection_provider=control_connection_provider,
+    )
+    return AgentWorkflowOrchestrator(
+        store=workflow_store,
+        clock=SystemWorkflowClock(),
+        catalog=FakeCatalogAdapter(
+            (),
+            source_label="disabled:worker-execution-only",
+        ),
+        intent=build_natural_language_intent_resolver(
+            "fake",
+            repository_root=root,
+            settings=resolved,
+            registry=registry,
+            workspace_id=workspace_id,
+        ),
+        prepare=prepare,
+        execute=ExecuteGovernedRequest(
+            prepare=prepare,
+            executor=connector,
+            rejection_reporter=connector,
+        ),
+        publisher=DisabledWorkflowPublisher(),
+        audit_store=InMemoryPublicationAuditStore(),
+        recipe_assessor=None,
+    )
+
+
+def build_job_worker(
+    *,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+    orchestrator_factory: WorkerOrchestratorFactoryPort | None = None,
+    control_connection_provider: "ControlConnectionProvider | None" = None,
+) -> RunOneJobWorker:
+    """Compose one bounded worker iteration with a dedicated control role."""
+
+    from schemabridge.adapters.control_plane.threaded_heartbeat import (
+        ThreadedLeaseHeartbeatSupervisor,
+    )
+    from schemabridge.adapters.workflows.system import SystemWorkflowClock
+    from schemabridge.application.ports.workflow_access import WorkflowAccessStorePort
+
+    root = (repository_root or Path.cwd()).resolve()
+    resolved = settings or get_settings()
+    if resolved.runtime_component != "worker":
+        raise DatabaseConfigurationError(
+            "background worker composition requires SCHEMABRIDGE_COMPONENT=worker"
+        )
+    require_current_control_plane_schema(
+        credential_kind="worker",
+        repository_root=root,
+        settings=resolved,
+    )
+    store = build_background_job_store(
+        credential_kind="worker",
+        settings=resolved,
+        connection_provider=control_connection_provider,
+    )
+    raw_access_store = _build_postgres_workflow_access_store(
+        resolved,
+        credential_kind="worker",
+        connection_provider=control_connection_provider,
+    )
+    identity_resolver = (
+        build_identity_binding_resolver(
+            credential_kind="worker",
+            settings=resolved,
+            connection_provider=control_connection_provider,
+        )
+        if resolved.worker_identity_lineage_mode == "verified-oidc"
+        else None
+    )
+
+    def access_store_factory(
+        workspace_id: str,
+        actor_id: str,
+    ) -> WorkflowAccessStorePort:
+        del workspace_id
+        if identity_resolver is None:
+            return raw_access_store
+        from schemabridge.adapters.storage.identity_resolving import (
+            IdentityResolvingWorkflowAccessStore,
+        )
+
+        return IdentityResolvingWorkflowAccessStore(
+            raw_access_store,
+            identity_resolver,
+            persisted_job_scope_resolver=identity_resolver,
+            persisted_job_actor_id=actor_id,
+        )
+
+    def managed_orchestrator_factory(
+        workspace_id: str,
+        actor_id: str,
+        *,
+        route_context: WorkerExecutionRouteContext | None = None,
+    ) -> AgentWorkflowOrchestrator:
+        if route_context is None:
+            raise DatabaseConfigurationError(
+                "managed worker job has no lease-bound connector route"
+            )
+        return build_read_only_worker_orchestrator(
+            workspace_id,
+            actor_id,
+            route_context=route_context,
+            repository_root=root,
+            settings=resolved,
+            control_connection_provider=control_connection_provider,
+        )
+
+    return RunOneJobWorker(
+        job_store=store,
+        access_store_factory=access_store_factory,
+        orchestrator_factory=orchestrator_factory or managed_orchestrator_factory,
+        clock=SystemWorkflowClock(),
+        capability_factory=lambda: secrets.token_urlsafe(48),
+        heartbeat_supervisor=ThreadedLeaseHeartbeatSupervisor(store),
+        worker_id=resolved.worker_id,
+        lease_duration=timedelta(seconds=resolved.worker_lease_seconds),
+        heartbeat_interval=timedelta(seconds=resolved.worker_heartbeat_seconds),
+    )
+
+
+def build_worker_process_runtime(
+    *,
+    readiness_probe: bool = False,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+) -> WorkerProcessRuntime:
+    """Load isolated worker settings and compose either a probe or polling runtime."""
+
+    resolved = settings or Settings(_env_file=None)
+    control_pool = build_control_plane_pool(
+        credential_kind="worker",
+        settings=resolved,
+    )
+    if readiness_probe:
+        require_current_control_plane_schema(
+            credential_kind="worker",
+            repository_root=repository_root,
+            settings=resolved,
+        )
+        worker = None
+    else:
+        worker = build_job_worker(
+            repository_root=repository_root,
+            settings=resolved,
+            control_connection_provider=control_pool,
+        )
+    return WorkerProcessRuntime(
+        worker=worker,
+        log_level=resolved.log_level,
+        poll_interval_seconds=resolved.worker_poll_interval_ms / 1_000,
+        control_pool=control_pool,
+    )
+
+
+def build_semantic_profile_worker(
+    *,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+    control_connection_provider: "ControlConnectionProvider | None" = None,
+    stop_requested: Callable[[], bool] | None = None,
+) -> "RunOneSemanticJoinProfile":
+    """Compose aggregate profiling through exact lease-bound connector routes."""
+
+    from schemabridge.adapters.connectors.postgres_profile_routing import (
+        PostgresSemanticProfileConnectorRouteReader,
+    )
+    from schemabridge.adapters.postgres.routed_relationships import (
+        RoutedSemanticJoinProfileEvidenceFactory,
+    )
+    from schemabridge.adapters.semantic_change.postgres_profile_queue import (
+        PostgresSemanticJoinProfileQueue,
+    )
+    from schemabridge.adapters.workflows.system import SystemWorkflowClock
+    from schemabridge.application.semantic_profile_worker import RunOneSemanticJoinProfile
+
+    root = (repository_root or Path.cwd()).resolve()
+    resolved = settings or get_settings()
+    if resolved.runtime_component != "worker":
+        raise DatabaseConfigurationError(
+            "semantic profile worker composition requires SCHEMABRIDGE_COMPONENT=worker"
+        )
+    require_current_control_plane_schema(
+        credential_kind="worker",
+        repository_root=root,
+        settings=resolved,
+    )
+    control_dsn = _control_plane_dsn(resolved, "worker")
+    queue = PostgresSemanticJoinProfileQueue(
+        dsn=control_dsn,
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-worker",
+        connection_provider=control_connection_provider,
+    )
+    return RunOneSemanticJoinProfile(
+        queue=queue,
+        evidence_factory=RoutedSemanticJoinProfileEvidenceFactory(
+            route_reader=PostgresSemanticProfileConnectorRouteReader(
+                dsn=control_dsn,
+                schema=resolved.control_plane_schema,
+                application_name="schemabridge-control-worker",
+                connection_provider=control_connection_provider,
+            ),
+            secret_resolver=_build_connector_secret_resolver(
+                resolved,
+                repository_root=root,
+            ),
+            statement_timeout_ms=resolved.statement_timeout_ms,
+        ),
+        clock=SystemWorkflowClock(),
+        capability_factory=lambda: secrets.token_urlsafe(48),
+        worker_id=resolved.worker_id,
+        lease_duration=timedelta(seconds=resolved.worker_lease_seconds),
+        retention=timedelta(days=resolved.semantic_profile_retention_days),
+        maintenance_batch_size=resolved.semantic_profile_maintenance_batch_size,
+        stop_requested=stop_requested or (lambda: False),
+    )
+
+
+def build_semantic_profile_worker_process_runtime(
+    *,
+    readiness_probe: bool = False,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+) -> "SemanticProfileWorkerProcessRuntime":
+    """Compose an isolated aggregate profiler or a schema-only readiness probe."""
+
+    from threading import Event
+
+    from schemabridge.entrypoints.semantic_profile_worker.main import (
+        SemanticProfileWorkerProcessRuntime,
+    )
+
+    resolved = settings or Settings(_env_file=None)
+    stop_event = Event()
+    control_pool = build_control_plane_pool(
+        credential_kind="worker",
+        settings=resolved,
+    )
+    if readiness_probe:
+        require_current_control_plane_schema(
+            credential_kind="worker",
+            repository_root=repository_root,
+            settings=resolved,
+        )
+        worker = None
+    else:
+        worker = build_semantic_profile_worker(
+            repository_root=repository_root,
+            settings=resolved,
+            control_connection_provider=control_pool,
+            stop_requested=stop_event.is_set,
+        )
+    return SemanticProfileWorkerProcessRuntime(
+        worker=worker,
+        log_level=resolved.log_level,
+        poll_interval_seconds=resolved.worker_poll_interval_ms / 1_000,
+        control_resource=control_pool,
+        stop_event=stop_event,
+    )
+
+
+def build_semantic_dependency_reconciler(
+    *,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+    control_connection_provider: "ControlConnectionProvider | None" = None,
+) -> "ReconcileSemanticDependencies":
+    """Compose complete workflow/recipe indexing with read-only DataHub credentials."""
+
+    from schemabridge.adapters.datahub.recipe_inventory import (
+        DataHubQueryRecipeInventory,
+        DataHubQueryRecipeInventoryConfig,
+    )
+    from schemabridge.adapters.semantic_change.postgres_dependencies import (
+        PostgresSemanticChangeDependencyIndex,
+    )
+    from schemabridge.adapters.semantic_change.postgres_dependency_sources import (
+        PostgresManagedWorkflowDependencySource,
+        PostgresSemanticDependencyIndexSink,
+    )
+    from schemabridge.adapters.semantic_registry.datahub import DataHubRegistryReadConfig
+    from schemabridge.application.semantic_dependency_reconciler import (
+        ReconcileSemanticDependencies,
+    )
+
+    root = (repository_root or Path.cwd()).resolve()
+    resolved = settings or get_settings()
+    if resolved.runtime_component != "reconciler":
+        raise DatabaseConfigurationError(
+            "semantic dependency reconciliation requires SCHEMABRIDGE_COMPONENT=reconciler"
+        )
+    require_current_control_plane_schema(
+        credential_kind="reconciler",
+        repository_root=root,
+        settings=resolved,
+    )
+    reader_env_path = resolved.semantic_registry_reader_env_path
+    if not reader_env_path.is_absolute():
+        reader_env_path = root / reader_env_path
+    reader_config = DataHubRegistryReadConfig.from_env_file(reader_env_path.resolve())
+    control_dsn = _control_plane_dsn(resolved, "reconciler")
+    dependency_index = PostgresSemanticChangeDependencyIndex(
+        control_dsn,
+        schema=resolved.control_plane_schema,
+        connection_provider=control_connection_provider,
+    )
+    return ReconcileSemanticDependencies(
+        pointers=build_active_registry_pointer_reader(
+            credential_kind="reconciler",
+            settings=resolved,
+            connection_provider=control_connection_provider,
+        ),
+        versions=build_registry_version_reader(
+            repository_root=root,
+            settings=resolved,
+        ),
+        workflows=PostgresManagedWorkflowDependencySource(
+            control_dsn,
+            schema=resolved.control_plane_schema,
+            connection_provider=control_connection_provider,
+        ),
+        recipes=DataHubQueryRecipeInventory(
+            DataHubQueryRecipeInventoryConfig(
+                server=reader_config.server,
+                token=reader_config.token,
+                timeout_seconds=resolved.catalog_source_timeout_seconds,
+                max_response_bytes=min(resolved.catalog_max_response_bytes, 4 * 1024 * 1024),
+            )
+        ),
+        index=PostgresSemanticDependencyIndexSink(dependency_index),
+        page_size=50,
+    )
+
+
+def build_semantic_reconciler(
+    *,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+    control_connection_provider: "ControlConnectionProvider | None" = None,
+    stop_requested: Callable[[], bool] | None = None,
+) -> "RunOneSemanticChangeScan":
+    """Compose one fenced scan reconciler without source or DataHub write credentials."""
+
+    from schemabridge.adapters.connectors.postgres_routing import (
+        PostgresExecutionTargetResolver,
+    )
+    from schemabridge.adapters.semantic_change.postgres_dependencies import (
+        PostgresSemanticChangeDependencyIndex,
+    )
+    from schemabridge.adapters.semantic_change.postgres_evidence import (
+        PostgresSemanticChangeEvidenceReader,
+    )
+    from schemabridge.adapters.semantic_change.postgres_profile_queue import (
+        PostgresSemanticJoinProfileQueue,
+        QueuedRelationshipEvidencePort,
+    )
+    from schemabridge.adapters.semantic_change.postgres_scans import (
+        PostgresSemanticChangeScanStore,
+    )
+    from schemabridge.adapters.semantic_change.postgres_store import (
+        PostgresSemanticChangeStore,
+    )
+    from schemabridge.adapters.semantic_change.scan_runner import (
+        InspectSemanticChangeScanRunner,
+    )
+    from schemabridge.adapters.workflows.system import SystemWorkflowClock
+    from schemabridge.application.semantic_change import InspectSemanticChange
+    from schemabridge.application.semantic_change_reconciler import (
+        RunOneSemanticChangeScan,
+    )
+
+    root = (repository_root or Path.cwd()).resolve()
+    resolved = settings or get_settings()
+    if resolved.runtime_component != "reconciler":
+        raise DatabaseConfigurationError(
+            "semantic reconciler composition requires SCHEMABRIDGE_COMPONENT=reconciler"
+        )
+    require_current_control_plane_schema(
+        credential_kind="reconciler",
+        repository_root=root,
+        settings=resolved,
+    )
+    control_dsn = _control_plane_dsn(resolved, "reconciler")
+    clock = SystemWorkflowClock()
+    dependency_index = PostgresSemanticChangeDependencyIndex(
+        control_dsn,
+        schema=resolved.control_plane_schema,
+        connection_provider=control_connection_provider,
+    )
+    report_store = PostgresSemanticChangeStore(
+        control_dsn,
+        dependency_index,
+        _control_audit_keys(resolved),
+        resolved.control_audit_key_version,
+        schema=resolved.control_plane_schema,
+        retention=timedelta(days=resolved.semantic_reconciler_retention_days),
+        connection_provider=control_connection_provider,
+    )
+    pointers = build_active_registry_pointer_reader(
+        credential_kind="reconciler",
+        settings=resolved,
+        connection_provider=control_connection_provider,
+    )
+    versions = build_registry_version_reader(
+        repository_root=root,
+        settings=resolved,
+    )
+    profile_queue = PostgresSemanticJoinProfileQueue(
+        control_dsn,
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-reconciler",
+        connection_provider=control_connection_provider,
+    )
+    profile_target_resolver = PostgresExecutionTargetResolver(
+        control_dsn,
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-reconciler",
+        connection_provider=control_connection_provider,
+    )
+    dependency_reconciler = build_semantic_dependency_reconciler(
+        repository_root=root,
+        settings=resolved,
+        control_connection_provider=control_connection_provider,
+    )
+
+    def resolve_scope(request: "SemanticChangeScanRequest") -> SemanticRegistryScope:
+        if request.catalog_scope is None or request.registry_id is None:
+            raise DatabaseConfigurationError(
+                "semantic scan trigger does not identify an exact registry scope"
+            )
+        return SemanticRegistryScope(
+            workspace_id=request.workspace_id,
+            catalog_scope=request.catalog_scope,
+            registry_id=request.registry_id,
+        )
+
+    def prepare_dependencies(
+        request: "SemanticChangeScanRequest",
+        scope: SemanticRegistryScope,
+        should_continue: Callable[[], bool],
+    ) -> "SemanticDependencyReconciliationResult":
+        del request
+        current = dependency_index.load_state(scope)
+        result = dependency_reconciler.execute(
+            scope,
+            watermark=current.watermark + 1,
+            indexed_at=clock.now(),
+            should_continue=should_continue,
+        )
+        if not result.state.complete:
+            raise DatabaseConfigurationError("semantic dependency coverage is incomplete")
+        return result
+
+    def inspector_factory(
+        scope: SemanticRegistryScope,
+        request: "SemanticChangeScanRequest",
+    ) -> "InspectSemanticChange":
+        relationships = QueuedRelationshipEvidencePort(
+            queue=profile_queue,
+            target_resolver=profile_target_resolver,
+            workspace_id=scope.workspace_id,
+            scan_id=request.scan_id,
+            clock=clock.now,
+            max_attempts=resolved.semantic_profile_max_attempts,
+        )
+        evidence = PostgresSemanticChangeEvidenceReader(
+            control_dsn,
+            relationships,
+            schema=resolved.control_plane_schema,
+            connection_provider=control_connection_provider,
+            clock=clock.now,
+        )
+        return InspectSemanticChange(
+            pointers=pointers,
+            versions=versions,
+            evidence=evidence,
+            dependency_index=dependency_index,
+            store=report_store,
+            scope=scope,
+        )
+
+    runner = InspectSemanticChangeScanRunner(
+        scope_resolver=resolve_scope,
+        inspector_factory=inspector_factory,
+        prepare_dependencies=prepare_dependencies,
+    )
+    scan_store = PostgresSemanticChangeScanStore(
+        control_dsn,
+        report_store,
+        schema=resolved.control_plane_schema,
+        connection_provider=control_connection_provider,
+    )
+    return RunOneSemanticChangeScan(
+        scans=scan_store,
+        runner=runner,
+        clock=clock,
+        capability_factory=lambda: secrets.token_urlsafe(48),
+        reconciler_id=resolved.semantic_reconciler_id,
+        lease_duration=timedelta(seconds=resolved.semantic_reconciler_lease_seconds),
+        retention=timedelta(days=resolved.semantic_reconciler_retention_days),
+        maintenance_batch_size=resolved.semantic_reconciler_maintenance_batch_size,
+        stop_requested=stop_requested or (lambda: False),
+    )
+
+
+def build_semantic_reconciler_process_runtime(
+    *,
+    readiness_probe: bool = False,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+) -> "SemanticReconcilerProcessRuntime":
+    """Compose the isolated semantic reconciler or a schema-only readiness probe."""
+
+    from threading import Event
+
+    from schemabridge.entrypoints.semantic_reconciler.main import (
+        SemanticReconcilerProcessRuntime,
+    )
+
+    resolved = settings or Settings(_env_file=None)
+    stop_event = Event()
+    require_current_control_plane_schema(
+        credential_kind="reconciler",
+        repository_root=repository_root,
+        settings=resolved,
+    )
+    control_pool = build_control_plane_pool(
+        credential_kind="reconciler",
+        settings=resolved,
+    )
+    reconciler = (
+        None
+        if readiness_probe
+        else build_semantic_reconciler(
+            repository_root=repository_root,
+            settings=resolved,
+            control_connection_provider=control_pool,
+            stop_requested=stop_event.is_set,
+        )
+    )
+    return SemanticReconcilerProcessRuntime(
+        reconciler=reconciler,
+        log_level=resolved.log_level,
+        poll_interval_seconds=resolved.semantic_reconciler_poll_interval_ms / 1_000,
+        control_resource=control_pool,
+        stop_event=stop_event,
+    )
+
+
+def build_semantic_change_operator_runtime(
+    *,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+) -> "SemanticChangeOperatorRuntime":
+    """Compose the separate reconciler-credential semantic-change operator."""
+
+    from schemabridge.adapters.connectors.postgres_routing import (
+        PostgresExecutionTargetResolver,
+    )
+    from schemabridge.adapters.semantic_change.postgres_dependencies import (
+        PostgresSemanticChangeDependencyIndex,
+    )
+    from schemabridge.adapters.semantic_change.postgres_evidence import (
+        PostgresSemanticChangeEvidenceReader,
+    )
+    from schemabridge.adapters.semantic_change.postgres_profile_queue import (
+        PostgresSemanticJoinProfileQueue,
+        QueuedRelationshipEvidencePort,
+    )
+    from schemabridge.adapters.semantic_change.postgres_scans import (
+        PostgresSemanticChangeScanStore,
+    )
+    from schemabridge.adapters.semantic_change.postgres_store import (
+        PostgresSemanticChangeStore,
+    )
+    from schemabridge.adapters.workflows.system import SystemWorkflowClock
+    from schemabridge.application.semantic_change import (
+        CommitSemanticChangeDecision,
+        InspectSemanticChange,
+        PrepareSemanticChangeDecision,
+        PrepareSemanticChangeDecisionApproval,
+    )
+    from schemabridge.application.semantic_change_operator import (
+        InspectLatestSemanticChange,
+        LoadSemanticChangeHead,
+        VerifySemanticChangeAudit,
+    )
+    from schemabridge.domain.semantic_change_scans import SemanticChangeScanRequest
+    from schemabridge.entrypoints.semantic_change.main import (
+        SemanticChangeOperatorConfig,
+        SemanticChangeOperatorRuntime,
+        SemanticChangeOperatorServices,
+    )
+
+    root = (repository_root or Path.cwd()).resolve()
+    resolved = settings or Settings(_env_file=None)
+    if resolved.runtime_component != "reconciler":
+        raise DatabaseConfigurationError(
+            "semantic change operator requires SCHEMABRIDGE_COMPONENT=reconciler"
+        )
+    require_current_control_plane_schema(
+        credential_kind="reconciler",
+        repository_root=root,
+        settings=resolved,
+    )
+    scope = _semantic_registry_scope(resolved, None)
+    control_dsn = _control_plane_dsn(resolved, "reconciler")
+    clock = SystemWorkflowClock()
+    dependency_index = PostgresSemanticChangeDependencyIndex(
+        control_dsn,
+        schema=resolved.control_plane_schema,
+    )
+    store = PostgresSemanticChangeStore(
+        control_dsn,
+        dependency_index,
+        _control_audit_keys(resolved),
+        resolved.control_audit_key_version,
+        schema=resolved.control_plane_schema,
+        retention=timedelta(days=resolved.semantic_reconciler_retention_days),
+    )
+    scans = PostgresSemanticChangeScanStore(
+        control_dsn,
+        store,
+        schema=resolved.control_plane_schema,
+    )
+    pointers = build_active_registry_pointer_reader(
+        credential_kind="reconciler",
+        settings=resolved,
+    )
+    versions = build_registry_version_reader(
+        repository_root=root,
+        settings=resolved,
+    )
+    profiles = PostgresSemanticJoinProfileQueue(
+        control_dsn,
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-reconciler",
+    )
+    profile_target_resolver = PostgresExecutionTargetResolver(
+        control_dsn,
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-reconciler",
+    )
+
+    def inspector_factory(request: SemanticChangeScanRequest) -> InspectSemanticChange:
+        relationships = QueuedRelationshipEvidencePort(
+            queue=profiles,
+            target_resolver=profile_target_resolver,
+            workspace_id=scope.workspace_id,
+            scan_id=request.scan_id,
+            clock=clock.now,
+            max_attempts=resolved.semantic_profile_max_attempts,
+        )
+        return InspectSemanticChange(
+            pointers=pointers,
+            versions=versions,
+            evidence=PostgresSemanticChangeEvidenceReader(
+                control_dsn,
+                relationships,
+                schema=resolved.control_plane_schema,
+                application_name="schemabridge-control-reconciler",
+                clock=clock.now,
+            ),
+            dependency_index=dependency_index,
+            store=store,
+            scope=scope,
+        )
+
+    inspect = InspectLatestSemanticChange(
+        scans=scans,
+        inspector_factory=inspector_factory,
+        store=store,
+        scope=scope,
+    )
+    head = LoadSemanticChangeHead(store)
+    audit = build_registry_control_store(
+        credential_kind="reconciler",
+        settings=resolved,
+    )
+    return SemanticChangeOperatorRuntime(
+        services=SemanticChangeOperatorServices(
+            inspect=inspect,
+            prepare=PrepareSemanticChangeDecision(store),
+            approve=PrepareSemanticChangeDecisionApproval(),
+            commit=CommitSemanticChangeDecision(inspect, store),
+            head=head,
+            verify_audit=VerifySemanticChangeAudit(heads=head, audit=audit),
+        ),
+        config=SemanticChangeOperatorConfig(
+            scope=scope,
+            trusted_actor=resolve_control_operator_actor(
+                None,
+                required_role=IdentityRole.STEWARD.value,
+                settings=resolved,
+            ),
+        ),
+    )
+
+
+def build_catalog_indexer(
+    *,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+    control_connection_provider: "ControlConnectionProvider | None" = None,
+    stop_requested: Callable[[], bool] | None = None,
+) -> "RunOneCatalogRefresh":
+    """Compose one metadata-only catalog iteration through the catalog role."""
+
+    from schemabridge.adapters.catalog.datahub_secrets import (
+        OwnerOnlyDataHubCatalogSecretResolver,
+    )
+    from schemabridge.adapters.catalog.postgres_connector_routing import (
+        PostgresCatalogConnectorRouteReader,
+    )
+    from schemabridge.adapters.catalog.postgres_refresh import (
+        PostgresCatalogRefreshStore,
+    )
+    from schemabridge.adapters.catalog.routed_datahub import (
+        RoutedCatalogSourceResolver,
+        RoutedDataHubGraphQLCatalogSource,
+    )
+    from schemabridge.adapters.catalog.synthetic_source import (
+        LazySyntheticCatalogSource,
+        SyntheticCatalogSpecification,
+    )
+    from schemabridge.application.catalog_indexer import RunOneCatalogRefresh
+    from schemabridge.domain.catalog_inventory import (
+        CatalogConnectionId,
+        CatalogConnectionKind,
+    )
+
+    root = (repository_root or Path.cwd()).resolve()
+    resolved = settings or get_settings()
+    if resolved.runtime_component != "catalog":
+        raise DatabaseConfigurationError(
+            "catalog indexer composition requires SCHEMABRIDGE_COMPONENT=catalog"
+        )
+    require_current_control_plane_schema(
+        credential_kind="catalog",
+        repository_root=root,
+        settings=resolved,
+    )
+    dsn = _control_plane_dsn(resolved, "catalog")
+    refreshes = PostgresCatalogRefreshStore(
+        dsn=dsn,
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-catalog",
+        connection_provider=control_connection_provider,
+    )
+    routes = PostgresCatalogConnectorRouteReader(
+        dsn=dsn,
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-catalog",
+        connection_provider=control_connection_provider,
+    )
+    datahub = RoutedDataHubGraphQLCatalogSource(
+        secrets=OwnerOnlyDataHubCatalogSecretResolver(
+            _connector_secret_directory(resolved, repository_root=root)
+        ),
+        timeout_seconds=resolved.catalog_source_timeout_seconds,
+        max_response_bytes=resolved.catalog_max_response_bytes,
+    )
+    synthetic = LazySyntheticCatalogSource(
+        {
+            CatalogConnectionId(connection_id): SyntheticCatalogSpecification(
+                asset_count=asset_count,
+                wide_asset_every=997,
+                wide_field_count=64,
+            )
+            for connection_id, asset_count in (resolved.catalog_synthetic_asset_counts.items())
+        }
+    )
+    return RunOneCatalogRefresh(
+        refreshes=refreshes,
+        routes=routes,
+        sources=RoutedCatalogSourceResolver(
+            datahub=datahub,
+            sources={
+                CatalogConnectionKind.SYNTHETIC: synthetic,
+            },
+        ),
+        capability_factory=lambda: secrets.token_urlsafe(48),
+        indexer_id=resolved.catalog_indexer_id,
+        lease_duration=timedelta(seconds=resolved.catalog_lease_seconds),
+        source_operation_timeout=timedelta(seconds=resolved.catalog_source_timeout_seconds),
+        store_operation_timeout=timedelta(
+            seconds=(
+                resolved.control_pool_acquisition_timeout_seconds
+                + resolved.statement_timeout_ms / 1_000
+            )
+        ),
+        page_size=resolved.catalog_page_size,
+        stop_requested=stop_requested or (lambda: False),
+    )
+
+
+def build_catalog_process_runtime(
+    *,
+    readiness_probe: bool = False,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+) -> "CatalogProcessRuntime":
+    """Compose the isolated catalog process or a readiness-only preflight."""
+
+    from threading import Event
+
+    from schemabridge.entrypoints.catalog.main import CatalogProcessRuntime
+
+    resolved = settings or Settings(_env_file=None)
+    stop_event = Event()
+    control_pool = build_control_plane_pool(
+        credential_kind="catalog",
+        settings=resolved,
+    )
+    if readiness_probe:
+        require_current_control_plane_schema(
+            credential_kind="catalog",
+            repository_root=repository_root,
+            settings=resolved,
+        )
+        indexer = None
+    else:
+        indexer = build_catalog_indexer(
+            repository_root=repository_root,
+            settings=resolved,
+            control_connection_provider=control_pool,
+            stop_requested=stop_event.is_set,
+        )
+    return CatalogProcessRuntime(
+        indexer=indexer,
+        log_level=resolved.log_level,
+        poll_interval_seconds=resolved.catalog_poll_interval_ms / 1_000,
+        control_pool=control_pool,
+        stop_event=stop_event,
     )
 
 
@@ -751,6 +4171,10 @@ def build_query_recipe_repository(
         from schemabridge.adapters.datahub.query_recipes import DataHubQueryRecipeAdapter
 
         return DataHubQueryRecipeAdapter.from_env_file(root / ".local/datahub/writer.env")
+    if resolved.runtime_profile in {"staging", "production"}:
+        raise DatabaseConfigurationError(
+            "fake query recipes are available only with the local control plane"
+        )
     from schemabridge.adapters.recipes.sqlite import SqliteQueryRecipeRepository
 
     return SqliteQueryRecipeRepository(resolved.draft_store_path.resolve())
@@ -761,10 +4185,10 @@ def build_query_recipe_preparer(
     *,
     repository_root: Path | None = None,
     settings: Settings | None = None,
+    workspace_id: str | None = None,
+    owner_actor_id: str | None = None,
 ) -> PrepareStoredQueryRecipe:
     """Prepare a recipe only from one durably completed governed workflow."""
-
-    from schemabridge.adapters.storage.workflows import SqliteWorkflowDraftStore
 
     resolved = settings or get_settings()
     repository = build_query_recipe_repository(
@@ -772,9 +4196,49 @@ def build_query_recipe_preparer(
         repository_root=repository_root,
         settings=resolved,
     )
+    workflow_store = build_workflow_draft_store(
+        workspace_id=workspace_id,
+        owner_actor_id=owner_actor_id,
+        settings=resolved,
+    )
     return PrepareStoredQueryRecipe(
-        store=SqliteWorkflowDraftStore(resolved.draft_store_path.resolve()),
+        store=workflow_store,
         prepare=PrepareQueryRecipe(repository),
+    )
+
+
+def build_query_recipe_migration_preparer(
+    adapter_kind: Literal["live", "fake"] = "fake",
+    *,
+    workspace_id: str,
+    owner_actor_id: str,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+    pointer_store: ActiveRegistryPointerReadPort | None = None,
+) -> PrepareStoredStaleQueryRecipeMigration:
+    """Compose exact durable inputs for a read-only stale-recipe migration review."""
+
+    resolved = settings or get_settings()
+    pointers = pointer_store
+    if pointers is None:
+        if resolved.control_plane_kind != "postgres":
+            raise DatabaseConfigurationError(
+                "recipe migration requires an authoritative PostgreSQL active pointer"
+            )
+        pointers = build_registry_control_store(settings=resolved)
+    return PrepareStoredStaleQueryRecipeMigration(
+        store=build_workflow_draft_store(
+            workspace_id=workspace_id,
+            owner_actor_id=owner_actor_id,
+            settings=resolved,
+        ),
+        repository=build_query_recipe_repository(
+            adapter_kind,
+            repository_root=repository_root,
+            settings=resolved,
+        ),
+        pointers=pointers,
+        scope=_semantic_registry_scope(resolved, workspace_id),
     )
 
 
@@ -783,75 +4247,245 @@ def build_query_recipe_publisher(
     *,
     repository_root: Path | None = None,
     settings: Settings | None = None,
+    workspace_id: str | None = None,
 ) -> PublishQueryRecipe:
     return PublishQueryRecipe(
-        build_query_recipe_repository(
+        repository=build_query_recipe_repository(
             adapter_kind,
             repository_root=repository_root,
             settings=settings,
-        )
+        ),
+        audit_store=build_publication_audit_store(
+            settings,
+            workspace_id=workspace_id,
+        ),
+    )
+
+
+def build_query_recipe_migration_publisher(
+    adapter_kind: Literal["live", "fake"] = "fake",
+    *,
+    workspace_id: str,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+) -> PublishStaleQueryRecipeMigration:
+    """Compose approval-gated migration publication with mandatory scoped audit."""
+
+    resolved = settings or get_settings()
+    return PublishStaleQueryRecipeMigration(
+        repository=build_query_recipe_repository(
+            adapter_kind,
+            repository_root=repository_root,
+            settings=resolved,
+        ),
+        audit_store=build_publication_audit_store(
+            resolved,
+            workspace_id=workspace_id,
+        ),
     )
 
 
 def build_streamlit_ui_service(
-    catalog_kind: Literal["live", "recorded"] = "recorded",
+    catalog_kind: Literal["live", "recorded"] | None = None,
     *,
-    publication_kind: Literal["live", "fake"] = "fake",
+    publication_kind: Literal["live", "fake"] | None = None,
+    execution_kind: Literal["live", "recorded"] | None = None,
     repository_root: Path | None = None,
     settings: Settings | None = None,
+    principal: AuthenticatedPrincipal | None = None,
 ) -> JudgeUiService:
     """Compose the judge UI without exposing concrete adapters to page callbacks."""
 
     root = (repository_root or Path.cwd()).resolve()
     resolved = settings or get_settings()
-    prepare = build_governed_request_preparer(repository_root=root, settings=resolved)
+    _reject_operator_credentials_in_managed_web(resolved)
+    selected_catalog = catalog_kind or resolved.catalog_mode
+    selected_publication = publication_kind or resolved.publication_mode
+    selected_execution = execution_kind or resolved.execution_mode
+    if resolved.runtime_profile in {"hosted-demo", "staging", "production"}:
+        requested_modes = (
+            (catalog_kind, resolved.catalog_mode, "catalog"),
+            (publication_kind, resolved.publication_mode, "publication"),
+            (execution_kind, resolved.execution_mode, "execution"),
+        )
+        for requested, configured, name in requested_modes:
+            if requested is not None and requested != configured:
+                raise ValueError(
+                    f"{name} mode is fixed by the {resolved.runtime_profile} deployment profile"
+                )
+    resolved_principal = principal or build_streamlit_principal(settings=resolved)
+    if resolved.auth_mode == "oidc":
+        if resolved_principal.authentication_method is not AuthenticationMethod.OIDC:
+            raise ValueError("OIDC mode requires an OIDC-authenticated principal")
+    elif resolved_principal.authentication_method is not AuthenticationMethod.LOCAL_DEMO:
+        raise ValueError("local demo mode requires the local demo principal")
+    if (
+        selected_publication == "live"
+        and resolved_principal.authentication_method is not AuthenticationMethod.OIDC
+    ):
+        raise ValueError("live publication requires an OIDC-authenticated principal")
+    if (
+        resolved.runtime_profile in {"staging", "production"}
+        and resolved.control_plane_kind == "postgres"
+    ):
+        build_source_control_database_separation(resolved).execute()
+    from schemabridge.adapters.storage.workflow_access import InMemoryWorkflowAccessStore
+    from schemabridge.adapters.workflows.system import SystemWorkflowClock
+
+    authorization = DenyByDefaultAuthorizationPolicy()
+    clock = SystemWorkflowClock()
+    if WorkflowPermission.VIEW not in authorization.permissions_for(
+        resolved_principal,
+        at=clock.now(),
+    ):
+
+        def denied_orchestrator_factory() -> AgentWorkflowOrchestrator:
+            raise DatabaseConfigurationError(
+                "UI integrations are unavailable without view permission"
+            )
+
+        return JudgeUiService(
+            orchestrator_factory=denied_orchestrator_factory,
+            views=DeniedJudgeUiViewFactory(),
+            principal=resolved_principal,
+            access_store=InMemoryWorkflowAccessStore(),
+            authorization=authorization,
+            clock=clock,
+            require_separate_publisher=selected_publication == "live",
+            max_live_publication_identity_age=timedelta(
+                seconds=resolved.oidc_live_publication_max_identity_age_seconds
+            ),
+        )
+    registry = build_semantic_registry(
+        repository_root=root,
+        settings=resolved,
+        workspace_id=resolved_principal.workspace_id,
+    )
+    prepare = build_governed_request_preparer(
+        repository_root=root,
+        settings=resolved,
+        registry=registry,
+        workspace_id=resolved_principal.workspace_id,
+    )
     candidate_report = build_candidate_generator("recorded", repository_root=root).execute(
         build_customer_key_concept()
     )
-    context = build_semantic_planning_context(repository_root=root).load()
+    scoped_context = registry.load()
+    context = scoped_context.registry
+    projection_status = UiRegistryProjectionStatus.FIXED
+    if scoped_context.activation_generation is not None:
+        store = build_registry_control_store(settings=resolved)
+        pointer = store.load_active(scoped_context.scope)
+        if (
+            pointer is None
+            or pointer.generation != scoped_context.activation_generation
+            or scoped_context.active_pointer_fingerprint is None
+            or registry_projection_fingerprint(pointer) != scoped_context.active_pointer_fingerprint
+        ):
+            raise DatabaseConfigurationError(
+                "active registry UI state does not match the authoritative control pointer"
+            )
+        outbox = store.load_transition_outbox(
+            scoped_context.scope,
+            pointer.transition_id,
+        )
+        projection_status = (
+            UiRegistryProjectionStatus.UNKNOWN
+            if outbox is None
+            else UiRegistryProjectionStatus(outbox.status.value)
+        )
     modes = (
         UiMode(
+            "Semantic registry",
+            ("Live DataHub" if resolved.registry_mode == "live" else "Recorded version bundle"),
+            resolved.registry_mode,
+            "One exact workspace-scoped registry is loaded atomically; no fallback is used.",
+        ),
+        UiMode(
             "Catalog",
-            "Live DataHub" if catalog_kind == "live" else "Recorded catalog",
-            catalog_kind,
+            "Live DataHub" if selected_catalog == "live" else "Recorded catalog",
+            selected_catalog,
             "No fallback is used if the selected catalog is unavailable.",
         ),
         UiMode(
-            "Candidate evidence",
+            "Demo candidate evidence",
             "Recorded synthetic evidence",
             "recorded",
-            "Bounded, sanitized fixture evidence; never presented as production evidence.",
+            "Bounded, sanitized fixture evidence for the historical demo workflow only.",
         ),
         UiMode(
-            "Intent",
+            "Demo workflow intent",
             "Deterministic fake parser",
             "fake",
-            "API-key-free typed interpretation for the judge demo.",
+            "API-key-free typed interpretation for the historical demo workflow only.",
         ),
         UiMode(
             "Source",
-            "Live read-only PostgreSQL",
-            "live",
-            "Execution is guarded, bounded, and uses schemabridge_reader.",
+            (
+                "Live read-only PostgreSQL"
+                if selected_execution == "live"
+                else "Recorded synthetic PostgreSQL observation"
+            ),
+            selected_execution,
+            (
+                "Execution is guarded, bounded, and uses schemabridge_reader."
+                if selected_execution == "live"
+                else "SQL is compiled and guarded live; result/rejection evidence is replayed "
+                "only for the exact versioned north-star query."
+            ),
+        ),
+        UiMode(
+            "Release",
+            resolved.release_ref,
+            "release",
+            "Build identifier supplied by the deployment; it is not a credential.",
         ),
         UiMode(
             "Publication",
-            "Live DataHub" if publication_kind == "live" else "Fake local publication",
-            publication_kind,
+            "Live DataHub" if selected_publication == "live" else "Fake local publication",
+            selected_publication,
             "Writes still require the exact typed publication approval.",
         ),
     )
     views = JudgeUiViewFactory(
-        reference=build_ui_reference_data(candidate_report, context),
+        reference=build_ui_reference_data(
+            candidate_report,
+            context,
+            activation_generation=scoped_context.activation_generation,
+            active_pointer_fingerprint=scoped_context.active_pointer_fingerprint,
+            projection_status=projection_status,
+        ),
         prepare=prepare,
         modes=modes,
     )
+    from schemabridge.application.ports.workflow_access import WorkflowAccessError
+
+    try:
+        access_store = build_workflow_access_store(
+            workspace_id=resolved_principal.workspace_id,
+            owner_actor_id=resolved_principal.actor_id,
+            settings=resolved,
+        )
+    except WorkflowAccessError as error:
+        raise RuntimeError("workflow control plane is unavailable") from error
+
     return JudgeUiService(
         orchestrator_factory=lambda: build_agent_workflow_orchestrator(
-            catalog_kind,
-            publication_kind=publication_kind,
+            selected_catalog,
+            publication_kind=selected_publication,
+            execution_kind=selected_execution,
+            workflow_workspace_id=resolved_principal.workspace_id,
+            workflow_owner_actor_id=resolved_principal.actor_id,
             repository_root=root,
             settings=resolved,
         ),
         views=views,
+        principal=resolved_principal,
+        access_store=access_store,
+        authorization=authorization,
+        clock=clock,
+        require_separate_publisher=selected_publication == "live",
+        max_live_publication_identity_age=timedelta(
+            seconds=resolved.oidc_live_publication_max_identity_age_seconds
+        ),
     )

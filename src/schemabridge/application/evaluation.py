@@ -15,9 +15,7 @@ from schemabridge.application.governed_execution import (
 )
 from schemabridge.application.guided_requests import (
     BuildGuidedRequest,
-    GuidedRequestCase,
     GuidedRequestValidationError,
-    build_demo_guided_input,
 )
 from schemabridge.application.intent_resolution import (
     IntentConfirmationError,
@@ -43,7 +41,6 @@ from schemabridge.domain.evaluation import (
     EvaluationCaseResult,
     EvaluationCaseStatus,
     EvaluationGroundTruth,
-    EvaluationGuidedCase,
     EvaluationMetric,
     EvaluationMode,
     EvaluationQueryGroundTruth,
@@ -228,7 +225,7 @@ class RunReleaseEvaluation:
         observations: list[_QueryObservation] = []
         for case in truth.queries:
             try:
-                validated = self.guided.execute(build_demo_guided_input(_guided_case(case)))
+                validated = self.guided.validate(case.expected_request)
                 prepared = self.prepare.execute(validated)
             except (
                 GuidedRequestValidationError,
@@ -585,11 +582,7 @@ class RunReleaseEvaluation:
         observations: tuple[_QueryObservation, ...],
     ) -> EvaluationSection:
         north_star = next(
-            (
-                item
-                for item in observations
-                if item.case.guided_case is EvaluationGuidedCase.NORTH_STAR
-            ),
+            (item for item in observations if item.case.recipe_reference),
             None,
         )
         cases: list[EvaluationCaseResult] = []
@@ -658,13 +651,6 @@ def _candidate_case(case_id: str, outcome: str) -> EvaluationCaseResult:
         detail=outcome,
         blocking=False,
     )
-
-
-def _guided_case(case: EvaluationQueryGroundTruth) -> GuidedRequestCase:
-    return {
-        EvaluationGuidedCase.NORTH_STAR: GuidedRequestCase.NORTH_STAR,
-        EvaluationGuidedCase.NO_JOIN: GuidedRequestCase.NO_JOIN,
-    }[case.guided_case]
 
 
 def _case(

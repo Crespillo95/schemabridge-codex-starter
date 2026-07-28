@@ -39,12 +39,14 @@ from schemabridge.application.ports.intents import (
     IntentParserPort,
 )
 from schemabridge.application.ports.planning import (
+    GovernedSemanticRegistryPort,
     PlanningPortError,
     PlanningPortErrorCode,
     RejectedSourceReportPort,
     SemanticPlanningContextPort,
 )
 from schemabridge.application.ports.relationships import (
+    BatchRelationshipEvidencePort,
     JoinContextReadPort,
     JoinContextWritePort,
     JoinReviewStorePort,
@@ -67,9 +69,41 @@ from schemabridge.application.ports.reviews import (
     ReviewStorePort,
     ReviewWorkflowError,
 )
+from schemabridge.application.ports.semantic_change import (
+    SemanticChangeClockPort,
+    SemanticChangeDependencyIndexPort,
+    SemanticChangeEvidencePort,
+    SemanticChangeGateReadPort,
+    SemanticChangePortError,
+    SemanticChangePortErrorCode,
+    SemanticChangeStorePort,
+)
+from schemabridge.application.ports.semantic_change_scans import (
+    SemanticChangeScanClockPort,
+    SemanticChangeScanInspection,
+    SemanticChangeScanRunnerError,
+    SemanticChangeScanRunnerErrorCode,
+    SemanticChangeScanRunnerPort,
+    SemanticChangeScanStoreError,
+    SemanticChangeScanStoreErrorCode,
+    SemanticChangeScanStorePort,
+)
+from schemabridge.application.ports.semantic_profile_jobs import (
+    BatchSemanticJoinProfileEvidencePort,
+    SemanticJoinProfileClockPort,
+    SemanticJoinProfileEvidenceFactoryPort,
+    SemanticJoinProfileEvidencePort,
+    SemanticJoinProfileQueueError,
+    SemanticJoinProfileQueueErrorCode,
+    SemanticJoinProfileQueuePort,
+    SemanticJoinProfileRouteContext,
+    SemanticJoinProfileSourceCancelled,
+)
 
 __all__ = [
     "ApprovedRequestContextPort",
+    "BatchRelationshipEvidencePort",
+    "BatchSemanticJoinProfileEvidencePort",
     "CandidateEvaluationDatasetPort",
     "CandidateEvidencePort",
     "CanonicalContextReadPort",
@@ -97,6 +131,7 @@ __all__ = [
     "EvaluationReportWriterPort",
     "EvidenceStatus",
     "GovernanceMetadata",
+    "GovernedSemanticRegistryPort",
     "IntentParserError",
     "IntentParserErrorCode",
     "IntentParserPort",
@@ -119,5 +154,28 @@ __all__ = [
     "ReviewErrorCode",
     "ReviewStorePort",
     "ReviewWorkflowError",
+    "SemanticChangeClockPort",
+    "SemanticChangeDependencyIndexPort",
+    "SemanticChangeEvidencePort",
+    "SemanticChangeGateReadPort",
+    "SemanticChangePortError",
+    "SemanticChangePortErrorCode",
+    "SemanticChangeScanClockPort",
+    "SemanticChangeScanInspection",
+    "SemanticChangeScanRunnerError",
+    "SemanticChangeScanRunnerErrorCode",
+    "SemanticChangeScanRunnerPort",
+    "SemanticChangeScanStoreError",
+    "SemanticChangeScanStoreErrorCode",
+    "SemanticChangeScanStorePort",
+    "SemanticChangeStorePort",
+    "SemanticJoinProfileClockPort",
+    "SemanticJoinProfileEvidenceFactoryPort",
+    "SemanticJoinProfileEvidencePort",
+    "SemanticJoinProfileQueueError",
+    "SemanticJoinProfileQueueErrorCode",
+    "SemanticJoinProfileQueuePort",
+    "SemanticJoinProfileRouteContext",
+    "SemanticJoinProfileSourceCancelled",
     "SemanticPlanningContextPort",
 ]

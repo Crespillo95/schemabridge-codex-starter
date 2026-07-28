@@ -9,29 +9,58 @@ from pathlib import Path
 from typing import Annotated, Never
 
 import typer
+from pydantic import ValidationError
+from pydantic_settings import SettingsError
 from rich.console import Console
 from rich.table import Table
 
 from schemabridge import __version__
 from schemabridge.application.candidate_demo import build_customer_key_concept
 from schemabridge.application.candidate_engine import CandidateGenerationError
+from schemabridge.application.catalog_inventory import CatalogUseCaseError
 from schemabridge.application.doctor import run_doctor
 from schemabridge.application.guided_requests import (
     GuidedRequestCase,
     GuidedRequestValidationError,
     build_demo_guided_input,
 )
+from schemabridge.application.identity_rotation import (
+    IdentityRotationError,
+    IdentityRotationErrorCode,
+)
 from schemabridge.application.intent_resolution import IntentConfirmationError
 from schemabridge.application.join_demo import (
     build_join_review_draft,
     build_north_star_join_proposals,
 )
+from schemabridge.application.legacy_import import (
+    ApproveLegacyControlPlaneImport,
+    LegacyImportError,
+    LegacyImportErrorCode,
+)
 from schemabridge.application.normalization_demo import run_normalization_demo
 from schemabridge.application.ports.catalog import CatalogReadError
+from schemabridge.application.ports.control_plane_migrations import (
+    ControlPlaneMigrationError,
+)
+from schemabridge.application.ports.control_plane_operations import (
+    ControlPlaneOperationError,
+)
 from schemabridge.application.ports.evaluation import EvaluationError
+from schemabridge.application.ports.identity_evidence import (
+    IdentityEvidenceEnvelopePort,
+    IdentityEvidenceError,
+)
 from schemabridge.application.ports.intents import IntentParserError
-from schemabridge.application.ports.planning import PlanningPortError
-from schemabridge.application.ports.recipes import RecipeError
+from schemabridge.application.ports.planning import (
+    PlanningPortError,
+    RegistryPublicationError,
+)
+from schemabridge.application.ports.recipes import RecipeError, RecipeErrorCode
+from schemabridge.application.ports.registry_control import (
+    RegistryControlError,
+    RegistryControlErrorCode,
+)
 from schemabridge.application.ports.relationships import (
     RelationshipErrorCode,
     RelationshipWorkflowError,
@@ -53,18 +82,28 @@ from schemabridge.application.query_execution import (
     QueryPreviewError,
     SqlPolicyViolation,
 )
+from schemabridge.application.registry_control import (
+    PrepareRegistryActivationApproval,
+    PrepareRegistryReconciliationApproval,
+)
 from schemabridge.application.review_demo import build_customer_review_draft
+from schemabridge.application.workflow_orchestration import workflow_recovery_operation
 from schemabridge.bootstrap import (
     build_agent_workflow_orchestrator,
     build_candidate_evaluator,
     build_candidate_generator,
     build_catalog_inspector,
+    build_control_plane_backup,
+    build_control_plane_migrator,
+    build_control_plane_restore,
     build_evaluation_report_writer,
     build_evaluation_runner,
     build_governed_request_executor,
     build_governed_request_preparer,
     build_guided_request_builder,
     build_guided_request_submitter,
+    build_identity_evidence_reader,
+    build_identity_rotation_services,
     build_join_context_loader,
     build_join_discoverer,
     build_join_publication_preparer,
@@ -72,14 +111,24 @@ from schemabridge.bootstrap import (
     build_join_review_decider,
     build_join_review_inspector,
     build_join_review_start,
+    build_legacy_control_plane_import,
     build_natural_language_intent_resolver,
     build_postgres_health_check,
     build_publication_preparer,
     build_published_context_reader,
     build_query_preparer,
     build_query_previewer,
+    build_query_recipe_migration_preparer,
+    build_query_recipe_migration_publisher,
     build_query_recipe_preparer,
     build_query_recipe_publisher,
+    build_recorded_registry_publication_source,
+    build_registry_activation_committer,
+    build_registry_activation_preparer,
+    build_registry_control_store,
+    build_registry_reconciliation_inspector,
+    build_registry_reconciliation_repairer,
+    build_registry_rollback_preparer,
     build_request_draft_loader,
     build_request_draft_saver,
     build_review_decider,
@@ -87,11 +136,28 @@ from schemabridge.bootstrap import (
     build_review_inspector,
     build_review_publisher,
     build_review_start,
+    build_semantic_registry,
+    build_semantic_registry_publication_approval_preparer,
+    build_semantic_registry_scope,
+    build_semantic_registry_version_publisher,
     build_semantic_request_planner,
+    build_source_control_database_separation,
     build_sql_guard,
+    build_tenant_capacity_policy_operator,
+    resolve_control_operator_actor,
+    resolve_runtime_profile,
+)
+from schemabridge.domain.catalog_inventory import (
+    TenantCapacityPolicyChange,
+    TenantCapacityPolicyConfirmation,
 )
 from schemabridge.domain.decisions import DecisionAction
 from schemabridge.domain.fields import PhysicalDatasetRef
+from schemabridge.domain.identity_rotation import (
+    IdentityInitializationConfirmation,
+    IdentityRotationConfirmation,
+    IdentityRotationPlan,
+)
 from schemabridge.domain.intents import (
     IntentAlternativeId,
     IntentConfirmation,
@@ -101,9 +167,15 @@ from schemabridge.domain.join_reviews import (
     JoinPublicationApproval,
     JoinPublicationConfirmation,
 )
+from schemabridge.domain.legacy_import import LegacyImportConfirmation
 from schemabridge.domain.recipes import (
+    RecipeMigrationProposal,
     RecipePublicationApproval,
     RecipePublicationConfirmation,
+)
+from schemabridge.domain.registry_control import (
+    RegistryActivationConfirmation,
+    RegistryReconciliationConfirmation,
 )
 from schemabridge.domain.request_context import validated_analytical_request_fingerprint
 from schemabridge.domain.resolution import (
@@ -114,6 +186,12 @@ from schemabridge.domain.reviews import (
     ModelDescriptionEdit,
     PublicationApproval,
     PublicationConfirmation,
+)
+from schemabridge.domain.semantic_registry import (
+    RegistryPublicationConfirmation,
+    datahub_registry_document_urn,
+    prepare_datahub_registry_version,
+    semantic_registry_decision_ids,
 )
 from schemabridge.domain.validation import (
     ValidationFinding,
@@ -162,6 +240,7 @@ class WorkflowActionChoice(StrEnum):
     APPROVE_EXECUTION = "approve-execution"
     DECLINE_EXECUTION = "decline-execution"
     RETRY = "retry"
+    RECOVER = "recover"
     PUBLISH = "publish"
     SKIP_PUBLICATION = "skip-publication"
 
@@ -171,7 +250,1425 @@ app = typer.Typer(
     help="Governed semantic query agent built on DataHub.",
     no_args_is_help=True,
 )
+control_plane_app = typer.Typer(
+    help="Explicit PostgreSQL control-plane migration and read-only status commands.",
+    no_args_is_help=True,
+)
+registry_control_app = typer.Typer(
+    help="Prepare and commit exact approval-gated registry transitions.",
+    no_args_is_help=True,
+)
+registry_reconcile_app = typer.Typer(
+    help="Inspect and explicitly repair the DataHub active-pointer projection.",
+    no_args_is_help=True,
+)
+legacy_import_app = typer.Typer(
+    help="Inspect and approval-gate one offline legacy SQLite import.",
+    no_args_is_help=True,
+)
+recipe_migration_app = typer.Typer(
+    help="Prepare and publish one exact stale query-recipe migration.",
+    no_args_is_help=True,
+)
+identity_control_app = typer.Typer(
+    help="Inspect and approval-gate verified opaque identity initialization or rotation.",
+    no_args_is_help=True,
+)
+capacity_policy_app = typer.Typer(
+    help="Create or revise tenant capacity through optimistic explicit approval.",
+    no_args_is_help=True,
+)
+app.add_typer(control_plane_app, name="control-plane")
+control_plane_app.add_typer(registry_control_app, name="registry")
+control_plane_app.add_typer(registry_reconcile_app, name="reconcile")
+control_plane_app.add_typer(legacy_import_app, name="legacy-import")
+control_plane_app.add_typer(recipe_migration_app, name="recipe-migration")
+control_plane_app.add_typer(identity_control_app, name="identity")
+control_plane_app.add_typer(capacity_policy_app, name="capacity")
 console = Console()
+
+
+@app.callback()
+def enforce_authenticated_production_entrypoint(context: typer.Context) -> None:
+    """Disable the legacy caller-identified CLI in managed deployments."""
+
+    try:
+        profile = resolve_runtime_profile()
+    except (SettingsError, ValidationError):
+        typer.echo(
+            "cli_runtime_configuration_invalid: typed runtime configuration was rejected",
+            err=True,
+        )
+        raise typer.Exit(code=2) from None
+    if profile in {"staging", "production"} and context.invoked_subcommand != "control-plane":
+        typer.echo(
+            "cli_authentication_required: the legacy CLI is disabled in managed deployments",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+
+@control_plane_app.command("migrate")
+def control_plane_migrate(
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Explicitly apply every reviewed pending migration with the migrator credential."""
+
+    try:
+        result = build_control_plane_migrator(credential_kind="migrator").migrate()
+    except (ControlPlaneMigrationError, DatabaseConfigurationError) as error:
+        _control_plane_failure(error, json_output)
+    payload = {
+        "ok": True,
+        "current_version": result.inspection.current_version,
+        "expected_version": result.inspection.expected_version,
+        "applied_versions": list(result.applied_versions),
+        "already_current": result.already_current,
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        applied = ", ".join(str(version) for version in result.applied_versions) or "none"
+        console.print(
+            "Control-plane migration complete: "
+            f"version={result.inspection.current_version}; applied={applied}."
+        )
+
+
+@control_plane_app.command("backup")
+def control_plane_backup(
+    destination: Annotated[
+        Path,
+        typer.Option(
+            "--destination",
+            help="Owner-only local directory for the archive and signed manifest.",
+        ),
+    ],
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Create a transaction-consistent signed backup with the migrator credential."""
+
+    try:
+        archive, manifest_path, manifest = build_control_plane_backup().create_backup(destination)
+    except (
+        ControlPlaneMigrationError,
+        ControlPlaneOperationError,
+        DatabaseConfigurationError,
+        ValueError,
+    ) as error:
+        _control_plane_failure(error, json_output)
+    payload = {
+        "ok": True,
+        "archive": str(archive),
+        "manifest": str(manifest_path),
+        "schema_version": manifest.schema_version,
+        "schema_checksum": manifest.schema_checksum,
+        "archive_sha256": manifest.archive_sha256,
+        "state_sha256": manifest.state_sha256,
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        console.print(
+            f"Control-plane backup verified: archive={archive}; manifest={manifest_path}; "
+            f"state={manifest.state_sha256}."
+        )
+
+
+@control_plane_app.command("restore")
+def control_plane_restore(
+    archive: Annotated[
+        Path,
+        typer.Option("--archive", help="Owner-only custom-format backup archive."),
+    ],
+    manifest: Annotated[
+        Path,
+        typer.Option("--manifest", help="Signed manifest paired with the archive."),
+    ],
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Restore with the secret configured target and emit post-restore verification facts."""
+
+    try:
+        verification = build_control_plane_restore().restore_backup(
+            archive,
+            manifest,
+        )
+    except (
+        ControlPlaneMigrationError,
+        ControlPlaneOperationError,
+        DatabaseConfigurationError,
+        ValueError,
+    ) as error:
+        _control_plane_failure(error, json_output)
+    payload = {"ok": True, **verification.model_dump(mode="json")}
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        console.print(
+            "Control-plane restore verified: "
+            f"schema={verification.schema_version}; state={verification.state_sha256}; "
+            f"audit_events={verification.audit_events}."
+        )
+
+
+@control_plane_app.command("check")
+def control_plane_check(
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Verify exact schema history independently through every dedicated credential."""
+
+    try:
+        inspections = {
+            "runtime": build_control_plane_migrator(credential_kind="runtime").require_current(),
+            "reconciler": build_control_plane_migrator(
+                credential_kind="reconciler"
+            ).require_current(),
+            "migrator": build_control_plane_migrator(credential_kind="migrator").require_current(),
+            "api": build_control_plane_migrator(credential_kind="api").require_current(),
+            "worker": build_control_plane_migrator(credential_kind="worker").require_current(),
+            "catalog": build_control_plane_migrator(credential_kind="catalog").require_current(),
+        }
+        separation = build_source_control_database_separation().execute()
+    except (ControlPlaneMigrationError, DatabaseConfigurationError) as error:
+        _control_plane_failure(error, json_output)
+    payload = {
+        "ok": True,
+        "roles": {
+            credential: {
+                "current_version": inspection.current_version,
+                "expected_version": inspection.expected_version,
+                "pending_versions": [item.version for item in inspection.pending],
+            }
+            for credential, inspection in inspections.items()
+        },
+        "database_separation": {
+            "separate": separation.separate,
+            "source_database": separation.source.database,
+            "source_user": separation.source.user,
+            "control_database": separation.control.database,
+            "control_user": separation.control.user,
+        },
+        "writes_performed": False,
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        table = Table(title="SchemaBridge control-plane schema")
+        table.add_column("Credential")
+        table.add_column("Current")
+        table.add_column("Expected")
+        table.add_column("Pending")
+        for credential, inspection in inspections.items():
+            table.add_row(
+                credential,
+                str(inspection.current_version),
+                str(inspection.expected_version),
+                ", ".join(str(item.version) for item in inspection.pending) or "none",
+            )
+        console.print(table)
+        console.print(
+            "Database separation verified by PostgreSQL: "
+            f"source={separation.source.database}; control={separation.control.database}."
+        )
+        console.print("Read-only inspection; no migration or control-state write was performed.")
+
+
+@control_plane_app.command("status")
+def control_plane_status(
+    workspace_id: Annotated[
+        str,
+        typer.Option(
+            "--workspace-id",
+            help="Exact opaque authenticated workspace identifier to inspect.",
+        ),
+    ],
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Read the authoritative pointer, history, and pending outbox without DataHub I/O."""
+
+    try:
+        build_control_plane_migrator(credential_kind="runtime").require_current()
+        scope = build_semantic_registry_scope(workspace_id=workspace_id)
+        store = build_registry_control_store()
+        active = store.load_active(scope)
+        pending = store.load_pending_outbox(scope)
+        history = store.list_transitions(scope, limit=100)
+    except (
+        ControlPlaneMigrationError,
+        DatabaseConfigurationError,
+        RegistryControlError,
+        ValueError,
+    ) as error:
+        _control_plane_failure(error, json_output)
+    payload = {
+        "ok": True,
+        "scope": scope.model_dump(mode="json"),
+        "active_pointer": None if active is None else active.model_dump(mode="json"),
+        "pending_outbox": None if pending is None else pending.model_dump(mode="json"),
+        "transition_count": len(history),
+        "writes_performed": False,
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        generation = "none" if active is None else str(active.generation)
+        version = "none" if active is None else str(active.registry_version)
+        console.print(
+            f"Control-plane status: generation={generation}; version={version}; "
+            f"history={len(history)}; pending={'yes' if pending is not None else 'no'}."
+        )
+
+
+@capacity_policy_app.command("apply")
+def tenant_capacity_policy_apply(
+    workspace_id: Annotated[
+        str,
+        typer.Option("--workspace-id", help="Exact opaque tenant workspace."),
+    ],
+    expected_version: Annotated[
+        int,
+        typer.Option(
+            "--expected-version",
+            help="Use 0 to create; use the current version to revise.",
+        ),
+    ],
+    connection_limit: Annotated[int, typer.Option("--connection-limit")],
+    asset_limit: Annotated[int, typer.Option("--asset-limit")],
+    field_limit: Annotated[int, typer.Option("--field-limit")],
+    api_requests_per_minute: Annotated[
+        int,
+        typer.Option("--api-requests-per-minute"),
+    ],
+    nonterminal_job_limit: Annotated[int, typer.Option("--nonterminal-job-limit")],
+    generation_retention_seconds: Annotated[
+        int,
+        typer.Option("--generation-retention-seconds"),
+    ],
+    confirmation: Annotated[
+        TenantCapacityPolicyConfirmation,
+        typer.Option("--confirm", help="Exact durable policy-approval phrase."),
+    ],
+    actor: Annotated[
+        str | None,
+        typer.Option(
+            "--actor",
+            help="Local identity check; managed identity comes from trusted configuration.",
+        ),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Apply one version-checked policy and retain an immutable revision record."""
+
+    try:
+        resolved_actor = _control_operator_actor(actor, required_role="platform_admin")
+        change = TenantCapacityPolicyChange(
+            workspace_id=workspace_id,
+            expected_version=expected_version,
+            connection_limit=connection_limit,
+            asset_limit=asset_limit,
+            field_limit=field_limit,
+            api_requests_per_minute=api_requests_per_minute,
+            nonterminal_job_limit=nonterminal_job_limit,
+            generation_retention_seconds=generation_retention_seconds,
+            updated_by=resolved_actor,
+            confirmation=confirmation,
+        )
+        policy = build_tenant_capacity_policy_operator().execute(change)
+    except (
+        CatalogUseCaseError,
+        ControlPlaneMigrationError,
+        DatabaseConfigurationError,
+        ValidationError,
+        ValueError,
+    ) as error:
+        _control_plane_failure(error, json_output)
+    payload = {
+        "ok": True,
+        "policy": policy.model_dump(mode="json"),
+        "writes_performed": True,
+        "immutable_revision_recorded": True,
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        console.print(
+            "Tenant capacity policy applied: "
+            f"workspace={policy.workspace_id}; version={policy.version}; "
+            f"connections={policy.connection_limit}; assets={policy.asset_limit}; "
+            f"fields={policy.field_limit}."
+        )
+
+
+@identity_control_app.command("inspect-evidence")
+def identity_inspect_evidence(
+    evidence_file: Annotated[
+        Path,
+        typer.Option(
+            "--evidence-file",
+            help="Owner-only signed envelope containing opaque verified derivations.",
+        ),
+    ],
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Verify a transient signed envelope and emit only bounded review metadata."""
+
+    try:
+        envelope = build_identity_evidence_reader(evidence_file).read()
+    except (DatabaseConfigurationError, IdentityEvidenceError, ValueError) as error:
+        _identity_failure(error, json_output)
+    payload = _identity_evidence_review_payload(envelope)
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        console.print(
+            "Identity evidence verified: "
+            f"workspace={envelope.workspace_id}; "
+            f"owners={len(envelope.derivations)}; "
+            f"fingerprint={envelope.payload_fingerprint}."
+        )
+        console.print("Read-only verification; no claims, tokens, or derivations were emitted.")
+
+
+@identity_control_app.command("initialize")
+def identity_initialize(
+    evidence_file: Annotated[
+        Path,
+        typer.Option("--evidence-file", help="Exact owner-only envelope reviewed earlier."),
+    ],
+    evidence_fingerprint: Annotated[
+        str,
+        typer.Option(
+            "--evidence-fingerprint",
+            help="Exact SHA-256 emitted by identity inspect-evidence.",
+        ),
+    ],
+    approved_at: Annotated[
+        str,
+        typer.Option(
+            "--approved-at",
+            help="Exact timezone-aware approval timestamp retained for replay.",
+        ),
+    ],
+    confirmation: Annotated[
+        IdentityInitializationConfirmation,
+        typer.Option("--confirm", help="Exact identity-initialization approval phrase."),
+    ],
+    actor: Annotated[
+        str | None,
+        typer.Option(
+            "--actor",
+            help="Local identity check; managed actor identity comes from trusted configuration.",
+        ),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Initialize opaque identity state only from exact approved signed evidence."""
+
+    try:
+        envelope = build_identity_evidence_reader(evidence_file).read(
+            expected_fingerprint=evidence_fingerprint
+        )
+        approval_time = _parse_operator_time(approved_at, "identity initialization approval")
+        _require_evidence_time(envelope, approval_time)
+        resolved_actor = _control_operator_actor(actor, required_role="publisher")
+        state = build_identity_rotation_services().initialize.execute(
+            envelope.derivations,
+            evidence_fingerprint=envelope.payload_fingerprint,
+            actor=resolved_actor,
+            approved_at=approval_time,
+            confirmation=confirmation,
+        )
+    except _IDENTITY_OPERATOR_ERRORS as error:
+        _identity_failure(error, json_output)
+    payload = {
+        "ok": True,
+        "evidence_fingerprint": envelope.payload_fingerprint,
+        "workspace_id": state.workspace_id,
+        "active_key_version": state.active_key_version,
+        "revision": state.revision,
+        "owner_count": len(state.owner_actor_ids),
+        "writes_performed": True,
+        "sensitive_evidence_exposed": False,
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        console.print(
+            "Verified identity state initialized: "
+            f"workspace={state.workspace_id}; key={state.active_key_version}; "
+            f"owners={len(state.owner_actor_ids)}."
+        )
+
+
+@identity_control_app.command("prepare")
+def identity_prepare(
+    evidence_file: Annotated[
+        Path,
+        typer.Option("--evidence-file", help="Exact owner-only envelope reviewed earlier."),
+    ],
+    evidence_fingerprint: Annotated[
+        str,
+        typer.Option("--evidence-fingerprint", help="Exact reviewed evidence SHA-256."),
+    ],
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Prepare an opaque all-owner rotation plan without writing control state."""
+
+    try:
+        envelope = build_identity_evidence_reader(evidence_file).read(
+            expected_fingerprint=evidence_fingerprint
+        )
+        plan = build_identity_rotation_services().prepare.execute(
+            envelope.workspace_id,
+            envelope.derivations,
+        )
+    except _IDENTITY_OPERATOR_ERRORS as error:
+        _identity_failure(error, json_output)
+    payload = _identity_rotation_plan_payload(plan, writes_performed=False)
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        console.print(
+            "Identity rotation prepared: "
+            f"{plan.from_key_version}->{plan.to_key_version}; "
+            f"bindings={plan.expected_binding_count}; fingerprint={plan.fingerprint}."
+        )
+        console.print("Read-only review; no identity binding or approval was written.")
+
+
+@identity_control_app.command("approve")
+def identity_approve(
+    evidence_file: Annotated[
+        Path,
+        typer.Option("--evidence-file", help="Exact owner-only envelope reviewed earlier."),
+    ],
+    evidence_fingerprint: Annotated[
+        str,
+        typer.Option("--evidence-fingerprint", help="Exact reviewed evidence SHA-256."),
+    ],
+    plan_fingerprint: Annotated[
+        str,
+        typer.Option("--plan-fingerprint", help="Exact SHA-256 emitted by identity prepare."),
+    ],
+    approved_at: Annotated[
+        str,
+        typer.Option(
+            "--approved-at",
+            help="Exact timezone-aware approval timestamp retained for replay.",
+        ),
+    ],
+    confirmation: Annotated[
+        IdentityRotationConfirmation,
+        typer.Option("--confirm", help="Exact identity-rotation approval phrase."),
+    ],
+    actor: Annotated[
+        str | None,
+        typer.Option(
+            "--actor",
+            help="Local identity check; managed actor identity comes from trusted configuration.",
+        ),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Reserve one exact rotation approval without changing active bindings."""
+
+    try:
+        envelope = build_identity_evidence_reader(evidence_file).read(
+            expected_fingerprint=evidence_fingerprint
+        )
+        services = build_identity_rotation_services()
+        plan = services.prepare.execute(envelope.workspace_id, envelope.derivations)
+        _require_identity_plan_fingerprint(plan.fingerprint, plan_fingerprint)
+        approval_time = _parse_operator_time(approved_at, "identity rotation approval")
+        _require_evidence_time(envelope, approval_time)
+        resolved_actor = _control_operator_actor(actor, required_role="publisher")
+        approved = services.approve.execute(
+            plan,
+            actor=resolved_actor,
+            approved_at=approval_time,
+            confirmation=confirmation,
+        )
+    except _IDENTITY_OPERATOR_ERRORS as error:
+        _identity_failure(error, json_output)
+    payload = {
+        **_identity_rotation_plan_payload(plan, writes_performed=True),
+        "approval_id": approved.approval.id,
+        "approved_at": approved.approval.approved_at.isoformat(),
+        "bindings_changed": False,
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        console.print(
+            f"Identity rotation approval reserved: plan={plan.id}; approval={approved.approval.id}."
+        )
+
+
+@identity_control_app.command("complete")
+def identity_complete(
+    evidence_file: Annotated[
+        Path,
+        typer.Option("--evidence-file", help="Exact owner-only envelope reviewed earlier."),
+    ],
+    evidence_fingerprint: Annotated[
+        str,
+        typer.Option("--evidence-fingerprint", help="Exact reviewed evidence SHA-256."),
+    ],
+    plan_fingerprint: Annotated[
+        str,
+        typer.Option("--plan-fingerprint", help="Exact approved rotation-plan SHA-256."),
+    ],
+    approval_id: Annotated[
+        str,
+        typer.Option("--approval-id", help="Exact durable approval reservation identifier."),
+    ],
+    completed_at: Annotated[
+        str,
+        typer.Option(
+            "--completed-at",
+            help="Exact timezone-aware completion timestamp retained for replay.",
+        ),
+    ],
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Atomically complete only the exact plan and reserved approval."""
+
+    try:
+        envelope = build_identity_evidence_reader(evidence_file).read(
+            expected_fingerprint=evidence_fingerprint
+        )
+        services = build_identity_rotation_services()
+        plan = services.resolve.execute(
+            plan_fingerprint,
+            envelope.derivations,
+        )
+        completion_time = _parse_operator_time(completed_at, "identity rotation completion")
+        _require_evidence_time(envelope, completion_time)
+        resolved_actor = _control_operator_actor(None, required_role="publisher")
+        result = services.complete.execute(
+            plan,
+            approval_id=approval_id,
+            actor=resolved_actor,
+            completed_at=completion_time,
+        )
+    except _IDENTITY_OPERATOR_ERRORS as error:
+        _identity_failure(error, json_output)
+    payload = {
+        **_identity_rotation_plan_payload(plan, writes_performed=True),
+        "approval_id": result.completion.approved.approval.id,
+        "completion_id": result.completion.id,
+        "completed_at": result.completion.completed_at.isoformat(),
+        "verified_binding_count": result.completion.verified_binding_count,
+        "historical_payloads_rewritten": result.completion.historical_payloads_rewritten,
+        "replayed": result.replayed,
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        console.print(
+            "Identity rotation completed atomically: "
+            f"bindings={result.completion.verified_binding_count}; "
+            f"replayed={'yes' if result.replayed else 'no'}; "
+            f"completion={result.completion.id}."
+        )
+
+
+@recipe_migration_app.command("prepare")
+def recipe_migration_prepare(
+    workspace_id: Annotated[
+        str,
+        typer.Option("--workspace-id", help="Exact opaque workspace target."),
+    ],
+    workflow_id: Annotated[
+        str,
+        typer.Option("--workflow-id", help="Exact completed replacement workflow target."),
+    ],
+    intent_fingerprint: Annotated[
+        str,
+        typer.Option("--intent-fingerprint", help="Exact current recipe intent SHA-256."),
+    ],
+    owner_actor_id: Annotated[
+        str,
+        typer.Option("--owner-actor-id", help="Exact opaque workflow owner target."),
+    ],
+    adapter: Annotated[
+        WriteAdapterChoice,
+        typer.Option("--adapter", help="Explicit live DataHub or persistent fake repository."),
+    ] = WriteAdapterChoice.LIVE,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Prepare an SQL-free migration proposal without writing any target."""
+
+    try:
+        proposal = build_query_recipe_migration_preparer(
+            adapter.value,
+            workspace_id=workspace_id,
+            owner_actor_id=owner_actor_id,
+        ).execute(
+            workflow_id=workflow_id,
+            intent_fingerprint=intent_fingerprint,
+        )
+    except (DatabaseConfigurationError, RecipeError, ValueError) as error:
+        _recipe_failure(error, json_output)
+    payload = _recipe_migration_review_payload(
+        proposal,
+        adapter=adapter,
+        writes_performed=False,
+    )
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        console.print(
+            "Recipe migration prepared: "
+            f"recipe={proposal.replacement.id}; "
+            f"v{proposal.historical.recipe.version}->v{proposal.replacement.version}; "
+            f"fingerprint={proposal.fingerprint}."
+        )
+        console.print("Read-only review; no SQL, preview rows, or publication write emitted.")
+
+
+@recipe_migration_app.command("publish")
+def recipe_migration_publish(
+    workspace_id: Annotated[
+        str,
+        typer.Option("--workspace-id", help="Exact opaque workspace target."),
+    ],
+    workflow_id: Annotated[
+        str,
+        typer.Option("--workflow-id", help="Exact completed replacement workflow target."),
+    ],
+    intent_fingerprint: Annotated[
+        str,
+        typer.Option("--intent-fingerprint", help="Exact current recipe intent SHA-256."),
+    ],
+    owner_actor_id: Annotated[
+        str,
+        typer.Option("--owner-actor-id", help="Exact opaque workflow owner target."),
+    ],
+    proposal_fingerprint: Annotated[
+        str,
+        typer.Option(
+            "--proposal-fingerprint",
+            help="Exact SHA-256 emitted by recipe-migration prepare.",
+        ),
+    ],
+    confirmation: Annotated[
+        RecipePublicationConfirmation,
+        typer.Option("--confirm", help="Exact recipe publication approval phrase."),
+    ],
+    actor: Annotated[
+        str | None,
+        typer.Option(
+            "--actor",
+            help="Local identity check; managed actor identity comes from trusted configuration.",
+        ),
+    ] = None,
+    adapter: Annotated[
+        WriteAdapterChoice,
+        typer.Option("--adapter", help="Explicit live DataHub or persistent fake repository."),
+    ] = WriteAdapterChoice.LIVE,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Reprepare and publish only one unchanged, explicitly approved migration."""
+
+    try:
+        proposal = build_query_recipe_migration_preparer(
+            adapter.value,
+            workspace_id=workspace_id,
+            owner_actor_id=owner_actor_id,
+        ).execute(
+            workflow_id=workflow_id,
+            intent_fingerprint=intent_fingerprint,
+        )
+        if proposal.fingerprint != proposal_fingerprint:
+            raise RecipeError(
+                RecipeErrorCode.APPROVAL_MISMATCH,
+                "recipe migration proposal fingerprint does not match current state",
+            )
+        resolved_actor = _control_operator_actor(actor, required_role="publisher")
+        approved_at = datetime.now(UTC)
+        replacement = proposal.replacement
+        approval = RecipePublicationApproval(
+            id=f"{resolved_actor}-{replacement.id}-v{replacement.version}",
+            recipe_id=replacement.id,
+            recipe_version=replacement.version,
+            recipe_fingerprint=replacement.fingerprint,
+            actor=resolved_actor,
+            approved_at=approved_at,
+            confirmation=confirmation,
+        )
+        result = build_query_recipe_migration_publisher(
+            adapter.value,
+            workspace_id=workspace_id,
+        ).execute(proposal, approval)
+    except (DatabaseConfigurationError, RecipeError, ValueError) as error:
+        _recipe_failure(error, json_output)
+    payload = {
+        **_recipe_migration_review_payload(
+            proposal,
+            adapter=adapter,
+            writes_performed=True,
+        ),
+        "ok": result.failure_code is None,
+        "approval_id": approval.id,
+        "publication": {
+            "status": result.status.value,
+            "recipe_fingerprint": result.recipe_fingerprint,
+            "current_document_urn": result.current_document_urn,
+            "versioned_document_urn": result.versioned_document_urn,
+            "failure_code": result.failure_code,
+        },
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        console.print(
+            "Recipe migration publication "
+            f"{result.status.value}: recipe={proposal.replacement.id}; "
+            f"version={proposal.replacement.version}; "
+            f"document={result.current_document_urn}."
+        )
+    if result.failure_code is not None:
+        raise typer.Exit(code=1)
+
+
+@legacy_import_app.command("inspect")
+def legacy_import_inspect(
+    source: Annotated[
+        Path,
+        typer.Option(
+            "--source",
+            help="Owner-controlled offline SQLite file; symlinks and active journals are rejected.",
+        ),
+    ],
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Reserve a metadata-only dry run without importing or exposing source payloads."""
+
+    try:
+        plan = build_legacy_control_plane_import(source).prepare.execute(
+            recorded_at=datetime.now(UTC)
+        )
+    except (
+        ControlPlaneMigrationError,
+        DatabaseConfigurationError,
+        LegacyImportError,
+        ValueError,
+    ) as error:
+        _control_plane_failure(error, json_output)
+    reasons: dict[str, int] = {}
+    for item in plan.items:
+        if item.reason_code is not None:
+            reasons[item.reason_code] = reasons.get(item.reason_code, 0) + 1
+    payload = {
+        "ok": True,
+        "import_id": plan.id,
+        "source_fingerprint": plan.source_fingerprint,
+        "source_schema_fingerprint": plan.source_schema_fingerprint,
+        "plan_fingerprint": plan.fingerprint,
+        "counts": plan.counts.model_dump(mode="json"),
+        "reason_counts": dict(sorted(reasons.items())),
+        "dry_run_reserved": True,
+        "target_rows_written": 0,
+        "source_payloads_exposed": False,
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        console.print(
+            "Legacy import dry run reserved: "
+            f"items={plan.counts.total}; import={plan.counts.imported}; "
+            f"quarantine={plan.counts.quarantined}; skipped={plan.counts.skipped}; "
+            f"fingerprint={plan.fingerprint}."
+        )
+
+
+@legacy_import_app.command("apply")
+def legacy_import_apply(
+    source: Annotated[
+        Path,
+        typer.Option(
+            "--source",
+            help="The same owner-controlled offline SQLite file used for inspect.",
+        ),
+    ],
+    plan_fingerprint: Annotated[
+        str,
+        typer.Option(
+            "--plan-fingerprint",
+            help="Exact SHA-256 emitted by legacy-import inspect.",
+        ),
+    ],
+    confirmation: Annotated[
+        LegacyImportConfirmation,
+        typer.Option("--confirm", help="Exact legacy-import approval phrase."),
+    ],
+    actor: Annotated[
+        str | None,
+        typer.Option(
+            "--actor",
+            help="Local identity check; managed actor identity comes from trusted configuration.",
+        ),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Reinspect and atomically apply only the exact approved dry-run plan."""
+
+    try:
+        resolved_actor = _control_operator_actor(actor, required_role="publisher")
+        services = build_legacy_control_plane_import(source)
+        plan = services.inspect.execute()
+        if plan.fingerprint != plan_fingerprint:
+            raise LegacyImportError(
+                LegacyImportErrorCode.APPROVAL_MISMATCH,
+                "legacy import plan fingerprint does not match the reviewed dry run",
+            )
+        approved_at = datetime.now(UTC)
+        approval = ApproveLegacyControlPlaneImport().execute(
+            plan,
+            actor=resolved_actor,
+            approved_at=approved_at,
+            confirmation=confirmation,
+        )
+        result = services.apply.execute(
+            plan,
+            approval,
+            completed_at=approved_at,
+        )
+    except (
+        ControlPlaneMigrationError,
+        DatabaseConfigurationError,
+        LegacyImportError,
+        ValueError,
+    ) as error:
+        _control_plane_failure(error, json_output)
+    payload = {
+        "ok": True,
+        "import_id": plan.id,
+        "plan_fingerprint": plan.fingerprint,
+        "approval_id": approval.id,
+        "status": result.reservation.status.value,
+        "counts": result.reservation.counts.model_dump(mode="json"),
+        "source_payloads_exposed": False,
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        console.print(
+            "Legacy import completed atomically: "
+            f"import={result.reservation.counts.imported}; "
+            f"quarantine={result.reservation.counts.quarantined}; "
+            f"skipped={result.reservation.counts.skipped}; approval={approval.id}."
+        )
+
+
+@registry_control_app.command("prepare-activation")
+def registry_prepare_activation(
+    workspace_id: Annotated[
+        str,
+        typer.Option("--workspace-id", help="Exact opaque authenticated workspace identifier."),
+    ],
+    target_version: Annotated[
+        int,
+        typer.Option("--target-version", min=1, help="Exact immutable DataHub registry version."),
+    ],
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Prepare one compare-and-swap activation proposal without writing control state."""
+
+    try:
+        proposal = build_registry_activation_preparer(workspace_id=workspace_id).execute(
+            target_version
+        )
+    except _REGISTRY_OPERATOR_ERRORS as error:
+        _control_plane_failure(error, json_output)
+    payload = {
+        "ok": True,
+        "proposal_fingerprint": proposal.fingerprint,
+        "proposal": proposal.model_dump(mode="json"),
+        "writes_performed": False,
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        console.print(
+            "Registry activation prepared: "
+            f"target_version={proposal.target_registry_version}; "
+            f"expected_generation={proposal.expected_generation}; "
+            f"fingerprint={proposal.fingerprint}."
+        )
+
+
+@registry_control_app.command("activate")
+def registry_activate(
+    workspace_id: Annotated[
+        str,
+        typer.Option("--workspace-id", help="Exact opaque authenticated workspace identifier."),
+    ],
+    target_version: Annotated[
+        int,
+        typer.Option("--target-version", min=1, help="Exact immutable DataHub registry version."),
+    ],
+    proposal_fingerprint: Annotated[
+        str,
+        typer.Option(
+            "--proposal-fingerprint",
+            help="SHA-256 fingerprint returned by prepare-activation.",
+        ),
+    ],
+    confirmation: Annotated[
+        RegistryActivationConfirmation,
+        typer.Option("--confirm", help="Exact forward-activation confirmation phrase."),
+    ],
+    actor: Annotated[
+        str | None,
+        typer.Option(
+            "--actor",
+            help="Local identity check; managed actor identity comes from trusted configuration.",
+        ),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Commit only the exact freshly reconstructed and explicitly approved proposal."""
+
+    try:
+        proposal = build_registry_activation_preparer(workspace_id=workspace_id).execute(
+            target_version
+        )
+        _require_exact_registry_fingerprint(
+            actual=proposal.fingerprint,
+            supplied=proposal_fingerprint,
+            subject="activation proposal",
+        )
+        resolved_actor = _control_operator_actor(actor, required_role="publisher")
+        approved_at = datetime.now(UTC)
+        approval = PrepareRegistryActivationApproval().execute(
+            proposal,
+            actor=resolved_actor,
+            approved_at=approved_at,
+            confirmation=confirmation,
+        )
+        commit = build_registry_activation_committer().execute(
+            proposal,
+            approval,
+            committed_at=approved_at,
+        )
+    except _REGISTRY_OPERATOR_ERRORS as error:
+        _control_plane_failure(error, json_output)
+    payload = {
+        "ok": True,
+        "proposal_fingerprint": proposal.fingerprint,
+        "approval_id": approval.id,
+        "commit": commit.model_dump(mode="json"),
+        "writes_performed": True,
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        pointer = commit.transition.active_pointer
+        console.print(
+            "Registry activated: "
+            f"generation={pointer.generation}; version={pointer.registry_version}; "
+            f"transition={commit.transition.id}."
+        )
+
+
+@registry_control_app.command("prepare-rollback")
+def registry_prepare_rollback(
+    workspace_id: Annotated[
+        str,
+        typer.Option("--workspace-id", help="Exact opaque authenticated workspace identifier."),
+    ],
+    transition_id: Annotated[
+        str,
+        typer.Option(
+            "--transition-id",
+            help="Previously active immutable transition selected as rollback target.",
+        ),
+    ],
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Prepare a monotonic rollback generation without changing history or DataHub."""
+
+    try:
+        proposal = build_registry_rollback_preparer(workspace_id=workspace_id).execute(
+            transition_id
+        )
+    except _REGISTRY_OPERATOR_ERRORS as error:
+        _control_plane_failure(error, json_output)
+    payload = {
+        "ok": True,
+        "proposal_fingerprint": proposal.fingerprint,
+        "proposal": proposal.model_dump(mode="json"),
+        "writes_performed": False,
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        console.print(
+            "Registry rollback prepared: "
+            f"target_version={proposal.target_registry_version}; "
+            f"next_generation={proposal.expected_generation + 1}; "
+            f"fingerprint={proposal.fingerprint}."
+        )
+
+
+@registry_control_app.command("rollback")
+def registry_rollback(
+    workspace_id: Annotated[
+        str,
+        typer.Option("--workspace-id", help="Exact opaque authenticated workspace identifier."),
+    ],
+    transition_id: Annotated[
+        str,
+        typer.Option(
+            "--transition-id",
+            help="Previously active immutable transition selected as rollback target.",
+        ),
+    ],
+    proposal_fingerprint: Annotated[
+        str,
+        typer.Option(
+            "--proposal-fingerprint",
+            help="SHA-256 fingerprint returned by prepare-rollback.",
+        ),
+    ],
+    confirmation: Annotated[
+        RegistryActivationConfirmation,
+        typer.Option("--confirm", help="Exact rollback confirmation phrase."),
+    ],
+    actor: Annotated[
+        str | None,
+        typer.Option(
+            "--actor",
+            help="Local identity check; managed actor identity comes from trusted configuration.",
+        ),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Commit rollback only as a new approved compare-and-swap generation."""
+
+    try:
+        proposal = build_registry_rollback_preparer(workspace_id=workspace_id).execute(
+            transition_id
+        )
+        _require_exact_registry_fingerprint(
+            actual=proposal.fingerprint,
+            supplied=proposal_fingerprint,
+            subject="rollback proposal",
+        )
+        resolved_actor = _control_operator_actor(actor, required_role="publisher")
+        approved_at = datetime.now(UTC)
+        approval = PrepareRegistryActivationApproval().execute(
+            proposal,
+            actor=resolved_actor,
+            approved_at=approved_at,
+            confirmation=confirmation,
+        )
+        commit = build_registry_activation_committer().execute(
+            proposal,
+            approval,
+            committed_at=approved_at,
+        )
+    except _REGISTRY_OPERATOR_ERRORS as error:
+        _control_plane_failure(error, json_output)
+    payload = {
+        "ok": True,
+        "proposal_fingerprint": proposal.fingerprint,
+        "approval_id": approval.id,
+        "commit": commit.model_dump(mode="json"),
+        "writes_performed": True,
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        pointer = commit.transition.active_pointer
+        console.print(
+            "Registry rolled back through a new generation: "
+            f"generation={pointer.generation}; version={pointer.registry_version}; "
+            f"transition={commit.transition.id}."
+        )
+
+
+@registry_reconcile_app.command("inspect")
+def registry_reconcile_inspect(
+    workspace_id: Annotated[
+        str,
+        typer.Option("--workspace-id", help="Exact opaque authenticated workspace identifier."),
+    ],
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Inspect authoritative and projected state without writing PostgreSQL or DataHub."""
+
+    try:
+        report = build_registry_reconciliation_inspector(workspace_id=workspace_id).execute(
+            inspected_at=datetime.now(UTC)
+        )
+    except _REGISTRY_OPERATOR_ERRORS as error:
+        _control_plane_failure(error, json_output)
+    payload = {
+        "ok": True,
+        "report_fingerprint": report.fingerprint,
+        "report": report.model_dump(mode="json"),
+        "writes_performed": False,
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        findings = ", ".join(finding.code.value for finding in report.findings)
+        console.print(
+            "Registry reconciliation inspected: "
+            f"generation={report.active_pointer.generation}; "
+            f"findings={findings}; fingerprint={report.fingerprint}."
+        )
+
+
+@registry_reconcile_app.command("repair")
+def registry_reconcile_repair(
+    workspace_id: Annotated[
+        str,
+        typer.Option("--workspace-id", help="Exact opaque authenticated workspace identifier."),
+    ],
+    report_fingerprint: Annotated[
+        str,
+        typer.Option(
+            "--report-fingerprint",
+            help="SHA-256 fingerprint returned by reconcile inspect.",
+        ),
+    ],
+    inspected_at: Annotated[
+        str,
+        typer.Option(
+            "--inspected-at",
+            help="Exact timezone-aware report timestamp returned by reconcile inspect.",
+        ),
+    ],
+    confirmation: Annotated[
+        RegistryReconciliationConfirmation,
+        typer.Option("--confirm", help="Exact projection-repair confirmation phrase."),
+    ],
+    actor: Annotated[
+        str | None,
+        typer.Option(
+            "--actor",
+            help="Local identity check; managed actor identity comes from trusted configuration.",
+        ),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Repair only an unchanged, safe report with an explicit typed approval."""
+
+    try:
+        report_time = _parse_registry_report_time(inspected_at)
+        report = build_registry_reconciliation_inspector(workspace_id=workspace_id).execute(
+            inspected_at=report_time
+        )
+        _require_exact_registry_fingerprint(
+            actual=report.fingerprint,
+            supplied=report_fingerprint,
+            subject="reconciliation report",
+        )
+        resolved_actor = _control_operator_actor(actor, required_role="publisher")
+        approved_at = datetime.now(UTC)
+        approval = PrepareRegistryReconciliationApproval().execute(
+            report,
+            actor=resolved_actor,
+            approved_at=approved_at,
+            confirmation=confirmation,
+        )
+        outcome = build_registry_reconciliation_repairer().execute(
+            report,
+            approval,
+            occurred_at=approved_at,
+        )
+    except _REGISTRY_OPERATOR_ERRORS as error:
+        _control_plane_failure(error, json_output)
+    payload = {
+        "ok": True,
+        "report_fingerprint": report.fingerprint,
+        "approval_id": approval.id,
+        "outcome": outcome.model_dump(mode="json"),
+        "writes_performed": True,
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        console.print(
+            "Registry reconciliation completed: "
+            f"generation={outcome.generation}; status={outcome.status.value}; "
+            f"transition={outcome.transition_id}."
+        )
+
+
+_REGISTRY_OPERATOR_ERRORS = (
+    ControlPlaneMigrationError,
+    DatabaseConfigurationError,
+    PlanningPortError,
+    RegistryControlError,
+    RegistryPublicationError,
+    ValueError,
+)
+
+_IDENTITY_OPERATOR_ERRORS = (
+    ControlPlaneMigrationError,
+    DatabaseConfigurationError,
+    IdentityEvidenceError,
+    IdentityRotationError,
+    ValueError,
+)
+
+
+def _identity_evidence_review_payload(
+    envelope: IdentityEvidenceEnvelopePort,
+) -> dict[str, object]:
+    from_key_versions = sorted(
+        {derivation.previous.key_version for derivation in envelope.derivations}
+    )
+    to_key_versions = sorted(
+        {derivation.current.key_version for derivation in envelope.derivations}
+    )
+    return {
+        "ok": True,
+        "workspace_id": envelope.workspace_id,
+        "payload_fingerprint": envelope.payload_fingerprint,
+        "signature_key_version": envelope.signature_key_version,
+        "from_key_versions": from_key_versions,
+        "to_key_versions": to_key_versions,
+        "owner_count": len(envelope.derivations),
+        "expected_binding_count": len(envelope.derivations) + 1,
+        "issued_at": envelope.issued_at.isoformat(),
+        "expires_at": envelope.expires_at.isoformat(),
+        "writes_performed": False,
+        "sensitive_evidence_exposed": False,
+    }
+
+
+def _identity_rotation_plan_payload(
+    plan: IdentityRotationPlan,
+    *,
+    writes_performed: bool,
+) -> dict[str, object]:
+    return {
+        "ok": True,
+        "plan_id": plan.id,
+        "plan_fingerprint": plan.fingerprint,
+        "old_workspace_id": plan.old_workspace_id,
+        "new_workspace_id": plan.new_workspace_id,
+        "from_key_version": plan.from_key_version,
+        "to_key_version": plan.to_key_version,
+        "expected_state_revision": plan.expected_state_revision,
+        "expected_binding_count": plan.expected_binding_count,
+        "writes_performed": writes_performed,
+        "sensitive_evidence_exposed": False,
+    }
+
+
+def _require_identity_plan_fingerprint(actual: str, supplied: str) -> None:
+    if actual != supplied:
+        raise IdentityRotationError(
+            IdentityRotationErrorCode.APPROVAL_MISMATCH,
+            "identity rotation plan fingerprint does not match current state",
+        )
+
+
+def _require_evidence_time(
+    envelope: IdentityEvidenceEnvelopePort,
+    timestamp: datetime,
+) -> None:
+    if timestamp < envelope.issued_at or timestamp >= envelope.expires_at:
+        raise ValueError("operator timestamp is outside the verified evidence window")
+
+
+def _parse_operator_time(value: str, subject: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as error:
+        raise ValueError(f"{subject} time must be valid ISO-8601") from error
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"{subject} time must include a timezone")
+    return parsed
+
+
+def _identity_failure(
+    error: (
+        ControlPlaneMigrationError
+        | DatabaseConfigurationError
+        | IdentityEvidenceError
+        | IdentityRotationError
+        | ValueError
+    ),
+    json_output: bool,
+) -> Never:
+    raw_code = getattr(error, "code", "identity_control_configuration_error")
+    code = raw_code.value if isinstance(raw_code, StrEnum) else str(raw_code)
+    payload = {"ok": False, "code": code, "error": str(error)}
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        console.print(f"Identity control operation failed: {code}", style="red")
+    raise typer.Exit(code=1)
+
+
+def _control_operator_actor(
+    supplied_actor: str | None,
+    *,
+    required_role: str,
+) -> str:
+    """Resolve audit identity without trusting a managed command-line assertion."""
+
+    return resolve_control_operator_actor(
+        supplied_actor,
+        required_role=required_role,
+    )
+
+
+def _require_exact_registry_fingerprint(
+    *,
+    actual: str,
+    supplied: str,
+    subject: str,
+) -> None:
+    if supplied != actual:
+        raise RegistryControlError(
+            RegistryControlErrorCode.APPROVAL_MISMATCH,
+            f"{subject} fingerprint does not match the current exact state",
+        )
+
+
+def _parse_registry_report_time(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as error:
+        raise ValueError("reconciliation report time must be valid ISO-8601") from error
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("reconciliation report time must include a timezone")
+    return parsed
+
+
+def _control_plane_failure(
+    error: (
+        ControlPlaneMigrationError
+        | ControlPlaneOperationError
+        | DatabaseConfigurationError
+        | LegacyImportError
+        | PlanningPortError
+        | RegistryControlError
+        | RegistryPublicationError
+        | CatalogUseCaseError
+        | ValidationError
+        | ValueError
+    ),
+    json_output: bool,
+) -> Never:
+    raw_code = getattr(error, "code", "control_plane_configuration_error")
+    code = raw_code.value if isinstance(raw_code, StrEnum) else str(raw_code)
+    payload = {"ok": False, "code": code, "error": str(error)}
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        console.print(f"Control-plane operation failed: {code}", style="red")
+    raise typer.Exit(code=1)
 
 
 @app.command("review-init")
@@ -596,6 +2093,202 @@ def join_published(
         )
 
 
+@app.command("registry-prepare")
+@registry_control_app.command("prepare-version")
+def registry_prepare(
+    target_version: Annotated[
+        int | None,
+        typer.Option(
+            "--target-version",
+            min=1,
+            help="Explicit immutable version to derive from the approved bundle.",
+        ),
+    ] = None,
+    workspace_id: Annotated[
+        str | None,
+        typer.Option(
+            "--workspace-id",
+            help="Exact target workspace; required by managed operator composition.",
+        ),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Display the exact workspace-bound immutable payload before approval."""
+
+    try:
+        source = build_recorded_registry_publication_source(
+            target_version=target_version,
+            workspace_id=workspace_id,
+        )
+        registry = prepare_datahub_registry_version(source.registry, source.scope)
+    except (
+        ControlPlaneMigrationError,
+        DatabaseConfigurationError,
+        PlanningPortError,
+        RegistryControlError,
+        ValueError,
+    ) as error:
+        _registry_failure(error, json_output)
+    payload = {
+        "ok": True,
+        "target": datahub_registry_document_urn(source.scope, registry.version),
+        "source": registry.source,
+        "registry_id": registry.registry_id,
+        "version": registry.version,
+        "catalog_scope": registry.catalog_scope,
+        "fingerprint": registry.fingerprint,
+        "models": len(registry.logical_context.models),
+        "mappings": len(registry.mapping_set.mappings),
+        "joins": len(registry.join_contracts.contracts),
+        "decisions": len(semantic_registry_decision_ids(registry)),
+        "writes_performed": False,
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        console.print(
+            f"Prepared registry target={payload['target']}; "
+            f"{payload['models']}/{payload['mappings']}/{payload['joins']}; "
+            f"fingerprint={registry.fingerprint}. No write was performed."
+        )
+
+
+@app.command("registry-publish")
+@registry_control_app.command("publish-version")
+def registry_publish(
+    confirmed_fingerprint: Annotated[
+        str,
+        typer.Option(
+            "--fingerprint",
+            help="Exact fingerprint previously emitted by registry-prepare.",
+        ),
+    ],
+    confirmation: Annotated[
+        RegistryPublicationConfirmation,
+        typer.Option("--confirm", help="Exact approval phrase for this registry version."),
+    ],
+    target_version: Annotated[
+        int | None,
+        typer.Option(
+            "--target-version",
+            min=1,
+            help="Explicit immutable version used by registry-prepare.",
+        ),
+    ] = None,
+    workspace_id: Annotated[
+        str | None,
+        typer.Option(
+            "--workspace-id",
+            help="Exact target workspace; required by managed operator composition.",
+        ),
+    ] = None,
+    actor: Annotated[
+        str | None,
+        typer.Option(
+            "--actor",
+            help="Local identity check; managed actor identity comes from trusted configuration.",
+        ),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Publish the exact verified recorded registry as one immutable DataHub version."""
+
+    try:
+        resolved_actor = _control_operator_actor(actor, required_role="publisher")
+        source = build_recorded_registry_publication_source(
+            target_version=target_version,
+            workspace_id=workspace_id,
+        )
+        registry = prepare_datahub_registry_version(source.registry, source.scope)
+        approval = build_semantic_registry_publication_approval_preparer(
+            workspace_id=workspace_id
+        ).execute(
+            registry,
+            source.scope,
+            actor=resolved_actor,
+            approved_at=datetime.now(UTC),
+            confirmed_fingerprint=confirmed_fingerprint,
+            confirmation=confirmation,
+        )
+        result = build_semantic_registry_version_publisher(workspace_id=workspace_id).execute(
+            registry,
+            approval,
+        )
+    except (DatabaseConfigurationError, RegistryPublicationError, ValueError) as error:
+        _registry_failure(error, json_output)
+    payload = {"ok": result.status.value != "failed", **result.model_dump(mode="json")}
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        console.print(
+            f"Registry publication {result.status.value}; "
+            f"target={result.target}; fingerprint={result.fingerprint}."
+        )
+    if result.status.value == "failed":
+        raise typer.Exit(code=1)
+
+
+@app.command("registry-show")
+def registry_show(
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Read one configured registry version through its selected adapter with no fallback."""
+
+    try:
+        scoped = build_semantic_registry().load()
+    except (
+        ControlPlaneMigrationError,
+        DatabaseConfigurationError,
+        PlanningPortError,
+        RegistryControlError,
+        ValueError,
+    ) as error:
+        _registry_failure(error, json_output)
+    registry = scoped.registry
+    payload = {
+        "ok": True,
+        "source": registry.source,
+        "workspace_id": scoped.scope.workspace_id,
+        "catalog_scope": registry.catalog_scope,
+        "registry_id": registry.registry_id,
+        "version": registry.version,
+        "fingerprint": registry.fingerprint,
+        "models": len(registry.logical_context.models),
+        "mappings": len(registry.mapping_set.mappings),
+        "joins": len(registry.join_contracts.contracts),
+        "decisions": len(semantic_registry_decision_ids(registry)),
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        console.print(
+            f"Registry {registry.registry_id} v{registry.version} from {registry.source}; "
+            f"{payload['models']}/{payload['mappings']}/{payload['joins']}; "
+            f"fingerprint={registry.fingerprint}."
+        )
+
+
+def _registry_failure(
+    error: (
+        ControlPlaneMigrationError
+        | DatabaseConfigurationError
+        | PlanningPortError
+        | RegistryControlError
+        | RegistryPublicationError
+        | ValueError
+    ),
+    json_output: bool,
+) -> Never:
+    raw_code = getattr(error, "code", "registry_configuration_error")
+    code = raw_code.value if isinstance(raw_code, StrEnum) else str(raw_code)
+    payload = {"ok": False, "code": code, "error": str(error)}
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2))
+    else:
+        console.print(f"Semantic registry operation failed: {code}", style="red")
+    raise typer.Exit(code=1)
+
+
 def _join_failure(
     error: RelationshipWorkflowError | DatabaseConfigurationError,
     json_output: bool,
@@ -637,6 +2330,39 @@ def _request_failure(
         console.print(f"Request builder rejected the input: {code}", style="red")
         console.print(str(error))
     raise typer.Exit(code=1)
+
+
+def _recipe_migration_review_payload(
+    proposal: RecipeMigrationProposal,
+    *,
+    adapter: WriteAdapterChoice,
+    writes_performed: bool,
+) -> dict[str, object]:
+    historical = proposal.historical.recipe
+    replacement = proposal.replacement
+    return {
+        "ok": True,
+        "adapter": adapter.value,
+        "proposal_fingerprint": proposal.fingerprint,
+        "intent_fingerprint": historical.intent_fingerprint,
+        "historical": {
+            "recipe_id": historical.id,
+            "version": historical.version,
+            "recipe_fingerprint": historical.fingerprint,
+            "payload_fingerprint": proposal.historical_payload_fingerprint,
+            "snapshot_fingerprint": proposal.historical_snapshot_fingerprint,
+        },
+        "replacement": {
+            "recipe_id": replacement.id,
+            "version": replacement.version,
+            "recipe_fingerprint": replacement.fingerprint,
+            "source_workflow_id": replacement.source_workflow_id,
+            "staleness_reasons": [reason.value for reason in proposal.assessment.reasons],
+        },
+        "writes_performed": writes_performed,
+        "sql_exposed": False,
+        "preview_rows_exposed": False,
+    }
 
 
 def _recipe_failure(
@@ -1084,7 +2810,7 @@ def workflow_demo(
         typer.Option("--json", help="Emit machine-readable durable workflow state."),
     ] = False,
 ) -> None:
-    """Start, resume, decide, retry, or inspect the durable governed workflow."""
+    """Start, inspect, recover, decide, or retry the durable governed workflow."""
 
     try:
         orchestrator = build_agent_workflow_orchestrator(
@@ -1104,7 +2830,7 @@ def workflow_demo(
                 )
             )
         else:
-            draft = orchestrator.resume(workflow_id)
+            draft = orchestrator.inspect(workflow_id)
             if action is WorkflowActionChoice.CONFIRM_INTENT:
                 if draft.intent is None:
                     raise WorkflowError(
@@ -1153,6 +2879,17 @@ def workflow_demo(
                         failure_fingerprint=draft.failure.fingerprint,
                         operation=draft.failure.operation,
                     ),
+                )
+            elif action is WorkflowActionChoice.RECOVER:
+                recovery_operation = workflow_recovery_operation(draft)
+                if recovery_operation is None:
+                    raise WorkflowError(
+                        code=WorkflowErrorCode.INVALID_TRANSITION,
+                        message="workflow has no interrupted transition to recover",
+                    )
+                draft = orchestrator.recover_interrupted(
+                    workflow_id,
+                    expected_operation=recovery_operation,
                 )
             elif action in {
                 WorkflowActionChoice.PUBLISH,

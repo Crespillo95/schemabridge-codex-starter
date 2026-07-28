@@ -15,15 +15,27 @@ ALTER ROLE schemabridge_reader SET statement_timeout = '5s';
 ALTER ROLE schemabridge_reader SET lock_timeout = '1s';
 
 REVOKE ALL PRIVILEGES ON DATABASE schemabridge FROM PUBLIC;
-REVOKE ALL PRIVILEGES ON SCHEMA public, crm, legacy, bank, reporting FROM PUBLIC;
-REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA crm, legacy, bank, reporting FROM PUBLIC;
-REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA crm, legacy, bank, reporting FROM PUBLIC;
+REVOKE ALL PRIVILEGES ON SCHEMA
+    public, crm, legacy, bank, reporting, commerce, sales, fulfillment, support
+    FROM PUBLIC;
+REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA
+    crm, legacy, bank, reporting, commerce, sales, fulfillment, support
+    FROM PUBLIC;
+REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA
+    crm, legacy, bank, reporting, commerce, sales, fulfillment, support
+    FROM PUBLIC;
 
 GRANT CONNECT ON DATABASE schemabridge TO schemabridge_reader;
-GRANT USAGE ON SCHEMA crm, legacy, bank, reporting TO schemabridge_reader;
-GRANT SELECT ON ALL TABLES IN SCHEMA crm, legacy, bank, reporting TO schemabridge_reader;
+GRANT USAGE ON SCHEMA
+    crm, legacy, bank, reporting, commerce, sales, fulfillment, support
+    TO schemabridge_reader;
+GRANT SELECT ON ALL TABLES IN SCHEMA
+    crm, legacy, bank, reporting, commerce, sales, fulfillment, support
+    TO schemabridge_reader;
 
-ALTER DEFAULT PRIVILEGES IN SCHEMA crm, legacy, bank, reporting
+ALTER DEFAULT PRIVILEGES IN SCHEMA
+    crm, legacy, bank, reporting, commerce, sales, fulfillment, support
     REVOKE ALL ON TABLES FROM PUBLIC;
-ALTER DEFAULT PRIVILEGES IN SCHEMA crm, legacy, bank, reporting
+ALTER DEFAULT PRIVILEGES IN SCHEMA
+    crm, legacy, bank, reporting, commerce, sales, fulfillment, support
     GRANT SELECT ON TABLES TO schemabridge_reader;

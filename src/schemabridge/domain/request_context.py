@@ -48,6 +48,7 @@ class ApprovedRequestField(FrozenDomainModel):
     canonical_type: CanonicalType
     role: LogicalFieldRole
     definition: str = Field(min_length=1)
+    allowed_values: tuple[str, ...] = Field(default=(), max_length=64)
     status: ApprovalStatus
     version: int = Field(ge=1)
 
@@ -57,6 +58,16 @@ class ApprovedRequestField(FrozenDomainModel):
         if not value.strip():
             raise ValueError("approved request field definition must not be blank")
         return value
+
+    @field_validator("allowed_values")
+    @classmethod
+    def allowed_values_must_be_unique_and_nonblank(
+        cls,
+        values: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        if len(values) != len(set(values)) or any(not value.strip() for value in values):
+            raise ValueError("approved field values must be unique and nonblank")
+        return values
 
     @model_validator(mode="after")
     def field_must_be_approved_and_typed_consistently(self) -> ApprovedRequestField:
@@ -69,6 +80,8 @@ class ApprovedRequestField(FrozenDomainModel):
             raise ValueError("temporal fields require date or timestamp canonical type")
         if self.role is LogicalFieldRole.MEASURE and self.canonical_type not in _NUMERIC_TYPES:
             raise ValueError("measure fields require integer or decimal canonical type")
+        if self.allowed_values and self.canonical_type is not CanonicalType.STRING:
+            raise ValueError("closed approved values require a canonical string field")
         return self
 
 
@@ -307,6 +320,24 @@ def validate_analytical_request(
                     "value",
                 )
             )
+        values = (
+            request_filter.value
+            if isinstance(request_filter.value, tuple)
+            else (request_filter.value,)
+        )
+        if field.allowed_values and any(value not in field.allowed_values for value in values):
+            findings.append(
+                _error(
+                    "unapproved_filter_value",
+                    (
+                        f"Filter values for {field.id.root} must be chosen from its approved "
+                        f"closed set: {', '.join(field.allowed_values)}."
+                    ),
+                    "filters",
+                    str(index),
+                    "value",
+                )
+            )
 
     selected_models = _selected_models(request)
     if len(selected_models) > 3:
@@ -354,20 +385,32 @@ def validate_analytical_request(
     joins_by_id = {join.id: join for join in context.joins}
     for join_id in join_ids:
         join = joins_by_id[join_id]
-        if join.fanout_policy is FanoutPolicy.REQUIRE_DISTINCT_FOR_LEFT_ENTITY_METRICS:
-            planner_mitigated_metrics = [
+        left_index = resolved_models.index(join.left_model.root)
+        right_index = resolved_models.index(join.right_model.root)
+        forward = left_index < right_index
+        oriented_cardinality = (
+            join.cardinality if forward else _reverse_cardinality(join.cardinality)
+        )
+        if (
+            oriented_cardinality is Cardinality.ONE_TO_MANY
+            and join.fanout_policy is FanoutPolicy.REQUIRE_DISTINCT_FOR_LEFT_ENTITY_METRICS
+        ):
+            joined_index = right_index if forward else left_index
+            existing_models = set(resolved_models[:joined_index])
+            planner_checked_metrics = [
                 metric
                 for metric in request.metrics
-                if _model_for_field(metric.field) == join.left_model.root
+                if _model_for_field(metric.field) in existing_models
                 and metric.operation is MetricOperation.COUNT
             ]
-            if planner_mitigated_metrics:
+            if planner_checked_metrics:
                 findings.append(
                     _warning(
-                        "fanout_mitigation_will_apply",
+                        "fanout_mitigation_requires_planner_check",
                         (
-                            f"{join.id} is {join.cardinality.value}; the governed planner will "
-                            f"replace count with count_distinct for {join.left_model.root}."
+                            f"{join.id} is {oriented_cardinality.value} in the selected path; "
+                            "the governed planner will apply count_distinct only to the exact "
+                            "approved one-side key and otherwise fail closed."
                         ),
                         "metrics",
                     )
@@ -449,6 +492,14 @@ def _selected_models(request: AnalyticalRequest) -> tuple[str, ...]:
 
 def _model_for_field(field: LogicalFieldRef) -> str:
     return field.root.split(".", 1)[0]
+
+
+def _reverse_cardinality(cardinality: Cardinality) -> Cardinality:
+    if cardinality is Cardinality.ONE_TO_MANY:
+        return Cardinality.MANY_TO_ONE
+    if cardinality is Cardinality.MANY_TO_ONE:
+        return Cardinality.ONE_TO_MANY
+    return cardinality
 
 
 def _metric_is_compatible(

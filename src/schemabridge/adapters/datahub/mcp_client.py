@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, TypeVar
+
+_DEFAULT_OPERATION_TIMEOUT_SECONDS = 30.0
+_MAX_OPERATION_TIMEOUT_SECONDS = 120.0
+ResultT = TypeVar("ResultT")
 
 
 class McpFailureKind(StrEnum):
@@ -45,16 +51,55 @@ class McpStdioToolClient:
     command: str
     arguments: tuple[str, ...]
     working_directory: Path
+    operation_timeout_seconds: float = _DEFAULT_OPERATION_TIMEOUT_SECONDS
+
+    def __post_init__(self) -> None:
+        timeout = self.operation_timeout_seconds
+        if (
+            isinstance(timeout, bool)
+            or not isinstance(timeout, (int, float))
+            or not math.isfinite(timeout)
+            or timeout <= 0
+            or timeout > _MAX_OPERATION_TIMEOUT_SECONDS
+        ):
+            raise ValueError("MCP operation timeout must be finite and within (0, 120] seconds")
+        object.__setattr__(self, "operation_timeout_seconds", float(timeout))
 
     def list_tools(self) -> frozenset[str]:
         """List tools without persisting a background process or credentials."""
 
-        return asyncio.run(self._list_tools())
+        return self._run("list_tools", self._list_tools)
 
     def call_tool(self, name: str, arguments: dict[str, object]) -> object:
         """Decode a JSON tool result while suppressing raw error bodies."""
 
-        return asyncio.run(self._call_tool(name, arguments))
+        return self._run(name, lambda: self._call_tool(name, arguments))
+
+    def _run(
+        self,
+        tool_name: str,
+        operation: Callable[[], Awaitable[ResultT]],
+    ) -> ResultT:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise McpClientError(tool_name, McpFailureKind.UNAVAILABLE)
+        return asyncio.run(self._run_with_timeout(tool_name, operation))
+
+    async def _run_with_timeout(
+        self,
+        tool_name: str,
+        operation: Callable[[], Awaitable[ResultT]],
+    ) -> ResultT:
+        try:
+            async with asyncio.timeout(self.operation_timeout_seconds):
+                return await operation()
+        except McpClientError:
+            raise
+        except TimeoutError as error:
+            raise McpClientError(tool_name, McpFailureKind.UNAVAILABLE) from error
 
     async def _list_tools(self) -> frozenset[str]:
         try:

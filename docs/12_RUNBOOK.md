@@ -329,11 +329,11 @@ same isolated CLI/connector version:
 datahub ingest -c infra/datahub/ingestion/postgres.yml
 ```
 
-The recipe reads as `schemabridge_reader` on `127.0.0.1:55433`, allowlists exactly `crm`, `legacy`,
-`bank`, and `reporting`, and enables field-level profiling. The post-reset run produced 61 aspects,
-including schema metadata and profiles for all five tables, with zero sink failures. The independent
-catalog check verified table descriptions, the expected described fields, exact schema fields,
-profile row counts 7/7/9/9/6, and `logicalModelsEnabled: true` from the UI configuration.
+The recipe reads as `schemabridge_reader` on `127.0.0.1:55433` and enables field-level profiling.
+M21 extends its exact schema allowlist to `crm`, `legacy`, `bank`, `reporting`, `commerce`, `sales`,
+`fulfillment`, and `support`. The 2026-07-23 post-reset run emitted 121 sink records and profiled all
+11 tables with zero failures. The independent catalog check verified descriptions, exact schema
+fields, all 465 profile rows, and `logicalModelsEnabled: true` from the UI configuration.
 
 `make datahub-init-admin` creates a one-month local CLI token in `~/.datahubenv` without printing
 it. `make datahub-provision-mcp` creates or reuses the dedicated **SchemaBridge MCP Reader** service
@@ -1269,10 +1269,10 @@ Verified M15 results on CPython 3.13.13:
 - `make check`: Ruff passed over 178 Python files, strict mypy passed over 109 source files, and 259
   unit tests passed with 33 integration/acceptance tests deselected.
 
-Because the repository still has no initial commit, the generated report identifies its source as
-`working-tree-uncommitted`, includes the current source fingerprint, and explicitly says it is not
-a release-commit claim. Regenerate after the reviewed initial commit before quoting metrics as
-release evidence.
+At the time of M15 the repository had no initial commit, so the generated report identified its
+source as `working-tree-uncommitted`. The repository now has `HEAD` `231187a`, but the current M16
+remediation still differs from it. Regenerate after the reviewed remediation commit before quoting
+metrics as release evidence.
 
 ## M16 release hardening and clean-room proof
 
@@ -1295,16 +1295,16 @@ and scans the candidate tree. It intentionally destroys only these project-owned
 It does not prune images, build cache, or unrelated volumes. Review the script and back up any
 project-local state before using it outside the supplied synthetic environment.
 
-The supplied repository still has no commit. The explicitly non-release development proof was:
+The original explicitly non-release development proof, before `HEAD` existed, was:
 
 ```bash
 bash scripts/release_clean_room.sh --allow-uncommitted
 ```
 
-That exact command completed from zero state on 2026-07-22. The strict `make release-audit` and
-`make release-clean` commands were also run and correctly failed before proof: `HEAD` does not
-exist and the candidate tree is untracked. After the operator reviews and creates the initial
-release-candidate commit, rerun the strict command; do not reuse the development-mode result as
+That exact command completed from zero state on 2026-07-22. At that time strict
+`make release-audit` and `make release-clean` correctly failed because `HEAD` did not exist. The
+repository now has `HEAD` `231187a`; after the operator reviews and commits the current fanout/audit
+remediation, rerun the strict command. Do not reuse the earlier development-mode result as
 release-commit evidence.
 
 Verified host/tool observations for the successful development run:
@@ -1347,7 +1347,8 @@ that scoped token before retrying because failed local state is deliberately not
 3. From a clean browser, execute the north-star journey against live DataHub and PostgreSQL, record
    timing/manual interventions, and verify `2, 1, 1`, rejected-source reasons, reader identity,
    fanout mitigation, approval provenance, and recipe reuse after restart.
-4. Review the three release blockers in the audit. Record an explicit go/no-go decision; do not
+4. Review the two remaining high release blockers in the audit. Record an explicit go/no-go
+   decision; do not
    deploy while any critical/high blocker is unresolved or unaccepted.
 
 Expected strict completion ends with:
@@ -1358,6 +1359,2512 @@ M16 clean-room command completed.
 ```
 
 The current uncommitted tree cannot produce that release identity and remains NO-GO.
+
+## M17 recorded judge deployment
+
+M17 adds a pinned, unprivileged Docker image whose default needs no database, DataHub, or LLM
+credential. It still resolves typed intent, compiles deterministic PostgreSQL, and runs the
+independent AST guard; only the exact north-star result and rejection observation are replayed from
+`demo/hosted/north_star_execution.json`. Any fingerprint drift fails closed.
+
+```bash
+make judge-build
+docker run -d --name schemabridge-m17-judge \
+  -p 127.0.0.1:7860:7860 schemabridge-judge:local
+make judge-smoke
+.venv/bin/pytest -m acceptance -k deployed
+```
+
+The selected public platform, official limit comparison, clean release/upload sequence, free-tier
+sleep handling, dependency drill, scoped deployment credential, and rollback procedure are in
+`docs/adr/0005-free-recorded-judge-deployment.md` and `docs/17_JUDGE_OPERATIONS.md`. As of
+2026-07-22 the image and local smoke are verified, but there is no claimed public URL or external
+browser/device result.
+
+The earlier M04–M16 DataHub commands in this runbook are unchanged and remain the full live path.
+
+## M20 identity and RBAC operations
+
+### Local and public recorded demo
+
+The local/demo principal is pseudonymous and cannot be entered or changed in the browser. The
+public judge profile is fixed and needs no identity-provider secret:
+
+```bash
+SCHEMABRIDGE_ENVIRONMENT=hosted-demo \
+SCHEMABRIDGE_DRAFT_STORE_PATH=.local/m20-hosted-demo.db \
+.venv/bin/streamlit run src/schemabridge/entrypoints/streamlit/app.py
+```
+
+Confirm that the sidebar shows `local_demo`, the `analyst` and `publisher` roles, and
+recorded/fake/recorded modes. There must be no actor field or integration selector.
+`development` also defaults to recorded execution. A deliberate local live-read drill must set
+`SCHEMABRIDGE_ALLOW_LOCAL_LIVE_READS=true`; never carry that flag into a managed profile.
+
+### Staging or production OIDC
+
+Set only non-secret identity metadata in the service environment:
+
+```bash
+export SCHEMABRIDGE_ENVIRONMENT=staging
+export SCHEMABRIDGE_AUTH_MODE=oidc
+export SCHEMABRIDGE_OIDC_ISSUER=https://identity.example.com
+export SCHEMABRIDGE_OIDC_AUDIENCE=schemabridge
+export SCHEMABRIDGE_OIDC_PROVIDER=corporate
+export SCHEMABRIDGE_OIDC_ROLE_CLAIM=groups
+export SCHEMABRIDGE_OIDC_TENANT_CLAIM=tenant_id
+export SCHEMABRIDGE_OIDC_ALLOWED_GROUPS='{"schema-analysts":["analyst"],"schema-stewards":["steward"],"schema-publishers":["publisher"],"schema-auditors":["auditor"]}'
+export SCHEMABRIDGE_OIDC_ALLOWED_TENANTS='["tenant-a","tenant-b"]'
+export SCHEMABRIDGE_OIDC_MAX_SESSION_AGE_SECONDS=3600
+export SCHEMABRIDGE_OIDC_LIVE_PUBLICATION_MAX_IDENTITY_AGE_SECONDS=900
+export SCHEMABRIDGE_PSEUDONYMIZATION_KEY_VERSION=v1
+```
+
+Mount a populated `.streamlit/secrets.toml` from the platform secret store using
+`.streamlit/secrets.toml.example` as its shape. Set file permissions to `0600`, keep
+`expose_tokens` absent, and register the exact absolute `/oauth2callback` URI at the provider.
+Set `SCHEMABRIDGE_OIDC_ALLOWED_TENANTS` to the exact, case-sensitive tenant claim values this
+deployment serves (maximum 256 entries, 120 characters each). Inject a unique random
+`SCHEMABRIDGE_PSEUDONYMIZATION_KEY` of at least 32 UTF-8 bytes and eight distinct byte values from
+the service secret manager; do not type it into shell history. Never put client, cookie, HMAC, or
+token values in environment examples, logs, tickets, or screenshots.
+
+Startup must fail with only `runtime_configuration_invalid` for an incomplete OIDC profile,
+missing `[auth]` section, weak/placeholder secret, non-HTTPS managed redirect/discovery URL,
+discovery origin that differs from the configured issuer, client/audience mismatch, unsupported
+provider name, exposed tokens, or local live publication. The browser must show only the login
+boundary before authentication.
+
+### Role and isolation verification
+
+1. Sign in as an analyst and create/confirm/execute one synthetic workflow.
+2. Confirm every displayed decision actor is an opaque `sb_actor_…` value and cannot be edited.
+3. Sign in as another analyst in the same tenant; a known owner workflow ID must return the same
+   safe access error as a missing ID.
+4. Sign in as a publisher in the same tenant; confirm rows/rejections are redacted, then review and
+   publish the analyst's context proposal.
+5. Confirm the execution approver cannot self-publish when publication mode is live.
+6. Sign in with another allowlisted tenant; confirm no workflow state is rendered.
+7. Sign in with a valid provider identity whose tenant is absent from
+   `SCHEMABRIDGE_OIDC_ALLOWED_TENANTS`; confirm `tenant_not_allowed` is handled as a generic
+   authentication rejection and no governed reference or workflow state is rendered.
+8. Remove the role group, then force a new provider token (re-login) or wait for its configured
+   expiry. The next action must fail before external I/O. Do not claim immediate revocation of an
+   already issued token; the general maximum is one hour and live-publication freshness is 15
+   minutes.
+9. Log out, close every application tab, and use browser back. Clear site data during incident
+   testing because Streamlit logout/session propagation across already-open tabs is not an
+   enterprise revocation mechanism.
+10. Inspect browser console/network and application logs for token, email, subject, tenant label, or
+   connection-string leakage.
+
+Opening or refreshing a workflow is read-only. If a crash leaves a started external transition,
+the page presents **Recover interrupted state** only to a role authorized for that exact operation.
+Recovery first records a typed retry boundary; it never repeats preview execution or publication
+merely because an auditor/publisher opened the workflow.
+
+The legacy CLI intentionally exits with `cli_authentication_required` in staging and production.
+Do not bypass this by changing the managed profile. Later API/worker work must reuse the same
+principal and authorization contracts.
+
+### Troubleshooting and rollback
+
+- `runtime_configuration_invalid`: correct typed profile metadata or install `schemabridge[ui]`;
+  validate the mounted `[auth]`/provider sections and secret-manager injection; never print a
+  rejected value or switch production to local-demo.
+- `invalid_issuer`, `invalid_audience`, or `invalid_authorized_party`: compare provider registration
+  with non-secret settings; do not print the token.
+- `tenant_not_allowed`: compare the provider's tenant assignment against the operator-managed
+  allowlist without printing the claim or weakening the list.
+- `session_not_current`: clear the Streamlit identity cookie and authenticate again; check provider
+  clock synchronization and configured maximum age.
+- `permission_denied`: fix the external group allowlist or membership; unknown groups deliberately
+  grant nothing.
+- `workflow_access_denied`: confirm workspace and access through an operator-side audit; the UI
+  intentionally does not disclose whether another tenant owns the ID.
+- `publication_reauthentication_required`: sign out and obtain a newly issued provider token before
+  retrying the live publication review.
+
+Rollback means routing traffic back to the last reviewed image and preserving the control-plane
+database for inspection. Do not delete ownership grants or convert historical actor strings into
+verified principals. The additive M20 table is ignored by older demo code, but a production
+rollback still requires the normal release and backup procedure.
+
+### Pseudonymization-key incident rotation
+
+The identifier prefix records the configured key version, but M20 intentionally has no silent
+identity reassignment or bulk migration. Changing the key/version makes existing grants
+inaccessible, which is the safe emergency behavior. Before a planned rotation, stop writes and
+retain an encrypted database backup plus the old key under dual-control incident storage. Do not
+rewrite actor IDs inside JSON workflow decisions by hand. M23 must provide a reviewed,
+tamper-evident migration/reconciliation tool before planned rotations can preserve active workflow
+access. After a compromise, prefer immediate quarantine with a new version and forensic recovery
+over continued use of a suspect key.
+
+## M21 atomic semantic registry and expanded demo corpus
+
+The active application composition loads one manifest-backed registry rather than independently
+combining the historical M09/M10 fixtures. The checked-in public bundle is:
+
+```text
+manifest: demo/ground_truth/registries/manifest.yml
+registry: synthetic_enterprise
+catalog scope: synthetic-demo
+version: 1
+models / mappings / joins: 7 / 31 / 5
+registry file SHA-256: 4f086f8b9f0679d6405beab45d48c6601520b9b6e0c5f20d7dc0ad987485a723
+registry fingerprint: 0710148874049078f751ac96f0a18131cf01daa41f27dc034ca52a8b212dd966
+```
+
+Run the integrity and deterministic-data proofs:
+
+```bash
+.venv/bin/pytest tests/unit/test_semantic_registry.py \
+  tests/unit/test_multidomain_planning.py -vv
+make demo-reset-proof
+make demo-seed-check
+make datahub-ingest
+make datahub-catalog-check
+make datahub-mcp-check
+```
+
+`make demo-reset-proof` performs two project-scoped volume resets. Both must return:
+
+```text
+487388495115265d5fac5a17675e05c236fd4eb4c430613ef02050a5f6010654
+```
+
+The seed verifier checks 465 rows across 11 tables/eight schemas, schema hash
+`15f5305fa070ba41fe912906cdbb8aec629c7b30b579f6324ebddd166968f3f7`,
+constraint hash `b5a6a49b03784eafa558a0f74f2435eb968ad47f8dbd1246a5a7b89fd7998c5c`,
+the exact per-table data hashes, reader/read-only/timeout facts, 11 selectable tables, and zero
+INSERT/UPDATE/DELETE/TRUNCATE privileges.
+
+The registry can contain more than one query's graph, but requests remain capped at three logical
+models/tables and two join contracts. Tests prove a Product no-join request, a Shipment one-join
+request, and a three-table commerce request, while a fourth model/third join fails closed. The
+support schema deliberately contains homonymous `order_id`, `product_id`, and `customer_id` fields;
+none is mapped by name similarity.
+
+Before preview execution or retry, SchemaBridge reloads the scoped registry, re-resolves the typed
+request, and compares the exact plan fingerprint. A changed/revoked registry returns
+`stale_registry` before preview or rejected-source I/O. Rejected-source allowlists are derived only
+from approved join keys in that same snapshot.
+
+For the UI proof:
+
+```bash
+make ui
+```
+
+Confirm Overview shows the full registry identity/fingerprint and 7/31/5 counts. In Semantic
+Models, inspect Customer and Product field definitions/types/roles. In Relationships, inspect all
+five contracts and their evidence/risks. Complete the north-star flow and confirm 3 result rows, 3
+rejections, read-only status, and 5000 ms timeout. At 390 px width there must be no horizontal
+overflow or console warning/error.
+
+At M21 acceptance, the definitions were governed context rather than a registry-wide language
+matcher. The later M27 slice now supplies bounded ambiguity-aware description matching; it does
+not turn arbitrary text into SQL or semantic approval. M22 adds full immutable live DataHub
+registry read-back, while durable activation/migrations remain M23.
+
+## M22 publish and verify one immutable live DataHub registry
+
+M22 has no mutable active pointer. The operator explicitly prepares and publishes one configured
+version, and every live process reads only its deterministic workspace-scoped URN. Start from the
+healthy synthetic stacks and owner-only local credentials:
+
+```bash
+make demo-health
+make datahub-health
+make datahub-catalog-check
+make datahub-mcp-check
+make datahub-provision-writer
+```
+
+Do not print `.local/datahub/mcp.env` or `.local/datahub/writer.env`. The former is the read
+credential used by the registry adapter; the latter is composed only by the approval-gated writer.
+
+### 1. Prepare without writing
+
+```bash
+.venv/bin/schemabridge registry-prepare --json
+```
+
+For the current local-demo principal, review all of these exact values:
+
+```text
+target: urn:li:document:schemabridge-semantic-registry-synthetic_enterprise-v1-w3f92b9304d7d1f8f0cbf410c
+source: datahub:schemabridge-semantic-registry-synthetic_enterprise-v1-w3f92b9304d7d1f8f0cbf410c
+registry/catalog/version: synthetic_enterprise / synthetic-demo / 1
+fingerprint: ef480eb7370924ff4c94131a2c6c4063d85652cc83aaec9059538cdc2cf9c1b9
+models/mappings/joins/decisions: 7/31/5/37
+writes_performed: false
+```
+
+The target suffix is derived from the opaque local-demo workspace identity. It will differ for
+another authenticated workspace, and the operator must use that workspace's freshly prepared
+target and fingerprint rather than copying these values.
+
+### 2. Publish with exact approval
+
+The following command is limited to the local synthetic operator path. Managed staging/production
+disable this unauthenticated CLI and require the authenticated publication boundary.
+
+```bash
+.venv/bin/schemabridge registry-publish \
+  --actor m22-local-operator \
+  --fingerprint ef480eb7370924ff4c94131a2c6c4063d85652cc83aaec9059538cdc2cf9c1b9 \
+  --confirm publish-approved-registry-version \
+  --json
+```
+
+The first valid attempt reports `published`; an exact replay may report `already_current`. A
+fingerprint/target/decision mismatch performs no mutation. A successful response means the SDK
+writer read the exact document back and the application validated then appended its target audit.
+It does not mean DataHub and SQLite committed atomically.
+
+### 3. Select live mode and read with no fallback
+
+```bash
+export SCHEMABRIDGE_ENVIRONMENT=development
+export SCHEMABRIDGE_AUTH_MODE=local-demo
+export SCHEMABRIDGE_CATALOG_MODE=live
+export SCHEMABRIDGE_REGISTRY_MODE=live
+export SCHEMABRIDGE_JUDGE_EXECUTION=live
+export SCHEMABRIDGE_ALLOW_LOCAL_LIVE_READS=true
+export SCHEMABRIDGE_SEMANTIC_REGISTRY_VERSION=1
+export SCHEMABRIDGE_SEMANTIC_REGISTRY_READER_ENV_PATH=.local/datahub/mcp.env
+
+.venv/bin/schemabridge registry-show --json
+make datahub-registry-check
+```
+
+`registry-show` must report the `datahub:` source, full `ef480...c1b9` fingerprint, and 7/31/5/37
+shape. `make datahub-registry-check` verifies the same exact live shape without exposing the
+embedded payload. The reader retrieves only the deterministic document/status aspects and exact
+privilege information; it has no write method, does not search, and does not inspect the manifest.
+
+The local DataHub all-users policy may report `generatePersonalAccessTokens`. This known platform
+residual is accepted only while every checked exact-target edit/mutation privilege is absent;
+SchemaBridge never calls token generation. Any additional mutation privilege fails the read.
+
+### 4. Service and verified browser evidence
+
+Run the live service-backed paths:
+
+```bash
+make test-integration
+make test-acceptance
+make evaluate
+```
+
+The checked-in M21 recipe names the recorded registry source/fingerprint. Consequently, a live
+evaluation correctly marks the recipe-current case stale; do not weaken that result or claim
+live recipe reuse. M23 owns recipe-provenance migration and registry reconciliation.
+
+Start the live UI with the exported configuration:
+
+```bash
+make ui
+```
+
+The final M22 service gates passed:
+
+```text
+focused M22 selection: 71 passed
+datahub-registry-check: PASS, 7 models / 31 mappings / 5 joins / 37 decisions
+registry-publish replay: already_current
+approval: registry-publication-v1-317d364ead8a8f4d946a91a699e37c60cfd5438dec5163342a06d56ad2c5859f
+integration: 35 passed
+acceptance: 15 passed
+evaluate: PASS, digest 487388495115265d5fac5a17675e05c236fd4eb4c430613ef02050a5f6010654
+make check: 577 passed
+coverage: 627 passed, 80.66%
+release audit: PASS, 402 files / 19 licenses; expected dirty-worktree warning
+git diff --check: PASS
+```
+
+On 2026-07-23, Codex's internal browser verified the live application at
+`http://127.0.0.1:8510`:
+
+1. Overview and Semantic Models showed `live:datahub`, registry `synthetic_enterprise` v1, full
+   fingerprint `ef480eb7370924ff4c94131a2c6c4063d85652cc83aaec9059538cdc2cf9c1b9`, and 7/31/5
+   counts.
+2. Workflow `m20-0c1928cea6a54f98b37fd013d47d8bbf` confirmed
+   `distinct_or_relationship_count` at revision `r21`.
+3. The preview returned `2026-01-01=2`, `2026-01-02=1`, and `2026-01-03=1`; the rejection report
+   contained `non_integral_identifier` for `127.5`, `non_finite_identifier` for `NaN`, and
+   `null_join_key` for `NULL`.
+4. The execution facts were `read_only=True`, `truncated=False`, reader
+   `schemabridge_reader`, and timeout `5000ms`.
+5. The console result was `[]`. At 390x844,
+   `documentElement.scrollWidth == documentElement.clientWidth == 390`, so the document had no
+   horizontal overflow.
+
+This closes M22 development acceptance. It does not turn the dirty worktree into a release
+candidate or close the global production objective.
+
+### Failure and rollback boundary
+
+- `semantic_registry_not_found`: publish the exact configured version; never switch live mode to a
+  recorded fallback as recovery.
+- `semantic_registry_scope_mismatch`: verify the authenticated workspace, catalog scope, ID, and
+  version. Do not rename or copy a document between workspace targets.
+- `semantic_registry_integrity_failed` or `planning_context_invalid`: preserve the target for
+  inspection and stop execution; do not edit the immutable document in place.
+- `planning_context_forbidden`: remove target edit/mutation privileges from the reader identity;
+  do not reuse the writer token.
+- `registry_publication_conflict`: the deterministic version already contains other content.
+  M22 does not overwrite it.
+- `registry_publication_audit_unavailable`: approval reservation failed before publisher I/O, or
+  the external mutation may have succeeded after its durable reservation while the final outcome
+  append failed. Treat the operation as failed, retain both systems, and retry the exact approval
+  idempotently; M23 owns reconciliation.
+
+There is no delete/rollback command for an M22 registry document. A safe correction requires a new
+approved immutable version and the M23 activation process. DataHub has no compare-and-swap here, so
+keep publication serialized/single-writer.
+
+## M23 durable PostgreSQL control plane — verified local operator record
+
+This section documents both the implemented operator surface and the 2026-07-23 local operated
+acceptance. The evidence proves the synthetic service, distinct fresh-target restore, and internal
+browser paths; it is not a claim that SchemaBridge has been deployed to production traffic.
+
+### Preconditions and secret handling
+
+Use a dedicated control PostgreSQL database and four distinct credential contexts:
+
+- runtime: `SCHEMABRIDGE_CONTROL_DATABASE_URL`;
+- reconciler: `SCHEMABRIDGE_CONTROL_RECONCILER_DATABASE_URL`;
+- migrator/backup: `SCHEMABRIDGE_CONTROL_MIGRATOR_DATABASE_URL`;
+- restore target: `SCHEMABRIDGE_CONTROL_RESTORE_DATABASE_URL`.
+
+The control database must not identify the same host/port/database as `DATABASE_URL`, and the
+restore target must differ from both. In staging/production all PostgreSQL URLs require verified
+TLS. Supply passwords, `SCHEMABRIDGE_CONTROL_AUDIT_SIGNING_KEY`,
+`SCHEMABRIDGE_IDENTITY_MIGRATION_KEY`, OIDC secrets, and DataHub tokens through the platform secret
+manager or an owner-only ignored environment file. Never paste them into commands, shell history,
+screenshots, logs, this runbook, or commits.
+
+Set the inert `SCHEMABRIDGE_CONTROL_AUDIT_KEY_VERSION` and
+`SCHEMABRIDGE_IDENTITY_MIGRATION_KEY_VERSION` beside their keys. The latter must match the signed
+identity evidence envelope; changing a version label does not rotate either secret or binding.
+
+The examples below assume that a trusted operator wrapper has already exported:
+
+```text
+M23_WORKSPACE_ID  exact opaque authenticated workspace ID
+```
+
+In staging/production, configure the independently authenticated operator job with
+`SCHEMABRIDGE_CONTROL_OPERATOR_ACTOR_ID` and `SCHEMABRIDGE_CONTROL_OPERATOR_ROLES`; commands reject
+an actor supplied in argv. The ID must be the exact `sb_actor_v…` pseudonym and the roles must
+include the operation's required role (or `platform_admin`). Local mode derives the same values
+from its configured local principal. Optional local `--actor` is only an equality assertion; it
+does not let the caller choose an identity. Do not substitute email, display name, tenant label, or
+another caller-supplied friendly string.
+
+For local synthetic service work only, start or recreate the separate control database:
+
+```bash
+make control-plane-up
+# destructive only to the dedicated local synthetic control volume:
+make control-plane-reset
+```
+
+`control-plane-reset` is not a production migration or restore operation.
+
+### 1. Apply and verify the exact schema
+
+Migration is explicit and uses only the migrator credential:
+
+```bash
+make control-plane-migrate
+make control-plane-check
+```
+
+Equivalent operator commands are:
+
+```bash
+.venv/bin/schemabridge control-plane migrate --json
+.venv/bin/schemabridge control-plane check --json
+```
+
+`migrate` must report schema version 1 and the applied version, or `already_current=true` on an
+exact replay. `check` opens all three control credential paths read-only and reports version 1 with
+no pending migrations. It also probes source and runtime-control connections in read-only
+transactions and compares PostgreSQL-observed server address, server port, current database, and
+expected user; configured hostname aliases are not trusted. The command emits
+`writes_performed=false`. It does not grant roles, perform the destructive role-capability test, or
+repair history; record exact grant/denial evidence separately through the integration gate.
+
+Stop rollout on any of:
+
+- `control_plane_migration_set_invalid`;
+- `control_plane_migration_lock_unavailable`;
+- `control_plane_schema_incompatible`;
+- `control_plane_schema_ahead`;
+- `control_plane_migration_history_invalid`;
+- `control_plane_migration_checksum_drift`;
+- `control_plane_schema_not_current`;
+- `control_plane_migration_apply_failed`.
+- source/control separation unavailable or server-observed as the same database.
+
+Do not edit an applied migration, manually repair `schema_migrations`, or grant DDL to the runtime.
+Preserve the database for inspection and correct the release/configuration boundary.
+
+### 2. Publish a strict immutable version
+
+First prepare the exact workspace target without writing. M23 uses explicit version 2 or later;
+the M22 v1 compatibility document is read-only and cannot be the first managed activation.
+
+```bash
+.venv/bin/schemabridge control-plane registry prepare-version \
+  --target-version 2 \
+  --workspace-id "$M23_WORKSPACE_ID" \
+  --json
+```
+
+Review the returned target, source, registry/catalog/version, full fingerprint, decision count,
+and `writes_performed=false`. Then pass that exact fingerprint into:
+
+```bash
+.venv/bin/schemabridge control-plane registry publish-version \
+  --target-version 2 \
+  --workspace-id "$M23_WORKSPACE_ID" \
+  --fingerprint "$M23_VERSION_FINGERPRINT" \
+  --confirm publish-approved-registry-version \
+  --json
+```
+
+`M23_VERSION_FINGERPRINT` denotes the freshly reviewed output; do not copy the M22 v1 example or a
+fingerprint from another workspace. Publication is successful only after exact DataHub read-back.
+An exact replay may return `already_current`; a conflicting immutable target is never overwritten.
+
+### 3. Prepare and commit activation generation 1
+
+Preparation reads the current pointer and exact strict version but performs no write:
+
+```bash
+.venv/bin/schemabridge control-plane registry prepare-activation \
+  --workspace-id "$M23_WORKSPACE_ID" \
+  --target-version 2 \
+  --json
+```
+
+Record the complete proposal and `proposal_fingerprint`. Verify expected generation, prior pointer,
+target URN/version/fingerprint, scope, decisions, and `writes_performed=false`. Commit only that
+unchanged proposal:
+
+```bash
+.venv/bin/schemabridge control-plane registry activate \
+  --workspace-id "$M23_WORKSPACE_ID" \
+  --target-version 2 \
+  --proposal-fingerprint "$M23_ACTIVATION_FINGERPRINT" \
+  --confirm activate-approved-registry-version \
+  --json
+```
+
+The response must identify generation 1, transition, approval, active pointer, and a pending
+projection outbox. A compare-and-swap conflict means another activation won; discard the stale
+proposal and prepare again. Never retry stale content with a changed fingerprint.
+
+Read authoritative state without DataHub I/O:
+
+```bash
+.venv/bin/schemabridge control-plane status \
+  --workspace-id "$M23_WORKSPACE_ID" \
+  --json
+```
+
+It returns the active pointer, at most one pending outbox record, transition count, and
+`writes_performed=false`. Missing DataHub projection does not change the active pointer.
+
+### 4. Inspect and explicitly reconcile the DataHub projection
+
+Inspection is read-only across PostgreSQL and DataHub:
+
+```bash
+.venv/bin/schemabridge control-plane reconcile inspect \
+  --workspace-id "$M23_WORKSPACE_ID" \
+  --json
+```
+
+Review all findings and preserve the exact `report_fingerprint` and timezone-aware
+`report.inspected_at`. Safe repair requires reconstructing that exact report:
+
+```bash
+.venv/bin/schemabridge control-plane reconcile repair \
+  --workspace-id "$M23_WORKSPACE_ID" \
+  --report-fingerprint "$M23_RECONCILIATION_FINGERPRINT" \
+  --inspected-at "$M23_RECONCILIATION_INSPECTED_AT" \
+  --confirm repair-active-registry-projection \
+  --json
+```
+
+Repair must report the same generation/transition and a delivered result only after exact DataHub
+read-back. Re-run `inspect` and `status`; the report should be `in_sync` and the outbox should no
+longer be pending. `projection_ahead`, `projection_conflict`, `version_corrupt`, `audit_gap`, and
+`superseded` are stop-and-investigate conditions, not permission to overwrite DataHub.
+
+To prove failure recovery, stop or fault only the projector, activate a later strict version, and
+verify:
+
+1. activation commits the higher PostgreSQL generation;
+2. `status` retains a pending outbox;
+3. Streamlit shows the same authoritative generation and `projection pending`;
+4. a fresh request resolves the PostgreSQL-selected immutable version;
+5. explicit reconciliation later changes only projection delivery to `delivered`.
+
+Do not run this drill against uncontrolled production traffic.
+
+### 5. Roll back as a new generation
+
+Choose a transition from `control-plane status`/history that was previously active and still
+points to a valid strict immutable version. Preparation is read-only:
+
+```bash
+.venv/bin/schemabridge control-plane registry prepare-rollback \
+  --workspace-id "$M23_WORKSPACE_ID" \
+  --transition-id "$M23_ROLLBACK_TRANSITION_ID" \
+  --json
+```
+
+After reviewing the next generation and exact fingerprint:
+
+```bash
+.venv/bin/schemabridge control-plane registry rollback \
+  --workspace-id "$M23_WORKSPACE_ID" \
+  --transition-id "$M23_ROLLBACK_TRANSITION_ID" \
+  --proposal-fingerprint "$M23_ROLLBACK_FINGERPRINT" \
+  --confirm rollback-to-approved-registry-version \
+  --json
+```
+
+Rollback must increase generation. It never deletes/edits immutable DataHub versions, prior
+transitions, audit events, or workflow decisions. Reconcile the new generation separately.
+
+### 6. Managed state, legacy import, identity rotation, and recipes
+
+In `staging`/`production`, workflow drafts/access, publication audit, analytical request drafts,
+canonical reviews, and join reviews use PostgreSQL under the authenticated workspace. Newly
+persisted workflows retain result counts/fingerprints/summaries but no preview rows.
+
+Exact result rows may remain only in the current authenticated Streamlit session. The transient
+envelope binds actor, workspace, workflow, revision, registry fingerprint, activation generation,
+active-pointer fingerprint, and the recomputed preview fingerprint. Any drift, tampering, or
+principal mismatch purges it. Reloaded durable workflow state must say that transient rows are
+unavailable while preserving the true row count; it must not display an invented zero-row result.
+
+After an approved identity rotation, a current OIDC principal may reach a historical workflow only
+through the persisted, verified same-lineage workspace/actor mapping. The draft stays stored and
+updated under its original scope, and its access grant/decisions are never rewritten. An
+uninitialized current identity, unknown lineage, multiple matching drafts/grants, cross-workspace
+mapping, or more than the bounded alias set fails closed. Do not work around that failure by
+copying a workflow into the new scope.
+
+#### Import one offline legacy SQLite control file
+
+Stop every writer to the legacy file and verify that no rollback journal or WAL/SHM sidecar is
+active. Keep the source owner-controlled and unchanged for the entire review:
+
+```bash
+.venv/bin/schemabridge control-plane legacy-import inspect \
+  --source "$M23_LEGACY_SQLITE_PATH" \
+  --json
+```
+
+`inspect` validates the complete known SQLite schema and payload shapes. It persists only a
+metadata dry-run reservation in PostgreSQL and returns import/source/schema/plan fingerprints,
+imported/quarantined/skipped counts, bounded reason counts, `target_rows_written=0`, and
+`source_payloads_exposed=false`. It does not adopt a target row during review.
+
+After reviewing the exact counts and fingerprint:
+
+```bash
+.venv/bin/schemabridge control-plane legacy-import apply \
+  --source "$M23_LEGACY_SQLITE_PATH" \
+  --plan-fingerprint "$M23_LEGACY_PLAN_FINGERPRINT" \
+  --confirm import-validated-legacy-control-state \
+  --json
+```
+
+`apply` reinspects the same source before constructing approval. A changed source or plan fails.
+One PostgreSQL transaction writes accepted minimized state, immutable import items, and quarantine
+records; invalid, orphan, ambiguous, fake, or identity-mismatched resources are never assigned an
+inferred owner. An exact replay returns the same completed reservation. Do not copy SQLite tables
+or preview blobs manually, and do not use direct SQL as a substitute for this approval.
+
+#### Rotate opaque identity bindings
+
+A separate trusted boundary must first verify every affected OIDC identity and derive the old/new
+opaque workspace and owner IDs from the same identity. It produces one HMAC-signed envelope with no
+raw claims or direct identifiers. Mount that regular non-symlink file owner-only into the operator
+job. The file is limited to 2 MiB and a 15-minute validity window; do not generate or edit it by
+hand.
+
+Inspect it without exposing derivations:
+
+```bash
+.venv/bin/schemabridge control-plane identity inspect-evidence \
+  --evidence-file "$M23_IDENTITY_EVIDENCE_FILE" \
+  --json
+```
+
+Review the workspace, from/to key versions, owner/binding counts, issue/expiry times, signature key
+version, and `payload_fingerprint`. The response must state `writes_performed=false` and
+`sensitive_evidence_exposed=false`.
+
+Before the first rotation of an existing deployment, initialize its old opaque lineage exactly
+once. Choose and retain an ISO-8601 approval timestamp inside the envelope window:
+
+```bash
+.venv/bin/schemabridge control-plane identity initialize \
+  --evidence-file "$M23_IDENTITY_EVIDENCE_FILE" \
+  --evidence-fingerprint "$M23_IDENTITY_EVIDENCE_FINGERPRINT" \
+  --approved-at "$M23_IDENTITY_INITIALIZED_AT" \
+  --confirm initialize-verified-oidc-bindings \
+  --json
+```
+
+Initialization is approval/audit-bound and rejects incomplete historical owner coverage,
+collisions, or different evidence. If the lineage was already initialized, do not initialize it
+from another envelope; inspect the existing state and proceed only with an exact valid rotation.
+
+Prepare the all-owner rotation without writing an approval or binding:
+
+```bash
+.venv/bin/schemabridge control-plane identity prepare \
+  --evidence-file "$M23_IDENTITY_EVIDENCE_FILE" \
+  --evidence-fingerprint "$M23_IDENTITY_EVIDENCE_FINGERPRINT" \
+  --json
+```
+
+Review old/new workspace IDs, from/to key versions, expected state revision and binding count, plan
+ID/fingerprint, `writes_performed=false`, and no sensitive evidence. Reserve the exact approval:
+
+```bash
+.venv/bin/schemabridge control-plane identity approve \
+  --evidence-file "$M23_IDENTITY_EVIDENCE_FILE" \
+  --evidence-fingerprint "$M23_IDENTITY_EVIDENCE_FINGERPRINT" \
+  --plan-fingerprint "$M23_IDENTITY_PLAN_FINGERPRINT" \
+  --approved-at "$M23_IDENTITY_APPROVED_AT" \
+  --confirm rotate-verified-oidc-bindings \
+  --json
+```
+
+This writes the durable approval only and reports `bindings_changed=false`. Complete with that
+exact approval while the same evidence remains valid:
+
+```bash
+.venv/bin/schemabridge control-plane identity complete \
+  --evidence-file "$M23_IDENTITY_EVIDENCE_FILE" \
+  --evidence-fingerprint "$M23_IDENTITY_EVIDENCE_FINGERPRINT" \
+  --plan-fingerprint "$M23_IDENTITY_PLAN_FINGERPRINT" \
+  --approval-id "$M23_IDENTITY_APPROVAL_ID" \
+  --completed-at "$M23_IDENTITY_COMPLETED_AT" \
+  --json
+```
+
+Completion re-prepares the plan, rechecks the reserved actor/approval and current state, and changes
+all bindings atomically. The result must report the verified binding count,
+`historical_payloads_rewritten=false`, and whether it was an exact replay. A collision, cycle,
+cross-workspace derivation, changed policy/state, missing owner, expired/changed envelope, or
+mismatched timestamp/fingerprint/approval stops the operation with no partial binding change.
+
+After completion, authenticate under the new key and verify that one historical workflow can be
+loaded through same-lineage resolution while its stored scope, grant, decisions, and publication
+bytes remain unchanged. Dispose of the transient envelope through the platform's secure ephemeral
+file lifecycle. Do not infer ownership from names/actor strings, change a pseudonymization key in
+place, or rewrite historical rows.
+
+#### Publish a new version of one stale recipe
+
+First complete a new governed workflow against the active PostgreSQL pointer with the same intent
+as the current stale recipe. Obtain the exact current recipe intent fingerprint and the exact
+workflow owner pseudonym. Prepare without SQL, preview-row, or publication output:
+
+```bash
+.venv/bin/schemabridge control-plane recipe-migration prepare \
+  --workspace-id "$M23_WORKSPACE_ID" \
+  --workflow-id "$M23_REPLACEMENT_WORKFLOW_ID" \
+  --intent-fingerprint "$M23_RECIPE_INTENT_FINGERPRINT" \
+  --owner-actor-id "$M23_WORKFLOW_OWNER_ACTOR_ID" \
+  --adapter live \
+  --json
+```
+
+Review the historical recipe/version/fingerprints, proposed new version/fingerprint/source
+workflow, staleness reasons, and `writes_performed=false`. The command exposes neither SQL nor
+preview rows. Publish only the unchanged proposal:
+
+```bash
+.venv/bin/schemabridge control-plane recipe-migration publish \
+  --workspace-id "$M23_WORKSPACE_ID" \
+  --workflow-id "$M23_REPLACEMENT_WORKFLOW_ID" \
+  --intent-fingerprint "$M23_RECIPE_INTENT_FINGERPRINT" \
+  --owner-actor-id "$M23_WORKFLOW_OWNER_ACTOR_ID" \
+  --proposal-fingerprint "$M23_RECIPE_MIGRATION_FINGERPRINT" \
+  --confirm 'PUBLISH VALIDATED QUERY RECIPE' \
+  --adapter live \
+  --json
+```
+
+Publication reloads the workflow, active pointer, and current historical recipe. It rejects any
+change, creates the next recipe version, preserves prior recipe bytes, requires the existing exact
+publication approval/audit contract, and reports the versioned/current DataHub documents.
+`--adapter fake` is a persistent local-only test path and is rejected in staging/production. Never
+edit or fingerprint-copy the historical recipe.
+
+### 7. Create a signed backup
+
+Install compatible `pg_dump`/`pg_restore` binaries. Choose a new local directory whose path and
+contents are visible only to the operator:
+
+```bash
+umask 077
+.venv/bin/schemabridge control-plane backup \
+  --destination "$M23_BACKUP_DIRECTORY" \
+  --json
+```
+
+The command checks the exact schema, exports one repeatable-read snapshot, and returns archive and
+manifest paths plus schema checksum, archive SHA-256, and complete control-state SHA-256. Both
+files must be regular owner-only files. Store them together in encrypted platform storage; do not
+rename, edit, unpack, commit, email, or include them in screenshots.
+
+### 8. Restore and verify a fresh target
+
+Provision a distinct empty PostgreSQL database. Inject its dedicated credential only as
+`SCHEMABRIDGE_CONTROL_RESTORE_DATABASE_URL` in the restore process. There is intentionally no
+`--target-dsn` option:
+
+```bash
+.venv/bin/schemabridge control-plane restore \
+  --archive "$M23_BACKUP_ARCHIVE" \
+  --manifest "$M23_BACKUP_MANIFEST" \
+  --json
+```
+
+Before restore, the command verifies owner-only permissions, manifest HMAC, archive name/size/hash,
+and that target and source fingerprints differ. It rejects a target containing the control schema
+or any user relation. `pg_restore` uses a single transaction.
+
+Success is only the typed verification returned after restore: exact migration version/checksum,
+complete state digest/table counts, valid HMAC chain for every audited workspace, total audit
+events, active pointers, transitions, pending outbox, and quarantine records. Compare these values
+with the backup manifest and retained operator record before cutover.
+
+Never cut over on:
+
+- `control_plane_backup_artifact_invalid`;
+- `control_plane_restore_target_is_source`;
+- `control_plane_restore_target_not_fresh`;
+- `control_plane_restore_failed`;
+- `control_plane_restore_verification_failed`.
+
+Leave a failed restore isolated. Do not “fix” its tables and do not change the signed manifest.
+Provision another fresh target after correcting the external cause.
+
+### 9. M23 manual acceptance record
+
+The operator record must capture, without secrets or row payloads:
+
+1. exact migration version/checksum, runtime/reconciler/migrator grant evidence, and
+   server-observed source/control separation;
+2. strict version target/fingerprint and generation-1 activation fingerprint/transition;
+3. a committed higher generation with visibly pending outbox while projection is unavailable;
+4. approved reconciliation fingerprint, exact read-back, and `delivered` UI status;
+5. `stale_registry` for a pre-transition workflow, followed by a new workflow with exact
+   `2026-01-01=2`, `2026-01-02=1`, `2026-01-03=1` and the three expected rejection classes;
+6. rollback as a higher generation;
+7. legacy dry-run/apply fingerprints, counts, quarantine reasons, zero exposed source payloads,
+   and exact replay;
+8. identity evidence/plan/approval/completion fingerprints and counts, plus historical workflow
+   access with zero historical payload rewrite;
+9. stale recipe old/new versions/fingerprints, completed current-pointer workflow, publication
+   audit, and unchanged historical bytes;
+10. backup archive/state hashes and fresh-target restore verification digest/counts;
+11. authenticated Overview showing version, generation, registry fingerprint, active-pointer
+   fingerprint, and projection status;
+12. browser console `[]` and no document overflow at 390x844.
+
+The 2026-07-23 local record captured:
+
+```text
+schema version/checksum:
+  1 / 65d9447619165a92e9b8d8c6541a76569564931b6dc9c7ccbd73deb0f3fd09cc
+control/source service ports:
+  55434 / 55433
+control roles:
+  distinct runtime / reconciler / migrator
+
+activation history:
+  generation 1 -> registry version 6
+  generation 2 -> registry version 7, pending then explicitly reconciled to delivered
+  generation 3 -> rollback to registry version 6, explicitly reconciled to delivered
+generation-3 projection fingerprint:
+  85f131dd53bb5cf2da8538cc171277c4d988b77101e0e5b37da46fed2ef24757
+
+legacy import:
+  imported resources 2 / quarantined 4 / skipped 0 / preview rows stripped 3
+  reasons: invalid_payload, orphan_access_grant, orphan_workflow, ownership_not_provable
+identity:
+  initialized v1, rotated to v2, verified bindings 2, historical rewrites false, replay safe
+recipe:
+  live DataHub version 43 -> 44, publication created, SQL/preview exposed false
+
+backup and restored state SHA-256:
+  22b8fdc5568b81e2bdd8626b3315e525c16651f19d3966c538b87cc7948ec2e5
+restored facts:
+  generation 3 / active pointers 1 / transitions 3 / audit events 5 /
+  audited workspaces 1 / pending outbox at captured backup 1
+artifacts:
+  archive owner-only true / manifest owner-only true
+AI calls:
+  none; OpenAI API key not read, printed, logged, or persisted
+```
+
+Legacy inspection wrote zero target resource rows and exposed no source payload. Apply and replay
+were exact; the accepted legacy workflow became durable with empty `rows` while retaining row
+count 3 and its preview fingerprint. Quarantine reason counts were one each as listed above. The
+source file remained unchanged and had no active sidecars.
+
+The synthetic identity drill separated initialization, read-only preparation, durable approval,
+and completion. Approval left bindings unchanged; completion replay returned the same completion,
+the audit chain contained three identity events, and the current v2 principal resolved the
+historical v1 workflow through verified aliases. Evidence/output exposed no claims, tokens, or
+derivations.
+
+The backup was restored into the distinct fresh target
+`schemabridge_m23_restore_acceptance`. Manifest and restored digests matched, schema identity
+matched, and the target was dropped after verification and independently confirmed absent. The
+backup intentionally captured one pending generation-3 outbox record; this preserved pending state
+exactly and did not alter the source pointer. The active control plane was reconciled afterward.
+
+The fresh internal-browser record then showed generation 3, registry version 6, projection
+`delivered`, pointer fingerprint
+`85f131dd53bb5cf2da8538cc171277c4d988b77101e0e5b37da46fed2ef24757`, and registry
+shape 7/31/5 at 1280x720. Console output was `[]`. At 390x844,
+`documentElement.scrollWidth`, `body.scrollWidth`, and both client widths were 390; there was no
+horizontal overflow. After resetting to 1280x720, the final console remained `[]`.
+
+Then run:
+
+```bash
+pytest tests/unit/test_control_plane_migrations.py \
+  tests/unit/test_control_plane_audit.py \
+  tests/unit/test_registry_control.py \
+  tests/unit/test_control_plane_operations.py \
+  tests/unit/test_control_plane_bootstrap.py \
+  tests/unit/test_control_plane_operator_cli.py \
+  tests/unit/test_registry_control_cli.py \
+  tests/unit/test_database_separation.py \
+  tests/unit/test_legacy_control_plane_import.py \
+  tests/unit/test_identity_evidence.py \
+  tests/unit/test_identity_rotation.py \
+  tests/unit/test_identity_resolution.py \
+  tests/unit/test_identity_operator_cli.py \
+  tests/unit/test_recipe_migration.py \
+  tests/unit/test_recipe_migration_cli.py \
+  tests/unit/test_ui_view_models.py
+make test-integration
+make test-acceptance
+make evaluate
+make check
+make coverage
+python scripts/release_audit.py
+git diff --check
+```
+
+Record the exact result or skip/unavailable reason for every command. In the final post-fix run,
+`make check` passed 767 no-service tests plus Ruff, formatting, and strict mypy over 160 source
+files. `make test-integration` passed 58 tests with 782 deselected and 6 expected DataHub-overwrite
+warnings; `make test-acceptance` passed 15 with 825 deselected and 1 expected warning.
+`make evaluate` passed 11 tables/465 rows with global SHA-256
+`487388495115265d5fac5a17675e05c236fd4eb4c430613ef02050a5f6010654`.
+`make coverage` passed 840 tests with 7 warnings at 81.03%, above the 80% gate. Release audit and
+diff check must be repeated after documentation changes and recorded in the milestone handoff; do
+not copy the older M22 counts above. Production release remains open until its separate deployment,
+retention, monitoring, HA, API/worker, and quota gates are operated.
+
+## M24 authenticated API and durable worker — locally accepted on schema v3
+
+M24 adds one authenticated command for an existing workflow already paused at execution approval.
+It does not add a generic command queue, an SQL endpoint, an LLM endpoint, or asynchronous
+publication. API and worker must be separate processes and credentials.
+
+### Preconditions and secret handling
+
+1. Use only synthetic source/control/DataHub state.
+2. Install the direct runtime dependencies with `make bootstrap` or `make install`. FastAPI,
+   Uvicorn, and PyJWT are in the `api` runtime extra; HTTPX is deliberately `dev`/test-only and is
+   absent from the API/worker runtime image.
+3. Keep `DATABASE_URL`, all control DSNs, bearer/JWKS material, pseudonymization keys, and DataHub
+   reader material in workload secrets or the already ignored owner-only local locations.
+4. Do not print, inspect, copy, or persist `OPENAI_API_KEY`. M24 makes no OpenAI request and neither
+   component needs that variable.
+5. Use `SCHEMABRIDGE_COMPONENT=api` and `SCHEMABRIDGE_COMPONENT=worker` in separate environments.
+   Dedicated components intentionally do not load the shared repository `.env`.
+6. Set the managed worker's non-secret
+   `SCHEMABRIDGE_WORKER_IDENTITY_LINEAGE_MODE=verified-oidc`. This reads only persisted opaque
+   binding lineage with the worker control credential; never inject OIDC metadata, a
+   pseudonymization key, JWKS configuration, or a bearer token into the worker. Final regression
+   evidence must cover both owner grants and workspace-wide `platform_admin` grants using the
+   exact historical workspace+submitter pair after rotation.
+
+For a local bearer drill, generate a fresh development-only token without echoing it:
+
+```bash
+umask 077
+export SCHEMABRIDGE_ENVIRONMENT=development
+export SCHEMABRIDGE_AUTH_MODE=local-demo
+export SCHEMABRIDGE_API_LOCAL_BEARER_TOKEN="$(openssl rand -base64 48 | tr -d '\n')"
+# Use exact-local for a deliberately non-rotated local worker, or verified-oidc
+# when running the explicit local identity-lineage acceptance drill.
+export SCHEMABRIDGE_WORKER_IDENTITY_LINEAGE_MODE=exact-local
+```
+
+Do not save or paste the resulting value into a tracked file, command, screenshot, report, or log.
+Unset it when the processes and browser test are finished. Staging/production must use signed OIDC
+bearers and must not configure this local token.
+
+### 1. Reset and migrate only the local synthetic control plane
+
+```bash
+make demo-up
+make control-plane-reset
+make control-plane-migrate
+make control-plane-check
+```
+
+`control-plane-reset` destroys only the Docker Compose `schemabridge-control` synthetic volume. It
+is never a production upgrade instruction and does not touch the source database or DataHub.
+Migration `0002_authenticated_api_jobs.sql` introduces the job schema. Before operating, verify
+its reviewed SHA-256:
+
+```text
+4e828aacfc9cc0db35a5b05838556e35360d7e0322c16e1ed008c94faf4f4efc
+```
+
+`control-plane-check` must report current version 3 with no pending migration and must verify
+distinct `schemabridge_runtime`, `schemabridge_reconciler`, `schemabridge_migrator`,
+`schemabridge_api`, and `schemabridge_worker` roles plus a source database distinct from control.
+Do not start API/worker after drift, a future/partial schema, wrong role, or separation failure.
+
+Final M24 operation requires schema version 3: `0002` plus
+`0003_reject_expired_job_success.sql`, whose SHA-256 is
+`fba8bf2fec35c56be95487c21452ac46a45b3598c5b56cf382414aa57c7240f0`.
+The final local check reports current/expected 3 and pending none for
+`schemabridge_runtime`, `schemabridge_reconciler`, `schemabridge_migrator`,
+`schemabridge_api`, and `schemabridge_worker`, and verified that source and control databases are
+distinct. The final internal-browser acceptance and handoff are recorded in
+`docs/14_BROWSER_ACCEPTANCE.md` and `tasks/M24_HANDOFF.md`.
+
+### 2. Prepare one exact reviewed workflow
+
+Use the authenticated Streamlit path to create a synthetic workflow and advance it through
+interpretation and planning until:
+
+```text
+stage: decision_required
+checkpoint: execution_approval
+execution: absent
+revision: known positive integer
+plan fingerprint: exact 64-character SHA-256
+```
+
+Do not approve the preview through Streamlit. Retain only the workflow ID, revision, and plan
+fingerprint needed for the API request. The API rechecks the current workspace/owner grant,
+permission, stage, checkpoint, revision, and fingerprint before enqueueing.
+
+### 3. Start the processes independently
+
+In the API terminal, inject only the API control DSN and authentication policy, then:
+
+```bash
+make api
+```
+
+In another terminal, inject only the worker control DSN, source-reader DSN, and read-only active
+registry configuration, then:
+
+```bash
+schemabridge-worker --probe-ready
+make worker
+```
+
+For a deterministic single poll use `make worker-once`. API starts on `127.0.0.1:8520` by default.
+The readiness command verifies only exact control-schema history with the worker credential and
+exits without composing the polling worker, claiming a job, opening the source database, or
+loading DataHub. Neither process migrates, starts its peer, publishes context, or reads an OpenAI
+key. Stop the continuous worker with `SIGINT`/`SIGTERM`; it exits between iterations.
+
+Before promoting a runtime artifact, run:
+
+```bash
+make runtime-wheel-smoke
+docker build -f Dockerfile.runtime -t schemabridge-runtime:m24-local .
+```
+
+The final schema-v3 record installed the built wheel from an empty virtual environment and working
+directory, resolved migrations 1/2/3 from `site-packages`, and composed the migrator. The final
+runtime image built, ran as non-root UID 10001 with migrations 1/2/3 available, and completed
+`schemabridge-worker --probe-ready` against control schema v3 with exit code 0.
+
+The Kubernetes worker derives `SCHEMABRIDGE_WORKER_ID` from its unique pod name. Its unprivileged
+UID/GID-10001 init container reads the group-readable mode-0440 projected Secret, copies
+`reader.env` with `umask 077` into a 128 KiB memory-backed `emptyDir`, and verifies a regular,
+non-symlink, UID-10001, mode-0600 result. The main worker mounts only that staged volume read-only,
+not the projected Secret. The container smoke reproduced those final file properties. These are
+hardened reference manifests and local structural/container evidence; no cluster deployment is
+claimed.
+
+Verify public health without authentication:
+
+```bash
+curl --fail --silent http://127.0.0.1:8520/health/live
+curl --fail --silent http://127.0.0.1:8520/health/ready
+```
+
+Expected bodies are exactly the bounded status projections:
+
+```json
+{"status":"live"}
+{"status":"ready"}
+```
+
+A schema/control failure returns a sanitized `503` problem with `code=not_ready`; readiness must
+require exact schema v3 and must not emit a DSN, database identity, stack trace, or migration
+detail. Uvicorn proxy headers and access logging remain disabled. Interactive API docs remain
+disabled unless explicitly enabled in development and are always forbidden in
+staging/production.
+
+Kubernetes worker startup/readiness executes `schemabridge-worker --probe-ready`; liveness only
+checks PID 1 with `kill -0 1`. Do not expand readiness to source/DataHub/workflow/queue health:
+those systems can be temporarily unavailable while the worker remains correctly deployed, and
+their failures must follow the typed retry/dead-letter contract.
+
+The outer API boundary buffers the response, catches unexpected exceptions before
+Starlette/Uvicorn, logs only request ID plus error type, and returns a sanitized `500` problem
+without re-raising. The production-like HTTP/socket regression passed 10 tests and found no
+injected sentinel, traceback, or `Exception in ASGI application` in response bodies or logs.
+
+### 4. Submit, inspect, replay, and cancel
+
+Send exactly:
+
+```http
+POST /v1/workflows/{workflow_id}/execution-jobs
+Authorization: Bearer <transient token>
+Idempotency-Key: <16-128 allowed characters>
+Content-Type: application/json
+
+{
+  "expected_workflow_revision": 1,
+  "expected_plan_fingerprint": "<64 lowercase hex characters>",
+  "confirmation": "EXECUTE GOVERNED PREVIEW"
+}
+```
+
+The first accepted request returns `202`; exact replay returns `200` with the same job ID and
+`replayed=true`. Changing the workflow revision/fingerprint under the same idempotency identity
+returns sanitized `409` and creates no new job/event. Extra operation, SQL, credential, prompt,
+actor, workspace, or owner fields return `422`.
+
+Inspect through:
+
+```http
+GET /v1/execution-jobs/{job_id}
+Authorization: Bearer <transient token>
+```
+
+Successful durable output may contain only status/attempts/timestamps, expected workflow
+revision/fingerprint, a closed failure code, and the result summary:
+
+```text
+workflow revision/stage
+row count
+preview fingerprint
+exact rejected-row total
+bounded rejected count grouped by stable code
+exact unclassified residual
+rejection completeness/truncation
+completed time
+```
+
+It must not contain the authorization envelope, submitter/owner pseudonyms, idempotency digest,
+lease owner/capability/fence, bearer/claims, DSN, SQL, parameters, prompt, source value, or preview
+row.
+
+Cancellation requires:
+
+```http
+POST /v1/execution-jobs/{job_id}/cancel
+Authorization: Bearer <transient token>
+Content-Type: application/json
+
+{"confirmation":"CANCEL EXECUTION JOB"}
+```
+
+A queued job becomes `cancelled` before worker/source I/O. A leased job becomes
+`cancel_requested` until the current worker acknowledges it. Repeating cancellation or inspecting
+a terminal job is inert. The worker rechecks cancellation before preview, before rejection
+inspection, and before each governed source statement. Cancellation cannot undo a read that
+already completed.
+
+### 5. Exercise leases, retry, dead letter, and restart
+
+Record these cases through tests or the controlled synthetic fixture:
+
+1. two workers contend and only one owns the claim;
+2. heartbeat extends a current lease while the wrong capability/fence fails;
+3. start a real `subprocess.Popen` claimant, observe its lease, kill it with `SIGKILL`, and verify
+   PostgreSQL still retains the owner/fence;
+4. prove a replacement process is idle before database-time expiry, then reclaim after expiry with
+   attempt `+1` and fence `+1`;
+5. prove the old process capability/fence cannot heartbeat, succeed, fail, or acknowledge
+   cancellation, while the current process can heartbeat;
+6. schedule only a closed transient registry/source outage or timeout with deterministic backoff;
+7. exhaust finite attempts and observe `dead_lettered`;
+8. expose an ambiguous `STARTED` preview/rejection trace, verify explicit workflow recovery, and
+   observe dead letter without a repeated source operation;
+9. make the workflow-access store unavailable and verify `dead_lettered`, not
+   `authorization_mismatch`/`failed`;
+10. restart API/worker and inspect the same durable job/event history.
+
+Queue delivery is at least once. Do not claim exactly once, and do not manually edit a job,
+workflow, event, lease, or retry timestamp.
+
+The implementation renews the lease periodically on a separate supervisor while bounded
+synchronous work runs, performs a final heartbeat before transition, and fails closed if
+capability/fence ownership is lost. Schema v3 independently rejects a success transition after
+authorization expiry. Automatic source retries use a closed classifier: `QueryCanceled` is a
+timeout; SQLSTATE class `08` and only `40001`, `40P01`, `53300`, `55P03`, `57P01`, `57P02`, and
+`57P03` are unavailable/retryable. A SQLSTATE-less `psycopg.OperationalError` remains the bounded
+connection-failure fallback. Safety inspection failures, invalid evidence, permission/schema
+errors, and every other PostgreSQL error become terminal `source_policy_rejected`; they must not
+consume retry attempts. Identity continuity still requires both owner and workspace-wide grants
+to validate the exact historical workspace+submitter pair, and workflow-access store failure is
+dead-lettered rather than reported as a normal authorization mismatch.
+
+### 6. Verify least privilege and data minimization
+
+Run:
+
+```bash
+make test-api-integration
+make test-worker-integration
+```
+
+The PostgreSQL contract must prove:
+
+- API can submit/read/cancel but cannot claim/complete, update worker fields, run DDL, activate, or
+  assume another role;
+- worker can claim/heartbeat/fence/complete and update the exact workflow execution columns but
+  cannot submit arbitrary jobs, migrate, activate/reconcile, publish, write source data, or assume
+  another role;
+- runtime/reconciler cannot mutate job state and migrator is absent from runtime workloads;
+- job/event state has no raw token/key, SQL, parameters, prompt, source value, or preview rows.
+
+Search API/worker logs, HTTP bodies, and control tables using safe metadata-only inspection. Never
+search by or print the real bearer, OpenAI key, DSN password, or OIDC subject as part of the scan.
+
+The final schema-v3 record passed 16 API integration tests, 21 worker integration tests, 84
+complete integration tests, and 19 acceptance tests. The role matrix rejected API claim/complete,
+worker arbitrary submission/migration/activation, source `UPDATE`/`CREATE`/`SET ROLE`, and
+cross-role assumption. The real-socket response/log/control-state scan found none of the protected
+material listed above. `make check` passed 1,074 tests with 99 deselected and strict mypy over 180
+source files; `make coverage` passed 1,173 tests at 81.62%. Exact commands, warnings, and package
+evidence are in `tasks/M24_HANDOFF.md`.
+
+### 7. Internal-browser acceptance
+
+Use Codex's internal browser, not an external browser, for final approval:
+
+1. open `http://127.0.0.1:8520/health/ready` and verify the exact sanitized schema-v3 readiness;
+2. use browser-side authenticated requests against the prepared synthetic workflow;
+3. visibly capture `queued → leased → succeeded` and the summary-only result;
+4. replay the exact idempotency identity, then change the payload and verify safe `409`;
+5. stop the worker, submit/cancel a queued job, restart, and verify no source I/O;
+6. exercise wrong tenant/role and verify the same unavailable boundary with no protected facts;
+7. inspect console and network/response text for secrets, claims, DSNs, SQL, parameters, prompts,
+   source values, or rows;
+8. repeat at 390x844 and assert client/scroll widths are equal.
+
+The final browser record includes URL, viewport, visible lifecycle, response codes, clean console
+output, overflow measurement, and the protected-data scan. It verified readiness, replay,
+collision, queued cancellation, real worker crash/reclaim, bounded successful output,
+indistinguishable wrong-role/cross-tenant denial, and zero horizontal overflow at desktop and
+390x844. The bearer stayed server-side behind an ephemeral same-origin acceptance relay; that
+relay was not product UI. See `docs/14_BROWSER_ACCEPTANCE.md`.
+
+### 8. Final M24 gate
+
+```bash
+pytest tests/unit/test_background_jobs.py \
+  tests/unit/test_api_authentication.py \
+  tests/unit/test_api_workflows.py \
+  tests/unit/test_http_api.py \
+  tests/unit/test_worker.py
+make control-plane-reset
+make control-plane-migrate
+make control-plane-check
+make test-api-integration
+make test-worker-integration
+make test-acceptance
+make evaluate
+make check
+make coverage
+python scripts/release_audit.py
+git diff --check
+```
+
+Record every exact count, warning, skip, checksum, socket/browser result, and omitted drill in the
+handoff. Do not accept M24 from provisional focused tests or the reset alone.
+
+The historical pre-`0003` counts remain useful provenance but are not final evidence. Schema-v3
+migration, retry classification, real-process crash/reclaim, wheel/image packaging, worker probe,
+secure reader-secret staging, internal-browser acceptance, and the final handoff all have current
+evidence. M24 is locally accepted; no production rollout, availability, or SLO claim follows.
+
+## M25 dynamic catalog inventory — operator procedure
+
+This procedure defines the implemented M25 operation and evidence record. The operated scale
+profile passes, but every result explicitly labeled **pending** must stay pending until the final
+integrated command or browser step has run. The latency/memory thresholds are local regression
+budgets, not production SLOs.
+
+### Preconditions and capability isolation
+
+1. Use only the checked-in synthetic source/DataHub fixtures.
+2. Back up the current schema-v3 control plane before applying v4.
+3. Keep API, execution worker, and catalog indexer in separate shells/workloads. Do not load the
+   shared repository `.env` into any managed component.
+4. Provision distinct `schemabridge_api`, `schemabridge_worker`, and
+   `schemabridge_catalog` control DSNs. The catalog indexer alone receives the read-only DataHub
+   token; the API alone receives the inventory-cursor HMAC key.
+5. Never print, inspect, copy, or inject `OPENAI_API_KEY`. M25 makes no LLM request.
+6. Provision a durable tenant capacity policy before traffic. A missing policy must fail closed;
+   do not work around it with an application default.
+7. Confirm the source database remains read-only and distinct from the control database. Catalog
+   indexing reads metadata only and never modifies DataHub or a source.
+
+Use the variables and defaults documented in `.env.example`. For each workload, inject only its
+own subset. Cursor, bearer, pseudonymization, control-audit, and identity-migration keys must be
+independently generated secret-manager values.
+
+### 1. Upgrade the synthetic control plane to exact schema v4
+
+The local reset target is destructive only to the Compose project `schemabridge-control`; never use
+it against production:
+
+```bash
+make control-plane-reset
+make control-plane-migrate
+make control-plane-check
+```
+
+Verify both paths before acceptance:
+
+- pristine migrations apply versions 1, 2, 3, and 4 in order;
+- a schema-v3 database applies only `0004_dynamic_catalog_inventory.sql`;
+- migrations 0001–0003 retain their exact historical bytes/checksums;
+- runtime, reconciler, migrator, API, worker, and catalog roles report current/expected v4 with no
+  pending migration;
+- source/control separation and the complete six-role positive/negative grant matrix pass;
+- a v3 API/worker binary refuses schema v4 without applying or reversing DDL.
+
+Migration v4 has SHA-256
+`45c7d95e56a336f267cbe29ad390f6fd54a59d826ffd33253d290be0257060bb`.
+Fresh reset/migration/check passed during implementation. Preserve the exact final command output,
+six-role matrix, and v3→v4 result in the M25 handoff; that consolidation is now recorded and M25 is
+accepted locally. Do not claim a zero-downtime upgrade: exact schema checks require a coordinated
+v3 drain, migration, and v4 rollout. Rollback uses a v4-compatible application or the existing
+separately verified fresh-target restore process; it never edits migration history.
+
+### 2. Start API, worker, and catalog indexer independently
+
+First verify schema-only readiness:
+
+```bash
+schemabridge-worker --probe-ready
+schemabridge-catalog --probe-ready
+```
+
+Then start one process of each type:
+
+```bash
+make api
+make worker
+schemabridge-catalog
+```
+
+For deterministic catalog maintenance or acceptance, use:
+
+```bash
+schemabridge-catalog --once
+```
+
+`--probe-ready` must not poll a queue, resolve a route, read DataHub, open the source database, or
+migrate. `--once` processes at most one claim. Continuous mode is serial and exits cooperatively
+between bounded operations on `SIGINT`/`SIGTERM`. API, worker, and indexer each open one configured
+bounded control pool and close it during graceful shutdown.
+
+The entrypoints and focused lifecycle tests exist. Final process startup/schema-mismatch/shutdown
+output and packaged-wheel/image discovery of migration v4 are **pending**.
+
+### 3. Apply the workspace capacity policy
+
+Use the managed operator identity and migrator credential; never pass a DSN, actor, or secret on
+the command line. In managed profiles,
+`SCHEMABRIDGE_CONTROL_OPERATOR_ACTOR_ID` and
+`SCHEMABRIDGE_CONTROL_OPERATOR_ROLES=["platform_admin"]` come from trusted deployment
+configuration. Create a policy with expected version `0`:
+
+```bash
+schemabridge control-plane capacity apply \
+  --workspace-id "$SCHEMABRIDGE_TARGET_WORKSPACE_ID" \
+  --expected-version 0 \
+  --connection-limit 10 \
+  --asset-limit 10000 \
+  --field-limit 100000 \
+  --api-requests-per-minute 1000 \
+  --nonterminal-job-limit 100 \
+  --generation-retention-seconds 1800 \
+  --confirm "APPLY TENANT CAPACITY POLICY" \
+  --json
+```
+
+For a revision, read the current safe policy version and pass it as `--expected-version`; a stale
+version fails without changing the policy. Values are per workspace and may legitimately differ:
+for example, one company can admit 10 tables while another admits 5,434 or more. The product
+safety ceilings are 100,000 connections, 100,000,000 assets, and 1,000,000,000 fields per policy;
+they are validation bounds, not provisioned defaults or a hardcoded company size.
+
+The command requires the exact confirmation, validates that generation retention covers the fixed
+15-minute cursor lifetime, calls a migrator-only fixed-`search_path` function, and appends the
+accepted actor/value/version set to `tenant_capacity_policy_revisions`. Revision rows are
+immutable. Do not bypass this path with direct SQL. A missing policy and a refresh whose final
+counts exceed policy fail closed; neither case deletes existing inventory.
+
+### 4. Register tenant connections and request refreshes
+
+Use the authenticated M25 HTTP surface:
+
+```text
+GET  /v1/catalog/connections
+POST /v1/catalog/connections
+POST /v1/catalog/connections/{connection_id}/disable
+GET  /v1/catalog/connections/{connection_id}/assets
+GET  /v1/catalog/connections/{connection_id}/assets/{asset_id}/fields
+POST /v1/catalog/connections/{connection_id}/refreshes
+GET  /v1/catalog/refreshes/{refresh_id}
+```
+
+Registration, disable, and refresh request require a verified `platform_admin`, exact tenant scope,
+the closed confirmation for that operation, and a bounded idempotency identity. Never send a DSN,
+token, password, secret path, source row, sample, SQL, prompt, actor, or workspace in the body.
+The connection body contains bounded public metadata plus an opaque credential-binding reference;
+that reference must not appear in any response.
+
+Use separate synthetic tenants:
+
+- small: exactly 10 tables;
+- large: exactly 5,434 tables across multiple connections.
+
+Include duplicate qualified/display names across connections and heterogeneous field counts,
+types, definitions, key/nullability flags, tags, and terms. The operated large fixture makes every
+997th asset a 64-field case with nested paths, Unicode names, and additional source-type drift.
+The same `schema.table` and field path must remain distinct by workspace/connection identity.
+
+Exact HTTP examples depend on the final strict request schemas. Do not invent or bypass them with
+ad-hoc SQL. The final request/response captures are **pending**.
+
+### 5. Observe one refresh without exposing a partial generation
+
+Poll only the bounded refresh summary and record:
+
+```text
+requested → leased → staging → completed
+```
+
+or one closed sanitized failure code. The public summary may include generation, bounded page/
+asset/field counts, fingerprint, timestamps, and safe reason only. It must omit route binding,
+checkpoint, capability digest/fence, DataHub payload, and secret material.
+
+During a multi-page refresh:
+
+1. verify page 1 and its source checkpoint commit before source page 2 is requested;
+2. stop the indexer immediately after a committed nonterminal page;
+3. verify readers still see the prior active generation;
+4. wait for database-time lease expiry and restart the indexer;
+5. verify a higher fence resumes from the exact checkpoint with no duplicate/omitted asset;
+6. repeat after the terminal page commits but before promotion; restart must complete without
+   another source read;
+7. race two indexers and prove only one owns the workspace/connection refresh;
+8. attempt stale capability/fence completion and verify zero promotion;
+9. confirm completion verifies base generation, counts, quota, source completion, and the
+   server-computed fingerprint before atomically changing `active_generation`.
+
+For delta-capable synthetic evidence, apply exactly 100 updates, 23 additions, and 14 removals and
+verify 5,443 active assets plus immutable typed tombstones. DataHub remains a full reconciliation
+source in M25; never label its scroll as delta.
+
+Crash/resume, race, delta, tombstone, and promotion evidence are **pending**.
+
+### 6. Traverse keyset pages and attack the cursor boundary
+
+For connections, assets, and fields, request page sizes 1, 17, and 50. Traverse each small/large
+inventory to exhaustion and record:
+
+- ordered identity count equals exactly 10 or 5,434 as applicable;
+- no duplicate, omission, or ordering drift;
+- response items never exceed the requested size or 50;
+- the database reads no more than `page_size + 1`;
+- no inventory SQL uses `OFFSET`;
+- an asset/field cursor remains bound to its exact generation.
+
+Treat the cursor as opaque. Test bit tampering, unsupported version, overlength, expiry, future
+issue time, another tenant, another connection, another asset, changed filter/sort, and a pruned
+generation. Every case must return the same sanitized cursor-unavailable boundary before protected
+items are disclosed.
+
+Automated page-size 1/17/50 traversal now passes for exact 10/5,434 inventories, and focused cursor
+tests cover the attack matrix. The final browser record—including a genuinely elapsed 15-minute
+expiry—is **pending**.
+
+### 7. Verify DataHub scroll and offline indexed reads
+
+Run the DataHub source against the exact local synthetic catalog and record stable URN order,
+environment/profile filter, page count, response-byte high-water mark, timeout, and final
+fingerprint. Exercise missing cursor progress, repeated page, malformed asset/field, oversized
+response, permission denial, and outage; each must become a closed sanitized failure.
+
+After one successful promotion:
+
+1. stop DataHub;
+2. read the completed PostgreSQL inventory successfully;
+3. verify the UI/API labels its observed/refreshed time and staleness honestly;
+4. request a new refresh and verify typed failure with no recorded/synthetic fallback.
+
+The operated source refreshed 11 assets/59 fields. After DataHub stopped, its completed active
+PostgreSQL generation remained readable and a later refresh failed as `source_unavailable` without
+fallback. Exact final scroll page/byte high-water facts and the browser-visible stale/failure
+record are **pending**.
+
+### 8. Verify durable capacity, fairness, and pools
+
+Use the operator command above and only synthetic policy values. Record the returned version and
+verify its immutable revision before each drill:
+
+1. set three authenticated requests per minute and prove request four returns `429` plus bounded
+   `Retry-After`, while another principal and tenant remain unaffected;
+2. set a tenant nonterminal-job limit of five, race two API replicas, and prove exactly five jobs
+   are admitted;
+3. complete/cancel terminal jobs and prove capacity releases exactly once;
+4. queue 100 jobs for tenant A and one for tenant B, then prove workspace-rotating claim serves B
+   within the documented bound;
+5. lower connection/asset/field policy below current usage, verify over-capacity state remains
+   observable without deletion, and deny new admission;
+6. remove a policy and verify fail closed;
+7. saturate each API/worker/indexer pool, verify configured maximum/waiters, sanitized `503` on
+   acquisition timeout, startup failure, and graceful close.
+
+Record policy versions, safe counts, configured per-process pool bounds, bounded replica counts,
+and deployment-wide connection budget. Do not record principal digests or tenant identifiers from
+denied protected lookups. Capacity/fairness/pool evidence is **pending**.
+
+### 9. Run scale correctness, plans, and local load
+
+Required M25 targets are:
+
+```bash
+make test-scale-correctness
+make benchmark-scale
+```
+
+If either target does not exist or cannot run, record it as an open deliverable. The scale report
+must include hardware/OS/architecture, Python/PostgreSQL versions, cold/warm state, page/pool
+configuration, repetitions, exact fixture digest, and reviewed
+`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` plans.
+
+Local regression budgets:
+
+- maximum 51 assets or fields materialized for one interactive page;
+- small-to-large Python heap delta at or below 16 MiB;
+- small-to-large process RSS delta at or below 64 MiB;
+- 5,434-table full refresh at or below 60 seconds;
+- 5,000 indexed reads at concurrency 16 with zero unexpected errors, p95 at or below 250 ms, and
+  p99 at or below 500 ms.
+
+Record actual values even when a budget fails. Never convert these local figures into a production
+SLO or autoscaling claim.
+
+The current operated report at `reports/m25-scale-report.{json,md}` passes:
+
+```text
+platform: Darwin 25.5.0 arm64; CPython 3.13.13; PostgreSQL 16.13
+small / large: 10 / 5,434 assets
+small / large fields: 75 / 41,028
+large active connections: 2
+maximum page rows / returned items: 51 / 50
+large refresh: 110 persisted pages, 29.685331 seconds
+heap / RSS delta: 126,601 / 0 bytes
+load: 5,000 reads, concurrency 16, 0 errors
+p50 / p95 / p99 / max: 26.5 / 41.762 / 54.951 / 81.658 ms
+```
+
+Expected asset/field keyset indexes were used under the default PostgreSQL planner with no
+override. The field probe selected a naturally wide 64-field asset; both plans contain
+`Index Scan` plus `Limit` and no forbidden node. Rerun both targets after the final integrated
+change and retain their exact output.
+
+### 10. Prove query safety is independent from inventory size
+
+Against the large tenant, execute approved governed plans using one, two, and three physical tables
+from one connection. Reuse the unchanged typed planner, deterministic compiler, independent SQL
+guard, read-only source role, row limit, fanout rules, and timeout.
+
+Then verify rejection of:
+
+- four tables or three joins;
+- a cross-connection plan;
+- Cartesian/missing-predicate joins;
+- DDL, DML, utilities, concealed second statements, and unknown assets;
+- unsafe float identifiers and unsafe fanout;
+- result-limit or statement-timeout bypass.
+
+Browsing 5,434 tables does not authorize using 5,434 tables in SQL. The executable maximum remains
+three physical tables and two joins. Focused unit, PostgreSQL, scale, and final integrated
+query-safety evidence is recorded in `tasks/M25_HANDOFF.md`.
+
+### 11. Internal-browser and final gate
+
+Start the loopback-only acceptance panel with three distinct ignored owner-only bearer files. Never
+put a bearer value on the command line:
+
+```bash
+.venv/bin/python scripts/m25_catalog_browser_panel.py \
+  --bind 127.0.0.1 \
+  --port 8510 \
+  --upstream http://127.0.0.1:8520 \
+  --small-bearer-file .local/m25-browser-acceptance/small.bearer \
+  --large-bearer-file .local/m25-browser-acceptance/large.bearer \
+  --datahub-bearer-file .local/m25-browser-acceptance/datahub.bearer
+```
+
+The panel is acceptance instrumentation, not product UI. It keeps all bearer material server-side
+and exposes only bounded sanitized API responses.
+
+In Codex's internal browser:
+
+1. authenticate and traverse first, middle, and final pages for the 10- and 5,434-table tenants;
+2. show connection/generation/freshness/count metadata without downloading the full inventory;
+3. exercise stale/tampered/cross-scope cursor denial, rate denial, and refresh status;
+4. stop DataHub and show indexed inventory as stale while new refresh fails safely;
+5. inspect console, network/response text, and logs for credentials, claims, DSNs, route bindings,
+   SQL, parameters, prompts, source values, rows, or OpenAI material;
+6. repeat at 390x844 and verify client/scroll widths match with no horizontal overflow.
+
+Finish with:
+
+```bash
+make control-plane-reset
+make control-plane-migrate
+make control-plane-check
+make test-scale-correctness
+make benchmark-scale
+make test-api-integration
+make test-worker-integration
+make test-integration
+make test-acceptance
+make evaluate
+make check
+make coverage
+make runtime-wheel-smoke
+python scripts/release_audit.py
+git diff --check
+```
+
+Record exact counts, migration checksum, role matrix, fixture digests, page/refresh/load/memory
+measurements, index plans, warnings, skips, unavailable services, package/process results, and
+browser facts. The complete accepted local M25 record is retained in `tasks/M25_HANDOFF.md`; it is
+not a production-capacity or release claim.
+
+## M26 semantic-change management — operator procedure
+
+M26 is complete and accepted locally. This retained procedure uses only the synthetic local
+services and preserves every exact output in `tasks/M26_HANDOFF.md`. Production operators must
+still follow the explicit baseline/change approval boundaries; local acceptance does not authorize
+production data or deployment.
+
+### Preconditions and capability isolation
+
+1. Produce a current signed control-plane backup before schema v5.
+2. Keep catalog indexer, API, execution worker, semantic reconciler, and aggregate profile workers
+   in separate processes/workloads. Do not load a shared repository `.env` into them.
+3. The semantic reconciler receives the reconciler-role control DSN, control-audit key, configured
+   opaque operator identity/roles, and mutation-free DataHub registry/recipe reader only. It must
+   not receive a source DSN or `OPENAI_API_KEY`.
+4. Each aggregate profile worker receives the worker-role control DSN, one read-only source DSN,
+   exactly one `SCHEMABRIDGE_SEMANTIC_PROFILE_SOURCE_WORKSPACE_ID`, and exactly one
+   `SCHEMABRIDGE_SEMANTIC_PROFILE_SOURCE_CONNECTION_ID`. Run a separately configured worker for
+   every governed workspace/connection pair that can have profile jobs.
+5. API receives only its API-role control DSN and the existing API-only inventory cursor HMAC key,
+   which also signs the domain-separated semantic-change cursors. Catalog and web receive no
+   semantic reconciler capability. No M26 component receives a source-write or DataHub mutation
+   credential.
+6. Confirm source/control database separation and the source reader's read-only identity before
+   any profile worker starts.
+
+### 1. Apply exact schema v5
+
+The local reset is destructive only to the `schemabridge-control` Compose project:
+
+```bash
+make control-plane-reset
+make control-plane-migrate
+make control-plane-check
+```
+
+Verify both pristine 1→5 and existing v4→v5 paths. Migrations 0001–0004 must retain their exact
+bytes. All six roles must report current/expected v5 with no pending migration and source/control
+separation. Prove `PUBLIC` revocation and the positive/negative grants described in
+`docs/14_DEPLOYMENT.md`. Record the final `0005_semantic_change_management.sql` SHA-256 only after
+the integrated tree stops changing.
+
+Exact schema checks require a coordinated v4 drain and v5 rollout; do not claim a zero-downtime
+upgrade. Do not down-migrate or edit migration history. Roll back application code only to a build
+that understands v5, or restore a separately verified pre-migration backup to a fresh target.
+
+### 2. Start the scoped asynchronous processes
+
+Probe without polling or source/DataHub I/O:
+
+```bash
+make semantic-reconciler-probe
+make semantic-profile-worker-probe
+```
+
+Start continuous processes in separate shells:
+
+```bash
+make semantic-reconciler
+make semantic-profile-worker
+```
+
+For deterministic maintenance use one bounded iteration:
+
+```bash
+make semantic-reconciler-once
+make semantic-profile-worker-once
+```
+
+The catalog-generation trigger must fan out one idempotent request per matching active
+workspace/catalog/registry pointer. A registry transition creates its own exact request. Observe
+only the safe lifecycle:
+
+```text
+requested → leased → completed
+                  └→ retry_wait → leased
+                  └→ failed
+                  └→ superseded
+```
+
+The reconciler renews its fenced lease while it pages dependencies. A lost lease must stop the
+scan before a dependency watermark or report is committed. Profile workers claim/reclaim only
+queue rows whose workspace and `connection_id` equal their configured source pair, validate that
+pair again before heartbeat/source I/O, and persist aggregate results only. A cross-workspace or
+cross-connection job and a cross-connection join must fail before the source opens.
+
+### 3. Establish the first explicit baseline
+
+Wait until the scope's initial registry/catalog scan and every required aggregate profile job are
+complete. Run the operator with `SCHEMABRIDGE_COMPONENT=reconciler`, the reconciler DSN, configured
+scope, strong audit key, and trusted opaque `SCHEMABRIDGE_CONTROL_OPERATOR_ACTOR_ID`. The roles
+must authorize the existing managed operator boundary; never pass an actor or DSN on argv.
+
+Verify that initial candidate review uses only
+`load_semantic_initial_catalog_candidates(workspace, scope, requests_json)`. Its batch must remain
+at most 2,000 requests/2 MB with contiguous ordinals, exact six-key shapes, and all-null or
+all-present selected locators. Each mapping may return at most two exact field-path witnesses, and
+`PUBLIC`, runtime, API, worker, and catalog roles must have no execute privilege. A timeout or
+malformed/partial locator is a failure; do not increase the statement timeout or fall back to a
+connection-wide candidate scan.
+
+Inspect without a selection file first:
+
+```bash
+schemabridge-semantic-change inspect
+```
+
+The first result must be review-required or blocked; it cannot silently establish trust. If a
+governed field has multiple exact candidates, construct a canonical bounded JSON file with
+`schema_version=1`, `kind=semantic_binding_selections`, exact scope, and canonically ordered
+`SemanticBindingSelection` values. Keep it owner-only and rerun:
+
+```bash
+schemabridge-semantic-change inspect \
+  --binding-selections .local/m26/binding-selections.json
+```
+
+Review every connection, asset, field path, mapping decision/version, generation, evidence
+fingerprint, join risk, dependency count, and completeness fact. A name/definition match alone is
+not acceptable. When and only when evidence is complete, prepare the immutable proposal:
+
+```bash
+schemabridge-semantic-change prepare \
+  --report-id "$M26_REPORT_ID" \
+  --action establish_baseline
+```
+
+Use the exact emitted proposal/report fingerprints and a timezone-aware timestamp. With
+`umask 077`, write the canonical approval envelope from:
+
+```bash
+schemabridge-semantic-change approve \
+  --report-id "$M26_REPORT_ID" \
+  --action establish_baseline \
+  --proposal-fingerprint "$M26_PROPOSAL_FINGERPRINT" \
+  --report-fingerprint "$M26_REPORT_FINGERPRINT" \
+  --approved-at "$M26_APPROVED_AT" \
+  --confirm "ESTABLISH SEMANTIC EVIDENCE BASELINE"
+```
+
+Commit the exact unchanged envelope separately:
+
+```bash
+schemabridge-semantic-change commit \
+  --approval-envelope .local/m26/baseline-approval.json
+schemabridge-semantic-change head
+schemabridge-semantic-change verify-audit
+```
+
+An exact replay is idempotent. A stale report, pointer, catalog vector, dependency watermark, head,
+actor, time, confirmation, or fingerprint must produce zero state/audit mutation.
+Verify the committed baseline/bindings use the resulting head revision; retaining the proposal's
+previous expected revision is a failed commit.
+
+### 4. Exercise compatible change and blocking remediation
+
+Promote a synthetic definition/tag/term or non-structural asset-metadata change on an exactly bound
+resource. Process the resulting scoped scan and verify `review_required`; an unrelated plan must
+remain eligible. Prepare/approve/commit `revalidate_compatible_change` with confirmation
+`REVALIDATE COMPATIBLE SEMANTIC CHANGE`. Preserve the prior baseline/report.
+
+Then separately promote type, key, nullability, removal, ambiguity, lost-FK, cardinality,
+overlap/null/invalid, or multiplicity drift. The affected mapping/join must be blocked. Verify
+compiler, preview, rejected-source, and source-I/O counters remain zero. The only same-registry
+operator action permitted for a blocking report is `reject_change`, confirmed with
+`REJECT SEMANTIC CHANGE`; rejection preserves the evidence and does not authorize execution.
+
+Remediate by completing the existing governed mapping/join review, publishing a new strict
+immutable DataHub registry version, activating it through M23 compare-and-swap, processing the new
+registry scan, and explicitly establishing its new baseline. Never edit the previous registry,
+report, binding, decision, or baseline.
+
+### 5. Prove complete blast radius and dynamic catalog behavior
+
+Reconcile workflow dependencies from PostgreSQL keyset pages and current recipe dependencies from
+DataHub stable-URN pages of at most 50. Current recipe IDs must begin with the active registry scope
+fingerprint prefix. Record page counts, discovered counts, EOF, source/set fingerprints,
+watermark, mapping/join/workflow/recipe impact counts, and impact-set fingerprint.
+
+Interrupt either source, return a duplicate/malformed page, or lose the scan lease. Coverage must
+remain visibly incomplete and block baseline/revalidation and execution. Do not describe partial
+counts as a complete blast radius.
+
+Use both the 10-table and 5,434-table tenants. An unrelated change among 5,433 other assets must
+not inspect/materialize the whole catalog or block an unaffected plan. Exact governed field
+observation remains bounded by the active registry's 2,000 mappings/500 joins, and one query remains
+one connection/three tables/two joins.
+
+Confirm the reconciler uses `load_semantic_initial_catalog_candidates` for initial review and
+`load_semantic_bound_catalog_evidence` for approved observations; both receive only bounded exact
+locator arrays. Record an `EXPLAIN`/rows-read proof that the initial path uses
+`catalog_assets_semantic_lookup_idx` and `catalog_fields_semantic_lookup_idx`, performs only the
+requested exact lookups, and returns at most two witnesses per mapping. The focused final cold
+fixture has 5,434 assets/5,458 fields and observes 31 governed fields with autovacuum disabled and
+both relation estimates unknown. Its accepted regression bounds are a 31-row `Function Scan`,
+execution below 5,000ms, at most 4,096 shared hit+read blocks, and explicit use of both expression
+indexes. The length-prefixed SQL/Python locator-key formula is validated for accepted ASCII
+identities; do not infer Unicode equivalence or add a global catalog CHECK. Exact raw-value rechecks
+must remain in place. Dependency reconciliation accepts at most 10,000 artifacts and 100,000 edges and writes
+PostgreSQL batches of 500; crossing either cap must leave coverage incomplete and block approval/
+execution. The focused real PostgreSQL regression persisted 5,434 non-empty mapping edges in 5.50
+seconds including control-plane migration/setup. Repeat both scale proofs in the final integrated
+environment and record transaction time, row count, timeout, and resource facts.
+
+Also seed one workflow resolved against an older registry and one stale/legacy recipe. Coverage
+may be complete only if same-scope stale references project conservatively to exact current logical
+fields/contracts. Cross-scope, missing-scope, or unresolvable references must make coverage
+incomplete; silently skipping one is a failed safety test.
+
+### 6. Read-only API and internal-browser acceptance
+
+The authenticated API exposes only:
+
+```text
+GET /v1/semantic-changes/reports
+GET /v1/semantic-changes/reports/{report_id}
+GET /v1/semantic-changes/reports/{report_id}/findings
+GET /v1/semantic-changes/reports/{report_id}/impacts
+```
+
+Pages contain at most 50 items and use signed workspace/report/filter-bound keyset cursors.
+Unknown, cross-tenant, stale, and tampered identities share one non-disclosing unavailable
+boundary. No route mutates reports or decisions.
+
+Prepare the real retained acceptance state only after the final code/schema bytes pass the
+automated gate:
+
+```bash
+.venv/bin/python scripts/m26_browser_acceptance_runtime.py prepare
+```
+
+`prepare` refuses an existing state directory, creates one dedicated retained database, derives the
+same pseudonymous local workspace as the API, runs the real PostgreSQL/DataHub acceptance seed, and
+writes only owner-mode state/bearer/cursor files under `.local/m26-browser-acceptance`. It strips
+OpenAI, unrelated DataHub, bearer/cursor, and control-DSN values from the seed environment. Its
+stdout is a bounded safe summary; never print the owner-only files.
+
+Start the real API and panel in two separate terminals:
+
+```bash
+.venv/bin/python scripts/m26_browser_acceptance_runtime.py api
+.venv/bin/python scripts/m26_browser_acceptance_runtime.py panel
+```
+
+The API binds `127.0.0.1:8520`; the panel binds `127.0.0.1:8510`, keeps the bearer server-side,
+and uses no synthetic panel fixture. Before and after browsing, confirm the retained effective
+state:
+
+```bash
+.venv/bin/python scripts/m26_browser_acceptance_runtime.py status
+```
+
+The panel is acceptance instrumentation, not Query Studio. In Codex's internal browser, show
+current, review-required, blocked, rejected/remediated states; first/middle/final finding and impact
+pages; indistinguishable cursor/cross-tenant/stale denial; absent mutation controls; blocked
+pre-I/O counters; and historical immutability. Scan browser, API, process, control state, and logs
+for source values, SQL, parameters, DSNs, tokens, claims, audit keys, prompts, or OpenAI material.
+Repeat at 390x844 and verify client/scroll widths match with no overflow or warning/error console
+event.
+
+After recording the final facts, stop API/panel and remove only the dedicated retained database and
+exact three state files:
+
+```bash
+.venv/bin/python scripts/m26_browser_acceptance_runtime.py cleanup \
+  --confirm "DROP M26 BROWSER ACCEPTANCE DATABASE"
+```
+
+Cleanup fails closed if the database/state identity is invalid, the confirmation differs, or the
+directory contains unexpected material.
+
+### 7. Final M26 gate
+
+```bash
+.venv/bin/pytest tests/unit/test_semantic_change.py \
+  tests/unit/test_semantic_change_use_cases.py \
+  tests/unit/test_semantic_change_gate.py \
+  tests/unit/test_http_semantic_change_api.py \
+  tests/unit/test_semantic_change_cli.py \
+  tests/unit/test_semantic_change_operator.py \
+  tests/unit/test_semantic_change_reconciler.py \
+  tests/unit/test_semantic_change_scan_runner.py \
+  tests/unit/test_semantic_change_scans.py \
+  tests/unit/test_semantic_change_schema_migration.py \
+  tests/unit/test_semantic_dependency_reconciler.py \
+  tests/unit/test_semantic_profile_bootstrap.py \
+  tests/unit/test_semantic_profile_jobs.py \
+  tests/unit/test_semantic_profile_process.py \
+  tests/unit/test_semantic_profile_worker.py \
+  tests/unit/test_semantic_reconciler_bootstrap.py \
+  tests/unit/test_semantic_reconciler_process.py \
+  tests/unit/test_m26_semantic_change_browser_panel.py \
+  tests/unit/test_m26_browser_acceptance_runtime.py
+make control-plane-reset
+make control-plane-migrate
+make control-plane-check
+.venv/bin/pytest -m integration tests/integration/test_semantic_change_postgres.py
+.venv/bin/pytest -m integration tests/integration/test_semantic_change_scans_postgres.py \
+  tests/integration/test_semantic_profile_queue_postgres.py
+.venv/bin/pytest -m acceptance tests/acceptance/test_semantic_change_acceptance.py
+make test-api-integration
+make test-worker-integration
+make test-integration
+make test-acceptance
+make evaluate
+make runtime-wheel-smoke
+python scripts/release_audit.py
+make check
+make coverage
+git diff --check
+```
+
+Record exact counts, warnings, skips, migration checksum, six-role output, report/binding/decision
+fingerprints, scan/profile lifecycle, blast-radius counts, pre-I/O counters, service/package
+results, protected-data scan, and browser facts. The real-upstream browser record and cleanup now
+pass locally in `docs/14_BROWSER_ACCEPTANCE.md`; the final matrix, checksum, and diff also pass.
+M26 is accepted locally and M27 is eligible.
+
+## M27 dynamic Query Studio — accepted local synthetic procedure
+
+M27 is accepted locally within its synthetic scope. This procedure reproduces the dedicated
+schema-v8 state, dynamic 10/5,434-table profiles, signed provider evaluation, fake-mode browser
+journey, and fail-closed cleanup. Local acceptance does not authorize a production release.
+
+### Preconditions and safety boundary
+
+1. Keep source credentials read-only and keep the public repository synthetic.
+2. Do not copy, print, persist, or pass `OPENAI_API_KEY` on the command line. Live mode reads the
+   existing key only from the process environment.
+3. External AI remains off until an operator explicitly applies the synthetic tenant's versioned
+   policy. `store=false` is not Zero Data Retention or provider-governance approval.
+4. Governed matching may create only a typed interpretation preview. Physical discovery remains
+   `needs_mapping_review`; neither lane may skip the M26 gate, deterministic compiler,
+   independent AST guard, or separate execution approval.
+5. Catalog breadth is dynamic, but one analytical request remains one connection, at most three
+   physical tables, and two approved joins.
+
+### 1. Apply and verify exact control-plane schema v8
+
+```bash
+make control-plane-reset
+make control-plane-migrate
+make demo-up
+make control-plane-check
+```
+
+The release path applies migrations 1–8 and must report current/expected version 8 with no pending
+migration for runtime, reconciler, migrator, API, worker, and catalog roles. Migration v7 rejects
+invalid successful usage history instead of rewriting it. Migration v8 preserves the v7 checksum,
+rejects invalid deterministic audit derivations, refreshes clocks after lock waits, serializes
+provider accounting locks, and reasserts exact wrapper/core ACLs. When reproducing acceptance,
+rerun the six-role check on final bytes and retain its exact output, source/control separation
+result, and migration checksums.
+
+### 2. Reproduce focused retrieval and dynamic-cardinality evidence
+
+```bash
+.venv/bin/pytest -q tests/unit/test_query_studio*.py \
+  tests/unit/test_openai_boundary.py \
+  tests/unit/test_postgres_query_studio_adapters.py \
+  tests/acceptance/test_query_studio_equivalence_acceptance.py \
+  tests/acceptance/test_query_studio_streamlit_acceptance.py
+
+.venv/bin/pytest -q -m integration \
+  tests/integration/test_query_studio_postgres.py \
+  tests/integration/test_catalog_scale_postgres.py
+
+.venv/bin/python scripts/evaluate_query_studio_matching.py
+```
+
+The final provider-free combined Query Studio regression recorded 454 passed tests; focused
+attestation/runtime cuts also pass. The deterministic report records top-1 `56/62`,
+top-3/recall@20 `62/62`, MRR `0.946237`, no-match `31/31`, ambiguity `6/6`, zero provider calls,
+and zero ungoverned executable results. These are local synthetic regression results, not
+production SLOs; exact command durations and overlap are recorded in the M27 handoff.
+
+### 3. Inspect, prepare, and exactly apply tenant AI policy
+
+The packaged policy interface is `schemabridge-ai-policy inspect|prepare|apply`. The retained M27
+helper invokes the same module through its exact virtual-environment Python, so it does not depend
+on an editable console-script being present. Print its owner-only commands and expected
+configuration fingerprint with:
+
+```bash
+.venv/bin/python scripts/m27_browser_acceptance_runtime.py policy-guide
+```
+
+The generated sequence is:
+
+1. `inspect`, which performs no write;
+2. `prepare --expected-version ... --proposal-output <owner-only-json>`, which exclusively creates
+   a new regular proposal file outside the retained state directory with owner-only mode `0600`
+   and performs no policy write;
+3. review that exact file and its reported proposal fingerprint; and
+4. `apply --expected-proposal-fingerprint ... --confirm "APPLY TENANT AI POLICY"`.
+
+Do not redirect the proposal through shell output. `--proposal-output` refuses an existing path,
+symlink, wrong owner, non-regular file, or permissions broader than `0600`; `apply` rechecks the
+file before any policy write.
+
+The evaluated policy is `gpt-5-nano-2025-08-07` in region `global`. Applying policy does not call
+the provider. It is invalid to enable external AI by ad-hoc SQL or to infer approval from an
+environment key. The retained campaign used enabled policy v83 and was disabled by v84. The
+separate one-smoke window used v85 and returned to disabled v86 even though the browser blocked
+submission before provider I/O. Normal rest state is disabled.
+
+### 4. Verify the separately labelled live model gate
+
+The following command is plan-only and makes no provider call:
+
+```bash
+.venv/bin/python scripts/evaluate_query_studio_live.py
+```
+
+It prints the cheapest-first order—Nano, 5.4 Nano, then Luna—and the campaign caps. Only an
+explicitly authorized synthetic run may use `--execute-live`. The retained
+`m27-cheapest-first-campaign-v11` stopped after Nano passed the complete corpus; there was no
+runtime cascade:
+
+```text
+selected model: gpt-5-nano-2025-08-07
+complete corpus: 136/136 expected outcomes
+positive recall@20: 62/62
+negative outcomes: 31/31
+ambiguity: 18/18
+typed core: 15/15
+adversarial: 10/10
+top-1/top-3/MRR: 56/62, 62/62, 0.946237
+usage: 16 attempts, 15,715 input, 1,204 output/reasoning
+duration/cost: 30,016 ms, EUR 0.001394085
+```
+
+The immutable signed campaign is
+`reports/m27-query-studio-live-history/campaign-signed-beef3391aef2ea2cedfdfbc6e065ce259f7143861ccc0470197c6edcb88ba30a.json`.
+Verify its accepted campaign/ledger attestation without provider I/O:
+
+```bash
+.venv/bin/python scripts/m27_browser_acceptance_runtime.py verify-live-attestation \
+  --attestation-json \
+  reports/m27-query-studio-live-history/campaign-ledger-attestation-f4fceb557b8dd0a2ddf3c05a5f670ba2ea759f32273ef515e0daf0231a117053.json
+```
+
+The schema-v2 attestation binds exactly 16 settled interpretation reservations/audits and exact
+token totals through one authenticated unique ordinal correlation. It does not claim native
+case-to-request identity because the historical run did not persist one shared content-derived
+request nonce/fingerprint.
+
+Official standard pricing verified on 2026-07-26 and encoded in
+`OFFICIAL_STANDARD_PRICING` is:
+
+| Snapshot | Input per 1M tokens | Output per 1M tokens | Evaluation note |
+|---|---:|---:|---|
+| `gpt-5-nano-2025-08-07` | USD 0.05 | USD 0.40 | Official source also verifies Structured Outputs |
+| `gpt-5.4-nano-2026-03-17` | USD 0.20 | USD 1.25 | Evaluated only if nano misses a gate |
+| `gpt-5.6-luna` | USD 1.00 | USD 6.00 | Evaluated only if both nano candidates miss a gate |
+
+Accounting charges all input at the full standard rate, includes reasoning in output, and
+conservatively treats USD as EUR 1:1. Price order alone does not select the runtime snapshot: the
+first model must pass the complete live quality, ambiguity, safety, and typed-intent gate. Nano
+passed and is the selected pinned snapshot.
+
+### 5. Prepare and operate the retained internal-browser state
+
+```bash
+.venv/bin/python scripts/m27_browser_acceptance_runtime.py prepare
+.venv/bin/python scripts/m27_browser_acceptance_runtime.py status
+.venv/bin/python scripts/m27_browser_acceptance_runtime.py streamlit --ai-mode fake
+```
+
+The helper seeds schema v8 with 5,434 physical assets, 41,028 physical fields, and 31 governed
+mappings. It performs no provider call during preparation. Use Codex's internal browser at desktop
+and 390x844 to cover guided keyset pagination, description matching, natural edit/re-sign,
+ambiguity, no-match, stale confirmation, physical `needs_mapping_review`, sensitive-input block,
+rate/quota/provider-down states, deterministic SQL inspection, and separate execution approval.
+Verify a clean console, no horizontal overflow/UI deception, and no key, prompt, provider payload,
+protected identity, credential, SQL parameter, or source-value disclosure.
+
+For the negative/operational matrix, stop the fake server and restart it with exactly one
+allowlisted scenario:
+
+```bash
+.venv/bin/python scripts/m27_browser_acceptance_runtime.py streamlit --ai-mode fake \
+  --scenario conflicting_intent
+.venv/bin/python scripts/m27_browser_acceptance_runtime.py streamlit --ai-mode fake \
+  --scenario provider_unavailable
+.venv/bin/python scripts/m27_browser_acceptance_runtime.py streamlit --ai-mode fake \
+  --scenario rate_limited
+.venv/bin/python scripts/m27_browser_acceptance_runtime.py streamlit --ai-mode fake \
+  --scenario quota_exhausted
+.venv/bin/python scripts/m27_browser_acceptance_runtime.py streamlit --ai-mode fake \
+  --scenario delayed_expansion
+.venv/bin/python scripts/m27_browser_acceptance_runtime.py streamlit --ai-mode fake \
+  --scenario expired_token
+```
+
+This dedicated wrapper starts only in the exact development/local-demo/fake/recorded acceptance
+profile and rejects even an empty `OPENAI_API_KEY`. Scenarios are a closed enum: provider failures
+decorate the typed interpretation port after local expansion and governed retrieval; conflict
+decorates that same real deterministic intent port. Loading visibly delays only the local
+deterministic expansion through a two-rerun acceptance phase plus one fixed two-second delay, and
+expiry uses real HMAC tokens with fixed prepare/confirm clocks separated by more than the
+ten-minute TTL.
+None of these paths creates SQL, executes a query, mutates a source, or falls back to external AI.
+In `delayed_expansion`, enter the north-star request and press
+`Interpretar con contexto gobernado`; the browser must retain
+`query_studio_loading: Ejecutando expansión local determinista con retardo de aceptación.` with the
+`Completar carga determinista` button. Press that button to invoke the real deterministic fake
+port and reach the aligned preview. In `expired_token`, prepare the north-star request and press
+its visible confirmation; the UI must reject it as `query_studio_stale_preview` and require a new
+interpretation.
+
+The fake-mode internal-browser journey passed on the final UI bytes. It covered the large
+5,434/41,028/31 and small 10/75/31 profiles; bounded guided pages; a slight Spanish field
+description; the north-star typed proposal and deterministic SQL/AST/read-only preview;
+ambiguity, no-match, stale, rate, quota, provider-down, and physical
+`needs_mapping_review`; desktop and 390x844; a clean fresh console; no horizontal overflow; and
+zero protected-data leakage.
+
+The one separately authorized live-mode browser smoke used the exact north-star text and did not
+confirm, compile, execute, or mutate anything. The browser host rejected the local URL before the
+form could be submitted, so no provider reservation/request was created. Record this as a blocked
+smoke, not a provider failure or live-browser PASS. External AI was immediately disabled at
+policy v86.
+
+After retaining browser evidence, clean only the dedicated state:
+
+```bash
+.venv/bin/python scripts/m27_browser_acceptance_runtime.py cleanup \
+  --confirm "DROP M27 BROWSER ACCEPTANCE DATABASE"
+```
+
+### 6. Final M27 gate and release boundary
+
+On the exact accepted bytes, run the complete M27 matrix:
+
+```bash
+make control-plane-reset
+make control-plane-migrate
+make control-plane-check
+make test-api-integration
+make test-worker-integration
+make test-integration
+make test-acceptance
+make evaluate
+make runtime-wheel-smoke
+.venv/bin/python scripts/release_audit.py
+make check
+make coverage
+git diff --check
+```
+
+Also retain exact pristine, v5→v8, populated v6→v8, and fail-closed v7→v8 migration evidence;
+role/ACL, package/no-auto-migration, provider, browser, and protected-data results. Exact
+current-byte command counts and diagnostic reruns belong in `tasks/M27_HANDOFF.md`.
+
+M27's local synthetic acceptance does not convert the dirty tree into a release candidate. Before
+production, complete M29–M31, operate the deployment/identity/connector/observability/recovery
+controls, evaluate real tenant metadata under approved governance, obtain external security and
+operator sign-off, and produce a clean exact-commit release.
+
+## M28 governed connector routing and cost preflight — locally accepted operator procedure
+
+M28 is accepted locally on synthetic evidence. Integration passed 164 tests with one known skip in
+662.06 seconds; acceptance passed 47 tests in 133.50 seconds. The final internal-browser run passed
+all nine scenarios at desktop 1280x720 and mobile 390x844 with state fingerprint
+`2b854c0596ada31ab5a80f5e6d25c23282f0096ac90a712e953476dff899be33`. M29 is eligible but has
+not started. This procedure and local acceptance must not be read as a production or release GO.
+
+### Preconditions and invariants
+
+1. Use only synthetic sources for repository acceptance. Never give SchemaBridge a source-write
+   credential.
+2. PostgreSQL is the only executable connector/dialect in M28. A catalog-only or unsupported
+   dialect must stop before compiler, route, `EXPLAIN`, preview, or rejected-source inspection.
+3. Back up the control plane, stop schema-v8 writers, and drain every non-terminal legacy query,
+   catalog-refresh, and profile job before migration. Do not rewrite a legacy job to invent target
+   evidence.
+4. Obtain the exact workspace/connection, expected PostgreSQL reader, observed source identity,
+   approved DataHub catalog identity, type-contract version/fingerprint, and reviewed cost budget.
+   Names or descriptions are evidence only; they are not routing authority.
+5. Prepare four different opaque binding references: `preflight`, `catalog`, `execution`, and
+   `profile`. A process receives only its capability-specific secret directory. API, browser,
+   reconciler, and public models receive none.
+6. Keep every secret directory absolute, owner-owned, non-symlinked, and mode `0700`; every
+   content-addressed JSON document is a regular owner-owned file with mode `0600`. Never put a
+   binding, DSN, password, token, endpoint, or secret path in argv, logs, screenshots, fixtures,
+   state, or tracked files.
+
+The private-binding artifact consumed by the route operator has only `format_version=1` and the
+four opaque references. It is also owner-only mode `0600`. Source secret documents contain exactly
+`format_version`, `dialect`, `expected_reader`, and `dsn`; DataHub catalog documents contain
+exactly `format_version`, `kind`, `server`, `token`, and `platform`. The secret filename is the
+SHA-256 of its opaque reference plus `.json`; operators should use approved provisioning tooling
+to create it and must not derive or print the filename in application output.
+
+### 1. Apply and verify exact control-plane schema v9
+
+```bash
+make control-plane-reset
+make control-plane-migrate
+make control-plane-check
+```
+
+The migrator must apply immutable migrations 0001–0008 followed by
+`0009_tenant_connector_routing.sql`. Every managed component must report current/expected
+schema version 9 with no pending migration and source/control separation. Retain pristine and
+v8→v9 results, immutable historical checksums, and the exact six-role positive/negative matrix.
+
+Migration v9 refuses undrained non-terminal legacy work. Historical terminal targetless work may
+remain non-executable. Existing catalog generations with null M28 identities remain historical
+and visible only where allowed; they cannot satisfy executable planning, preflight, preview,
+rejection inspection, profiling, or current semantic evidence.
+
+### 2. Derive and review public identities without exposing topology
+
+Place one observed PostgreSQL identity document in an untracked owner-only file. It contains only
+`format_version=1` and `source_identity` with `server_address`, `server_port`, `database`, and
+`user`. Derive its public digest:
+
+```bash
+schemabridge-connector-route fingerprint-source-identity \
+  --identity-file <owner-only-source-identity-json>
+```
+
+The command is read-only and emits only the fingerprint. A host must be one canonical IP or a
+single-host `/32` or `/128`; a network CIDR, scoped IP, local socket, port zero, wrong database, or
+wrong reader is invalid. Independently derive and review the DataHub identity from the normalized
+server origin plus platform using the approved onboarding tooling. The runtime will recompute both
+identities after connection and fail closed on a mismatch.
+
+Use the pinned PostgreSQL type contract exposed by the current build. A type-contract or catalog/
+source identity change is semantic evidence, not a secret-only rotation, and requires a new
+contract version plus a fresh catalog generation before execution can resume.
+
+The build verifies the exact canonical type-contract SHA once during module import and then reuses
+the verified constant in O(1) for every field. A startup mismatch is a code/contract defect and
+must fail before any catalog or source operation; operators must not replace the reviewed SHA with
+a runtime-computed value.
+
+### 3. Inspect, prepare, separately approve, and CAS-apply one route
+
+Inspect current public state without a write:
+
+```bash
+schemabridge-connector-route inspect \
+  --workspace-id <workspace-id> \
+  --connection-id <connection-id>
+```
+
+For initial creation, prepare an owner-only proposal. Use the reviewed values; the example
+placeholders are not defaults:
+
+```bash
+schemabridge-connector-route prepare \
+  --workspace-id <workspace-id> \
+  --connection-id <connection-id> \
+  --operation create \
+  --expected-head-revision 0 \
+  --idempotency-key <unique-opaque-operation-id> \
+  --proposal-output <new-owner-only-proposal-json> \
+  --contract-version 1 \
+  --route-revision 1 \
+  --expected-reader <read-only-role> \
+  --source-identity-fingerprint <sha256> \
+  --catalog-identity-fingerprint <sha256> \
+  --type-contract-version <reviewed-version> \
+  --type-contract-fingerprint <sha256> \
+  --explain-timeout-ms <reviewed-ms> \
+  --max-response-bytes <reviewed-bytes> \
+  --max-total-cost <reviewed-decimal> \
+  --max-estimated-rows <reviewed-count> \
+  --max-plan-nodes <reviewed-count> \
+  --max-plan-depth <reviewed-count> \
+  --max-plan-width <reviewed-bytes> \
+  --private-bindings-file <owner-only-private-bindings-json>
+```
+
+Review the complete public proposal and its reported fingerprint. A platform administrator creates
+the separate approval artifact as an explicit second step; the current CLI also requires that same
+approved actor when applying it:
+
+```bash
+schemabridge-connector-route approve \
+  --proposal-file <same-proposal-json> \
+  --expected-proposal-fingerprint <exact-sha256> \
+  --confirm "CREATE CONNECTOR ROUTE" \
+  --approval-output <new-owner-only-approval-json>
+```
+
+Apply only those exact artifacts and the same private bindings:
+
+```bash
+schemabridge-connector-route apply \
+  --proposal-file <same-proposal-json> \
+  --approval-file <same-approval-json> \
+  --expected-proposal-fingerprint <exact-sha256> \
+  --expected-approval-fingerprint <exact-sha256> \
+  --private-bindings-file <same-owner-only-private-bindings-json>
+```
+
+Re-run `inspect` and compare workspace, connection, contract/route/head revisions, reader, public
+identity fingerprints, budget, state, route, and target fingerprints. Proposal and approval files
+must not be reused for a changed payload. Exact replay is inert; changed-payload reuse or stale
+head revision fails compare-and-swap.
+
+Rotation uses `--operation rotate`, the current head revision, next route revision, and the full
+reviewed contract/budget/binding values; its exact approval phrase is
+`ROTATE CONNECTOR ROUTE`. A changed public contract requires the next contract version. Disable
+uses `--operation disable`, the current head revision, none of the enabled-route values or private
+bindings, and `DISABLE CONNECTOR ROUTE`. Any old confirmed plan becomes stale after rotation or
+disable; it is never redirected.
+
+### 4. Refresh catalog evidence after route activation or identity change
+
+After initial route creation, request a full refresh through the authenticated M25 catalog API and
+let the lease-owned catalog indexer resolve only its exact private route. Wait for atomic promotion
+before enabling planning. The active generation must carry the exact source-identity,
+catalog-identity, and type-contract fingerprints from the current route.
+
+Every later refresh request binds that immutable triple. Staging generations inherit it; a delta
+base must match it exactly; the generation fingerprint includes it. If any identity changes,
+rotate the route with the next contract version and perform a fresh full refresh. Until promotion,
+runtime, reconciler, preflight, execution, rejection inspection, and profile work fail closed.
+A secret-only rotation may retain the same generation evidence, but the new route revision still
+invalidates every previously confirmed target.
+
+Use the dynamic M25 pagination procedure to verify both 10 assets/75 fields and
+5,434 assets/41,028 fields. Those are regression profiles, not system limits. Route lookup stays
+bounded per workspace/connection, while a query still uses one connection, at most three tables,
+and two approved joins.
+
+For a FULL refresh page with an extreme field count, the catalog store keeps asset and field writes
+inside the same transaction and lease and splits field inserts into batches of 500. Do not increase
+the statement timeout to hide a single oversized parameter payload. The authoritative full-refresh
+budget remains 60 seconds in `test_catalog_scale_postgres`; a second Query Studio fixture setup
+records its elapsed time only as a diagnostic.
+
+The governed browse has two separate latency contracts. Before statistics are established, the
+first page must complete in less than five seconds. After the explicit steady-state `ANALYZE`, each
+of the 34 pages across page sizes 1, 17, and 50 must also complete in less than five seconds.
+Retain the cold-page, total-traversal, page-count, and maximum-page diagnostic properties rather
+than collapsing them into one timing.
+
+### 5. Verify cost admission and execution ordering
+
+For each governed request, retain the public target-bearing plan fingerprint and sanitized first
+cost assessment. The application must issue exactly:
+
+```sql
+EXPLAIN (
+  FORMAT JSON,
+  COSTS TRUE,
+  ANALYZE FALSE,
+  BUFFERS FALSE,
+  VERBOSE FALSE,
+  SETTINGS FALSE
+) <independently validated SELECT>
+```
+
+It uses the exact bound parameters, expected reader, smaller independent timeout, read-only
+transaction, and rollback. Its connection-local JSON loader checks raw response bytes before
+decoding, parses decimals exactly, and rejects empty/duplicate/non-finite/malformed payloads. It
+never runs `EXPLAIN ANALYZE`. A separate engineering test may use
+`EXPLAIN (ANALYZE, BUFFERS)` only against synthetic fixtures and must label that diagnostic as
+test evidence—not application preflight.
+
+For a job submitted after an approved OIDC identity rotation, verify both scopes explicitly:
+`execution_jobs.workspace_id` is the current submitting workspace, while
+`connector_workspace_id` equals the immutable historical workflow and target workspace. Claim the
+job as the worker and prove that the execution loader returns only the historical route. An
+attempt to update either connector scope or target identity must fail before source I/O.
+
+After explicit execution approval, SchemaBridge repeats the semantic gate, target resolution, and
+cost preflight before the bounded read-only preview. Rejected-source inspection repeats the same
+semantic and target checks. A changed semantic head, route, identity, type contract, dialect,
+budget, compiler/guard, or query fingerprint requires a new plan and approval. Every failed or
+rejected second preflight produces zero preview.
+
+### 6. Run the dedicated internal-browser matrix
+
+The helper creates two temporary real PostgreSQL sources with identical public physical labels but
+different databases, roles, budgets, route revisions, and aggregate results. Preparation runs the
+real typed compiler, independent guard, routed connector, cost preflight, and preview, then drops
+both databases/roles and removes every connector-secret file before writing sanitized owner-only
+browser state:
+
+```bash
+.venv/bin/python scripts/m28_browser_acceptance_runtime.py prepare
+.venv/bin/python scripts/m28_browser_acceptance_runtime.py status
+.venv/bin/python scripts/m28_browser_acceptance_runtime.py streamlit \
+  --scenario tenant_a_accepted
+```
+
+Restart the dedicated Streamlit process for each remaining closed scenario:
+
+```text
+tenant_b_accepted
+cost_rejected
+route_disabled
+route_stale
+route_unavailable
+explain_timeout
+unsupported_dialect
+rotated_after_confirmation
+```
+
+Use only Codex's internal browser at desktop and 390x844. For both accepted workspaces, verify the
+public connection label, PostgreSQL dialect, route revision, target fingerprint, budget, accepted
+sanitized assessment, exact read-only role, and distinct aggregate result. For every blocked
+scenario, verify no result and no enabled execution control; rotation must visibly require a new
+plan/approval. Inspect the console, widths, hostile literal rendering, browser/network text, and
+logs for credentials, bindings, paths, DSNs, endpoints, database topology, SQL, parameters, raw
+plan JSON, source identities, or source values.
+
+If browser URL policy blocks before application load, record `blocked_before_application`, do not
+bypass it, and do not accept M28. After retaining evidence, remove only the dedicated state:
+
+```bash
+.venv/bin/python scripts/m28_browser_acceptance_runtime.py cleanup \
+  --confirm "REMOVE M28 BROWSER ACCEPTANCE"
+```
+
+The final session found and corrected one real browser-runtime defect. Streamlit injects an empty
+`MAPBOX_API_KEY`; the app had treated the sensitive variable name alone as a private capability.
+It now allows only that empty placeholder behavior while continuing to reject every non-empty
+sensitive value, and the acceptance suite contains a regression for it. After the correction,
+desktop 1280x720 and mobile 390x844 each passed 9/9 scenarios: A returned
+`approved_rows=2`, B returned `approved_rows=3` through distinct readers, and all seven blocked
+states had no action or result. Final consoles were clean, overflow was false, XSS remained
+undefined with zero scripts, and forbidden hits were zero. Cleanup proved state absent, port
+closed, and zero temporary databases and roles.
+
+### 7. Final M28 gate and release boundary
+
+Run the exact focused commands in `plans/M28_COMPILER_CONNECTORS_COST_CONTROLS.md`, then:
+
+```bash
+make control-plane-reset
+make control-plane-migrate
+make control-plane-check
+make test-integration
+make test-acceptance
+make evaluate
+make runtime-wheel-smoke
+python scripts/release_audit.py
+make check
+make coverage
+git diff --check
+```
+
+Record exact counts, durations, warnings, failures and corrections, migration checksums, six-role
+output, route/target/generation/budget fingerprints, two-tenant results, scale postflight,
+protected-data scans, browser observations, cleanup, and exact final-byte identity in
+`tasks/M28_HANDOFF.md`. Do not combine overlapping test counts or convert an unavailable service
+or unrun browser path into a pass.
+
+The final integration result is 164 passed with one known skip in 662.06 seconds; final acceptance
+is 47 passed in 133.50 seconds. The post-fix `make check` passed Ruff, mypy over 276 source files,
+and 2,714 tests with 207 deselected in 989.17 seconds. Full coverage passed 2,920 tests with the
+same retained M27 fixture skip and seven expected DataHub attribution warnings in 2,626.35 seconds,
+reaching 81.76%:
+
+```text
+M28_POST_FIX_MAKE_CHECK=PASS_2714
+M28_POST_FIX_COVERAGE=PASS_81.76_PERCENT
+```
+
+M28 is accepted locally, and M29 is eligible but not started. This remains a production and release
+NO-GO. M29 operated remote secrets, TLS/NetworkPolicy, observability, supply-chain and recovery
+controls; M30 production-data/security evaluation; M31 pilot/GA; a reviewed clean release identity;
+and external operator/security approval all remain blockers.
 
 ## Troubleshooting record
 

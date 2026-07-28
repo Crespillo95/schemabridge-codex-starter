@@ -1,0 +1,36 @@
+source: recorded:demo/ground_truth/registries/synthetic_enterprise.yml
+contract:
+  id: customer_to_account_holder
+  left_key:
+    logical_field: Customer.customer_key
+    physical_field: crm.customers.customer_id
+    transformation_plan:
+      version: 1
+      steps:
+      - operation: trim
+      - operation: validate_regex
+        pattern: ^[0-9]+$
+      - operation: strip_leading_zeros
+      - operation: reject_invalid
+  right_key:
+    logical_field: AccountHolder.customer_key
+    physical_field: bank.account_holders.gf_customer_id
+    transformation_plan:
+      version: 1
+      steps:
+      - operation: validate_finite
+      - operation: validate_integral
+      - operation: cast_integer_to_string
+      - operation: reject_invalid
+  cardinality: one_to_many
+  default_join_type: inner
+  fanout_policy: require_distinct_for_left_entity_metrics
+  status: approved
+  version: 1
+  evidence:
+  - five normalized keys overlap in the bounded synthetic rows
+  - observed left/right maximum multiplicity is 1/2
+  risks:
+  - customer 123 has two holder links and can multiply customer metrics
+  - null, non-finite, and fractional right keys are rejected before matching
+  approval_decision_id: ground-truth-customer-holder-v1

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import stat
 import urllib.error
 import urllib.request
@@ -18,6 +19,11 @@ from pydantic import ValidationError
 from schemabridge.adapters.datahub.canonical_urns import DECISION_PROPERTY_URN
 from schemabridge.adapters.datahub.decision_property import ensure_decision_property
 from schemabridge.application.ports.recipes import RecipeError, RecipeErrorCode
+from schemabridge.domain.publication_audit import (
+    PublicationAuditOutcome,
+    PublicationFamily,
+    PublicationTargetAuditRecord,
+)
 from schemabridge.domain.recipes import (
     PublishedQueryRecipe,
     QueryRecipe,
@@ -73,26 +79,78 @@ class DataHubQueryRecipeAdapter:
             )
         return cls(config)
 
-    def find_current(self, intent_fingerprint: str) -> PublishedQueryRecipe | None:
-        document_urn = _current_document_urn(intent_fingerprint)
+    def find_current(
+        self,
+        intent_fingerprint: str,
+        *,
+        scope_fingerprint: str | None = None,
+    ) -> PublishedQueryRecipe | None:
+        document_urn = _current_document_urn(
+            intent_fingerprint,
+            scope_fingerprint=scope_fingerprint,
+        )
         try:
             from datahub.metadata.schema_classes import DocumentInfoClass
 
             self._verify_runtime_identity()
-            document = self._client()._graph.get_aspect(document_urn, DocumentInfoClass)
+            client = self._client()
+            document = client._graph.get_aspect(document_urn, DocumentInfoClass)
             if document is None:
                 return None
             serialized = document.customProperties.get("schemabridge.queryRecipe")
             fingerprint = document.customProperties.get("schemabridge.recipeFingerprint")
             approval_id = document.customProperties.get("schemabridge.approvalId")
+            approved_by = document.customProperties.get("schemabridge.approvedBy")
             published_at = document.customProperties.get("schemabridge.publishedAt")
             versioned_urn = document.customProperties.get("schemabridge.versionedDocumentUrn")
-            if not all((serialized, fingerprint, approval_id, published_at, versioned_urn)):
+            serialized_audit = document.customProperties.get("schemabridge.publicationAudit")
+            if not all(
+                (serialized, fingerprint, approval_id, approved_by, published_at, versioned_urn)
+            ):
                 raise ValueError("query-recipe marker is incomplete")
             recipe = QueryRecipe.model_validate_json(serialized)
+            parsed_published_at = datetime.fromisoformat(published_at)
+            audit_records = (
+                tuple(
+                    PublicationTargetAuditRecord.model_validate(item)
+                    for item in json.loads(serialized_audit)
+                )
+                if serialized_audit is not None
+                else None
+            )
+            expected_audit_targets = {
+                "versioned_document": versioned_urn,
+                "current_marker": document_urn,
+            }
             if (
                 recipe.intent_fingerprint != intent_fingerprint
+                or _recipe_scope_fingerprint(recipe) != scope_fingerprint
                 or recipe.fingerprint != fingerprint
+                or self._version_fingerprint(client, versioned_urn) != fingerprint
+                or (
+                    audit_records is not None
+                    and (
+                        len(audit_records) != 2
+                        or {record.operation for record in audit_records}
+                        != {"versioned_document", "current_marker"}
+                        or any(
+                            record.family is not PublicationFamily.RECIPE
+                            or record.target != expected_audit_targets[record.operation]
+                            or record.approval_id != approval_id
+                            or record.actor != approved_by
+                            or record.approved_at != parsed_published_at
+                            or record.new_fingerprint != fingerprint
+                            or record.outcome
+                            not in {
+                                PublicationAuditOutcome.SUCCEEDED,
+                                PublicationAuditOutcome.ALREADY_CURRENT,
+                            }
+                            or record.reason_code is not None
+                            or record.decision_ids
+                            for record in audit_records
+                        )
+                    )
+                )
                 or set(recipe.linked_asset_urns)
                 != {asset.asset for asset in document.relatedAssets or ()}
             ):
@@ -102,7 +160,7 @@ class DataHubQueryRecipeAdapter:
                 document_urn=document_urn,
                 versioned_document_urn=versioned_urn,
                 approval_id=approval_id,
-                published_at=datetime.fromisoformat(published_at),
+                published_at=parsed_published_at,
             )
         except RecipeError:
             raise
@@ -123,17 +181,49 @@ class DataHubQueryRecipeAdapter:
         approval: RecipePublicationApproval,
     ) -> RecipePublicationResult:
         _validate_approval(recipe, approval)
-        current_urn = _current_document_urn(recipe.intent_fingerprint)
+        if (
+            recipe.registry_binding is not None
+            and recipe.registry_binding.scope_fingerprint is None
+        ):
+            raise RecipeError(
+                RecipeErrorCode.INVALID_RECORDED_RECIPE,
+                "active query recipe lacks an exact tenant scope binding",
+            )
+        scope_fingerprint = _recipe_scope_fingerprint(recipe)
+        current_urn = _current_document_urn(
+            recipe.intent_fingerprint,
+            scope_fingerprint=scope_fingerprint,
+        )
         versioned_urn = _versioned_document_urn(recipe)
-        current = self.find_current(recipe.intent_fingerprint)
+        current = self.find_current(
+            recipe.intent_fingerprint,
+            scope_fingerprint=scope_fingerprint,
+        )
         if current is not None and current.recipe.fingerprint == recipe.fingerprint:
             return RecipePublicationResult(
                 status=RecipePublicationStatus.ALREADY_CURRENT,
+                approval_id=approval.id,
                 recipe_fingerprint=recipe.fingerprint,
                 current_document_urn=current.document_urn,
                 versioned_document_urn=current.versioned_document_urn,
                 published_at=current.published_at,
+                audit_records=_audit_records(
+                    recipe,
+                    approval,
+                    current_urn=current.document_urn,
+                    versioned_urn=current.versioned_document_urn,
+                    current_previous=recipe.fingerprint,
+                    versioned_previous=recipe.fingerprint,
+                    current_outcome=PublicationAuditOutcome.ALREADY_CURRENT,
+                    versioned_outcome=PublicationAuditOutcome.ALREADY_CURRENT,
+                ),
             )
+        previous_fingerprint = current.recipe.fingerprint if current is not None else None
+        existing_version: str | None = None
+        versioned_outcome = PublicationAuditOutcome.NOT_ATTEMPTED
+        current_outcome = PublicationAuditOutcome.NOT_ATTEMPTED
+        active_operation = "versioned_document"
+        mutation_attempted = False
         try:
             client = self._client()
             existing_version = self._version_fingerprint(client, versioned_urn)
@@ -147,33 +237,94 @@ class DataHubQueryRecipeAdapter:
                     "datahub_recipe_publish operation=versioned_document target=%s",
                     versioned_urn,
                 )
-                self._upsert_document(client, recipe, approval, current_marker=False)
+                version_audit = _audit_record(
+                    recipe,
+                    approval,
+                    operation="versioned_document",
+                    target=versioned_urn,
+                    previous_fingerprint=None,
+                    outcome=PublicationAuditOutcome.SUCCEEDED,
+                )
+                mutation_attempted = True
+                self._upsert_document(
+                    client,
+                    recipe,
+                    approval,
+                    current_marker=False,
+                    audit_records=(version_audit,),
+                )
+                if self._version_fingerprint(client, versioned_urn) != recipe.fingerprint:
+                    raise ValueError("DataHub query-recipe version read-back did not match")
+                versioned_outcome = PublicationAuditOutcome.SUCCEEDED
+            else:
+                versioned_outcome = PublicationAuditOutcome.ALREADY_CURRENT
+            active_operation = "current_marker"
             logger.info("datahub_recipe_publish operation=current_marker target=%s", current_urn)
-            self._upsert_document(client, recipe, approval, current_marker=True)
-            loaded = self.find_current(recipe.intent_fingerprint)
+            success_audits = _audit_records(
+                recipe,
+                approval,
+                current_urn=current_urn,
+                versioned_urn=versioned_urn,
+                current_previous=previous_fingerprint,
+                versioned_previous=existing_version,
+                current_outcome=PublicationAuditOutcome.SUCCEEDED,
+                versioned_outcome=versioned_outcome,
+            )
+            mutation_attempted = True
+            self._upsert_document(
+                client,
+                recipe,
+                approval,
+                current_marker=True,
+                audit_records=success_audits,
+            )
+            loaded = self.find_current(
+                recipe.intent_fingerprint,
+                scope_fingerprint=scope_fingerprint,
+            )
             if loaded is None or loaded.recipe.fingerprint != recipe.fingerprint:
                 raise ValueError("query-recipe read-back did not match")
+            current_outcome = PublicationAuditOutcome.SUCCEEDED
             return RecipePublicationResult(
                 status=RecipePublicationStatus.CREATED,
+                approval_id=approval.id,
                 recipe_fingerprint=recipe.fingerprint,
                 current_document_urn=current_urn,
                 versioned_document_urn=versioned_urn,
                 published_at=loaded.published_at,
+                audit_records=success_audits,
             )
-        except RecipeError:
-            raise
-        except Exception:
+        except Exception as error:
+            if isinstance(error, RecipeError) and not mutation_attempted:
+                raise
             logger.warning(
                 "datahub_recipe_publish_failed operation=query_recipe target=%s code=partial_write",
                 current_urn,
             )
+            if active_operation == "versioned_document":
+                versioned_outcome = PublicationAuditOutcome.FAILED
+                current_outcome = PublicationAuditOutcome.NOT_ATTEMPTED
+            else:
+                current_outcome = PublicationAuditOutcome.FAILED
             return RecipePublicationResult(
                 status=RecipePublicationStatus.PARTIAL_FAILURE,
+                approval_id=approval.id,
                 recipe_fingerprint=recipe.fingerprint,
                 current_document_urn=current_urn,
                 versioned_document_urn=versioned_urn,
                 published_at=approval.approved_at,
                 failure_code="datahub_partial_write",
+                audit_records=_audit_records(
+                    recipe,
+                    approval,
+                    current_urn=current_urn,
+                    versioned_urn=versioned_urn,
+                    current_previous=previous_fingerprint,
+                    versioned_previous=existing_version,
+                    current_outcome=current_outcome,
+                    versioned_outcome=versioned_outcome,
+                    failure_code="datahub_partial_write",
+                ),
             )
 
     @staticmethod
@@ -184,12 +335,35 @@ class DataHubQueryRecipeAdapter:
         if document is None:
             return None
         fingerprint = document.customProperties.get("schemabridge.recipeFingerprint")
-        if not fingerprint:
+        if not isinstance(fingerprint, str) or re.fullmatch(r"[0-9a-f]{64}", fingerprint) is None:
+            raise RecipeError(
+                RecipeErrorCode.INVALID_RECORDED_RECIPE,
+                "DataHub versioned query-recipe fingerprint is invalid",
+            )
+        serialized = document.customProperties.get("schemabridge.queryRecipe")
+        if not isinstance(serialized, str):
             raise RecipeError(
                 RecipeErrorCode.INVALID_RECORDED_RECIPE,
                 "DataHub versioned query-recipe document is incomplete",
             )
-        return str(fingerprint)
+        try:
+            recipe = QueryRecipe.model_validate_json(serialized)
+        except ValidationError as error:
+            raise RecipeError(
+                RecipeErrorCode.INVALID_RECORDED_RECIPE,
+                "DataHub versioned query-recipe payload is invalid",
+            ) from error
+        if (
+            recipe.fingerprint != fingerprint
+            or _versioned_document_urn(recipe) != document_urn
+            or set(recipe.linked_asset_urns)
+            != {asset.asset for asset in document.relatedAssets or ()}
+        ):
+            raise RecipeError(
+                RecipeErrorCode.INVALID_RECORDED_RECIPE,
+                "DataHub versioned query-recipe document failed typed validation",
+            )
+        return fingerprint
 
     def _client(self) -> Any:
         try:
@@ -209,6 +383,7 @@ class DataHubQueryRecipeAdapter:
         approval: RecipePublicationApproval,
         *,
         current_marker: bool,
+        audit_records: tuple[PublicationTargetAuditRecord, ...],
     ) -> None:
         from datahub.errors import IngestionAttributionWarning
         from datahub.sdk.document import Document
@@ -216,7 +391,10 @@ class DataHubQueryRecipeAdapter:
         ensure_decision_property(self._graphql)
 
         document_id = (
-            _current_document_id(recipe.intent_fingerprint)
+            _current_document_id(
+                recipe.intent_fingerprint,
+                scope_fingerprint=_recipe_scope_fingerprint(recipe),
+            )
             if current_marker
             else _versioned_document_id(recipe)
         )
@@ -252,6 +430,11 @@ class DataHubQueryRecipeAdapter:
                 "schemabridge.approvedBy": approval.actor,
                 "schemabridge.publishedAt": approval.approved_at.isoformat(),
                 "schemabridge.versionedDocumentUrn": _versioned_document_urn(recipe),
+                "schemabridge.publicationAudit": json.dumps(
+                    [record.model_dump(mode="json") for record in audit_records],
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
             },
             structured_properties={DECISION_PROPERTY_URN: [approval.id]},
         )
@@ -339,20 +522,107 @@ def _validate_approval(recipe: QueryRecipe, approval: RecipePublicationApproval)
         )
 
 
-def _current_document_id(intent_fingerprint: str) -> str:
-    return f"schemabridge-query-recipe-{intent_fingerprint[:32]}-current"
+def _audit_records(
+    recipe: QueryRecipe,
+    approval: RecipePublicationApproval,
+    *,
+    current_urn: str,
+    versioned_urn: str,
+    current_previous: str | None,
+    versioned_previous: str | None,
+    current_outcome: PublicationAuditOutcome,
+    versioned_outcome: PublicationAuditOutcome,
+    failure_code: str | None = None,
+) -> tuple[PublicationTargetAuditRecord, PublicationTargetAuditRecord]:
+    return (
+        _audit_record(
+            recipe,
+            approval,
+            operation="versioned_document",
+            target=versioned_urn,
+            previous_fingerprint=versioned_previous,
+            outcome=versioned_outcome,
+            reason_code=(
+                failure_code
+                if versioned_outcome
+                in {PublicationAuditOutcome.FAILED, PublicationAuditOutcome.NOT_ATTEMPTED}
+                else None
+            ),
+        ),
+        _audit_record(
+            recipe,
+            approval,
+            operation="current_marker",
+            target=current_urn,
+            previous_fingerprint=current_previous,
+            outcome=current_outcome,
+            reason_code=(
+                failure_code
+                if current_outcome
+                in {PublicationAuditOutcome.FAILED, PublicationAuditOutcome.NOT_ATTEMPTED}
+                else None
+            ),
+        ),
+    )
 
 
-def _current_document_urn(intent_fingerprint: str) -> str:
-    return f"urn:li:document:{_current_document_id(intent_fingerprint)}"
+def _audit_record(
+    recipe: QueryRecipe,
+    approval: RecipePublicationApproval,
+    *,
+    operation: str,
+    target: str,
+    previous_fingerprint: str | None,
+    outcome: PublicationAuditOutcome,
+    reason_code: str | None = None,
+) -> PublicationTargetAuditRecord:
+    return PublicationTargetAuditRecord(
+        family=PublicationFamily.RECIPE,
+        operation=operation,
+        target=target,
+        approval_id=approval.id,
+        actor=approval.actor,
+        approved_at=approval.approved_at,
+        previous_fingerprint=previous_fingerprint,
+        new_fingerprint=recipe.fingerprint,
+        outcome=outcome,
+        reason_code=reason_code,
+    )
+
+
+def _current_document_id(
+    intent_fingerprint: str,
+    *,
+    scope_fingerprint: str | None = None,
+) -> str:
+    scope = f"{scope_fingerprint[:32]}-" if scope_fingerprint is not None else ""
+    return f"schemabridge-query-recipe-{scope}{intent_fingerprint[:32]}-current"
+
+
+def _current_document_urn(
+    intent_fingerprint: str,
+    *,
+    scope_fingerprint: str | None = None,
+) -> str:
+    return (
+        "urn:li:document:"
+        f"{_current_document_id(intent_fingerprint, scope_fingerprint=scope_fingerprint)}"
+    )
 
 
 def _versioned_document_id(recipe: QueryRecipe) -> str:
-    return f"schemabridge-query-recipe-{recipe.intent_fingerprint[:32]}-v{recipe.version}"
+    scope_fingerprint = _recipe_scope_fingerprint(recipe)
+    scope = f"{scope_fingerprint[:32]}-" if scope_fingerprint is not None else ""
+    return f"schemabridge-query-recipe-{scope}{recipe.intent_fingerprint[:32]}-v{recipe.version}"
 
 
 def _versioned_document_urn(recipe: QueryRecipe) -> str:
     return f"urn:li:document:{_versioned_document_id(recipe)}"
+
+
+def _recipe_scope_fingerprint(recipe: QueryRecipe) -> str | None:
+    binding = recipe.registry_binding
+    return binding.scope_fingerprint if binding is not None else None
 
 
 def _read_env_file(path: Path) -> dict[str, str]:
@@ -369,4 +639,6 @@ def _read_env_file(path: Path) -> dict[str, str]:
 def _read_error_code(error: Exception) -> RecipeErrorCode:
     if isinstance(error, urllib.error.HTTPError) and error.code in {401, 403}:
         return RecipeErrorCode.CATALOG_PERMISSION_DENIED
+    if isinstance(error, (KeyError, TypeError, ValueError)):
+        return RecipeErrorCode.INVALID_RECORDED_RECIPE
     return RecipeErrorCode.CATALOG_UNAVAILABLE

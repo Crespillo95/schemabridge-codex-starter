@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import AbstractContextManager
 from pathlib import Path
 
 from pydantic import ValidationError
 
+from schemabridge.adapters.storage.sqlite_connection import managed_sqlite_connection
 from schemabridge.application.ports.requests import (
     RequestWorkflowError,
     RequestWorkflowErrorCode,
@@ -84,8 +86,8 @@ class SqliteRequestDraftStore:
         except sqlite3.Error as error:
             raise _store_failure(error) from error
 
-    def _connect(self) -> sqlite3.Connection:
-        return sqlite3.connect(self._path, isolation_level=None, timeout=5.0)
+    def _connect(self) -> AbstractContextManager[sqlite3.Connection]:
+        return managed_sqlite_connection(self._path, isolation_level=None)
 
     def _initialize(self) -> None:
         try:

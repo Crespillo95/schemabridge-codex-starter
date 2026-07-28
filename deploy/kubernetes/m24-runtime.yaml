@@ -1,0 +1,709 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: schemabridge-api-config
+data:
+  SCHEMABRIDGE_ENVIRONMENT: production
+  SCHEMABRIDGE_COMPONENT: api
+  SCHEMABRIDGE_CONTROL_PLANE_MODE: postgres
+  SCHEMABRIDGE_AUTH_MODE: oidc
+  SCHEMABRIDGE_API_BIND_HOST: 0.0.0.0
+  SCHEMABRIDGE_API_PORT: "8520"
+  SCHEMABRIDGE_API_ALLOWED_HOSTS: '["api.schemabridge.example"]'
+  SCHEMABRIDGE_API_DOCS_ENABLED: "false"
+  SCHEMABRIDGE_OIDC_PROVIDER: corporate-oidc
+  SCHEMABRIDGE_OIDC_ISSUER: https://identity.example
+  SCHEMABRIDGE_OIDC_AUDIENCE: schemabridge-api
+  SCHEMABRIDGE_API_OIDC_JWKS_URL: https://identity.example/.well-known/jwks.json
+  SCHEMABRIDGE_OIDC_ALLOWED_GROUPS: '{"schemabridge-analysts":["analyst"]}'
+  SCHEMABRIDGE_OIDC_ALLOWED_TENANTS: '["replace-with-approved-tenant"]'
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: schemabridge-worker-config
+data:
+  SCHEMABRIDGE_ENVIRONMENT: production
+  SCHEMABRIDGE_COMPONENT: worker
+  SCHEMABRIDGE_CONTROL_PLANE_MODE: postgres
+  SCHEMABRIDGE_REGISTRY_MODE: live
+  SCHEMABRIDGE_SEMANTIC_REGISTRY_SELECTION: active
+  SCHEMABRIDGE_SEMANTIC_REGISTRY_ID: replace_with_registry_id
+  SCHEMABRIDGE_SEMANTIC_REGISTRY_CATALOG_SCOPE: replace-with-catalog-scope
+  SCHEMABRIDGE_SEMANTIC_REGISTRY_READER_ENV_PATH: /var/run/schemabridge/datahub/reader.env
+  SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY: /var/run/schemabridge/connectors/execution
+  SCHEMABRIDGE_WORKER_IDENTITY_LINEAGE_MODE: verified-oidc
+  SCHEMABRIDGE_WORKER_LEASE_SECONDS: "120"
+  SCHEMABRIDGE_WORKER_HEARTBEAT_SECONDS: "20"
+  SCHEMABRIDGE_WORKER_POLL_INTERVAL_MS: "500"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: schemabridge-catalog-config
+data:
+  SCHEMABRIDGE_ENVIRONMENT: production
+  SCHEMABRIDGE_COMPONENT: catalog
+  SCHEMABRIDGE_CONTROL_PLANE_MODE: postgres
+  SCHEMABRIDGE_CATALOG_MODE: live
+  SCHEMABRIDGE_CATALOG_POLL_INTERVAL_MS: "1000"
+  SCHEMABRIDGE_CATALOG_LEASE_SECONDS: "120"
+  SCHEMABRIDGE_CATALOG_PAGE_SIZE: "50"
+  SCHEMABRIDGE_CATALOG_SOURCE_TIMEOUT_SECONDS: "15"
+  SCHEMABRIDGE_CATALOG_MAX_RESPONSE_BYTES: "4194304"
+  SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY: /var/run/schemabridge/connectors/catalog
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: schemabridge-semantic-reconciler-config
+data:
+  SCHEMABRIDGE_ENVIRONMENT: production
+  SCHEMABRIDGE_COMPONENT: reconciler
+  SCHEMABRIDGE_AUTH_MODE: local-demo
+  SCHEMABRIDGE_CONTROL_PLANE_MODE: postgres
+  SCHEMABRIDGE_REGISTRY_MODE: live
+  SCHEMABRIDGE_SEMANTIC_REGISTRY_SELECTION: active
+  SCHEMABRIDGE_SEMANTIC_REGISTRY_ID: replace_with_registry_id
+  SCHEMABRIDGE_SEMANTIC_REGISTRY_CATALOG_SCOPE: replace-with-catalog-scope
+  SCHEMABRIDGE_SEMANTIC_REGISTRY_READER_ENV_PATH: /var/run/schemabridge/datahub/reader.env
+  SCHEMABRIDGE_CONTROL_AUDIT_KEY_VERSION: v1
+  SCHEMABRIDGE_CONTROL_OPERATOR_ACTOR_ID: sb_actor_v1_0000000000000000000000000000000000000000000000000000000000000000
+  SCHEMABRIDGE_CONTROL_OPERATOR_ROLES: '["platform_admin"]'
+  SCHEMABRIDGE_SEMANTIC_RECONCILER_LEASE_SECONDS: "60"
+  SCHEMABRIDGE_SEMANTIC_RECONCILER_POLL_INTERVAL_MS: "1000"
+  SCHEMABRIDGE_SEMANTIC_RECONCILER_RETENTION_DAYS: "30"
+  SCHEMABRIDGE_SEMANTIC_RECONCILER_MAINTENANCE_BATCH_SIZE: "100"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: schemabridge-semantic-profile-worker-config
+data:
+  SCHEMABRIDGE_ENVIRONMENT: production
+  SCHEMABRIDGE_COMPONENT: worker
+  SCHEMABRIDGE_AUTH_MODE: local-demo
+  SCHEMABRIDGE_CONTROL_PLANE_MODE: postgres
+  SCHEMABRIDGE_WORKER_IDENTITY_LINEAGE_MODE: verified-oidc
+  SCHEMABRIDGE_WORKER_LEASE_SECONDS: "120"
+  SCHEMABRIDGE_WORKER_HEARTBEAT_SECONDS: "20"
+  SCHEMABRIDGE_WORKER_POLL_INTERVAL_MS: "500"
+  SCHEMABRIDGE_SEMANTIC_PROFILE_MAX_ATTEMPTS: "5"
+  SCHEMABRIDGE_SEMANTIC_PROFILE_RETENTION_DAYS: "30"
+  SCHEMABRIDGE_SEMANTIC_PROFILE_MAINTENANCE_BATCH_SIZE: "100"
+  SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY: /var/run/schemabridge/connectors/profile
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: schemabridge-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: schemabridge-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: schemabridge-api
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: registry.example/schemabridge-runtime:replace-with-release-digest
+          imagePullPolicy: IfNotPresent
+          command: ["schemabridge-api"]
+          envFrom:
+            - configMapRef:
+                name: schemabridge-api-config
+          env:
+            - name: SCHEMABRIDGE_CONTROL_API_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: schemabridge-api-secrets
+                  key: control-api-dsn
+            - name: SCHEMABRIDGE_PSEUDONYMIZATION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: schemabridge-api-secrets
+                  key: pseudonymization-key
+          ports:
+            - name: http
+              containerPort: 8520
+          startupProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+              httpHeaders:
+                - name: Host
+                  value: api.schemabridge.example
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+              httpHeaders:
+                - name: Host
+                  value: api.schemabridge.example
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+              httpHeaders:
+                - name: Host
+                  value: api.schemabridge.example
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: schemabridge-semantic-reconciler
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: schemabridge-semantic-reconciler
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: schemabridge-semantic-reconciler
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 180
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: stage-datahub-reader
+          image: registry.example/schemabridge-runtime:replace-with-release-digest
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              umask 077
+              cp -- /var/run/secrets/schemabridge/datahub-source/reader.env /var/run/schemabridge/datahub/reader.env
+              chmod 0600 /var/run/schemabridge/datahub/reader.env
+              test "$(id -u)" -eq 10001
+              test -f /var/run/schemabridge/datahub/reader.env
+              test ! -L /var/run/schemabridge/datahub/reader.env
+              test "$(stat -c %u /var/run/schemabridge/datahub/reader.env)" -eq 10001
+              test "$(stat -c %a /var/run/schemabridge/datahub/reader.env)" = 600
+          volumeMounts:
+            - name: datahub-reader-source
+              mountPath: /var/run/secrets/schemabridge/datahub-source
+              readOnly: true
+            - name: datahub-reader-runtime
+              mountPath: /var/run/schemabridge/datahub
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+      containers:
+        - name: semantic-reconciler
+          image: registry.example/schemabridge-runtime:replace-with-release-digest
+          imagePullPolicy: IfNotPresent
+          command: ["schemabridge-semantic-reconciler"]
+          envFrom:
+            - configMapRef:
+                name: schemabridge-semantic-reconciler-config
+          env:
+            - name: SCHEMABRIDGE_SEMANTIC_RECONCILER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: SCHEMABRIDGE_CONTROL_RECONCILER_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: schemabridge-semantic-reconciler-secrets
+                  key: control-reconciler-dsn
+            - name: SCHEMABRIDGE_CONTROL_AUDIT_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: schemabridge-semantic-reconciler-secrets
+                  key: audit-signing-key
+          volumeMounts:
+            - name: datahub-reader-runtime
+              mountPath: /var/run/schemabridge/datahub
+              readOnly: true
+          startupProbe:
+            exec:
+              command: ["schemabridge-semantic-reconciler", "--probe-ready"]
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          readinessProbe:
+            exec:
+              command: ["schemabridge-semantic-reconciler", "--probe-ready"]
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: ["/bin/sh", "-ec", "kill -0 1"]
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+      volumes:
+        - name: datahub-reader-source
+          secret:
+            secretName: schemabridge-semantic-reconciler-datahub-reader
+            defaultMode: 0440
+            items:
+              - key: reader.env
+                path: reader.env
+        - name: datahub-reader-runtime
+          emptyDir:
+            medium: Memory
+            sizeLimit: 128Ki
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: schemabridge-semantic-profile-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: schemabridge-semantic-profile-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: schemabridge-semantic-profile-worker
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 180
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: stage-profile-connectors
+          image: registry.example/schemabridge-runtime:replace-with-release-digest
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              umask 077
+              mkdir -p /var/run/schemabridge/connectors/profile
+              chmod 0700 /var/run/schemabridge/connectors/profile
+              test "$(id -u)" -eq 10001
+              test -d /var/run/schemabridge/connectors/profile
+              test ! -L /var/run/schemabridge/connectors/profile
+              test "$(stat -c %u /var/run/schemabridge/connectors/profile)" -eq 10001
+              test "$(stat -c %a /var/run/schemabridge/connectors/profile)" = 700
+              for source in /var/run/secrets/schemabridge/profile-connectors/*.json; do
+                test -f "$source"
+                destination="/var/run/schemabridge/connectors/profile/${source##*/}"
+                cp -- "$source" "$destination"
+                chmod 0600 "$destination"
+                test -f "$destination"
+                test ! -L "$destination"
+                test "$(stat -c %u "$destination")" -eq 10001
+                test "$(stat -c %a "$destination")" = 600
+              done
+          volumeMounts:
+            - name: profile-connector-source
+              mountPath: /var/run/secrets/schemabridge/profile-connectors
+              readOnly: true
+            - name: connector-runtime
+              mountPath: /var/run/schemabridge/connectors
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+      containers:
+        - name: semantic-profile-worker
+          image: registry.example/schemabridge-runtime:replace-with-release-digest
+          imagePullPolicy: IfNotPresent
+          command: ["schemabridge-semantic-profile-worker"]
+          envFrom:
+            - configMapRef:
+                name: schemabridge-semantic-profile-worker-config
+          env:
+            - name: SCHEMABRIDGE_WORKER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: SCHEMABRIDGE_CONTROL_WORKER_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: schemabridge-semantic-profile-worker-secrets
+                  key: control-worker-dsn
+          volumeMounts:
+            - name: connector-runtime
+              mountPath: /var/run/schemabridge/connectors
+              readOnly: true
+          startupProbe:
+            exec:
+              command: ["schemabridge-semantic-profile-worker", "--probe-ready"]
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          readinessProbe:
+            exec:
+              command: ["schemabridge-semantic-profile-worker", "--probe-ready"]
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: ["/bin/sh", "-ec", "kill -0 1"]
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+      volumes:
+        - name: profile-connector-source
+          secret:
+            secretName: schemabridge-semantic-profile-connector-secrets
+            defaultMode: 0440
+        - name: connector-runtime
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: schemabridge-api
+spec:
+  selector:
+    app.kubernetes.io/name: schemabridge-api
+  ports:
+    - name: http
+      port: 8520
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: schemabridge-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: schemabridge-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: schemabridge-worker
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 180
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: stage-worker-secrets
+          image: registry.example/schemabridge-runtime:replace-with-release-digest
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              umask 077
+              cp -- /var/run/secrets/schemabridge/datahub-source/reader.env /var/run/schemabridge/datahub/reader.env
+              chmod 0600 /var/run/schemabridge/datahub/reader.env
+              test "$(id -u)" -eq 10001
+              test -f /var/run/schemabridge/datahub/reader.env
+              test ! -L /var/run/schemabridge/datahub/reader.env
+              test "$(stat -c %u /var/run/schemabridge/datahub/reader.env)" -eq 10001
+              test "$(stat -c %a /var/run/schemabridge/datahub/reader.env)" = 600
+              mkdir -p /var/run/schemabridge/connectors/execution
+              chmod 0700 /var/run/schemabridge/connectors/execution
+              test -d /var/run/schemabridge/connectors/execution
+              test ! -L /var/run/schemabridge/connectors/execution
+              test "$(stat -c %u /var/run/schemabridge/connectors/execution)" -eq 10001
+              test "$(stat -c %a /var/run/schemabridge/connectors/execution)" = 700
+              for source in /var/run/secrets/schemabridge/execution-connectors/*.json; do
+                test -f "$source"
+                destination="/var/run/schemabridge/connectors/execution/${source##*/}"
+                cp -- "$source" "$destination"
+                chmod 0600 "$destination"
+                test -f "$destination"
+                test ! -L "$destination"
+                test "$(stat -c %u "$destination")" -eq 10001
+                test "$(stat -c %a "$destination")" = 600
+              done
+          volumeMounts:
+            - name: datahub-reader-source
+              mountPath: /var/run/secrets/schemabridge/datahub-source
+              readOnly: true
+            - name: datahub-reader-runtime
+              mountPath: /var/run/schemabridge/datahub
+            - name: execution-connector-source
+              mountPath: /var/run/secrets/schemabridge/execution-connectors
+              readOnly: true
+            - name: connector-runtime
+              mountPath: /var/run/schemabridge/connectors
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+      containers:
+        - name: worker
+          image: registry.example/schemabridge-runtime:replace-with-release-digest
+          imagePullPolicy: IfNotPresent
+          command: ["schemabridge-worker"]
+          envFrom:
+            - configMapRef:
+                name: schemabridge-worker-config
+          env:
+            - name: SCHEMABRIDGE_WORKER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: SCHEMABRIDGE_CONTROL_WORKER_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: schemabridge-worker-secrets
+                  key: control-worker-dsn
+          volumeMounts:
+            - name: datahub-reader-runtime
+              mountPath: /var/run/schemabridge/datahub
+              readOnly: true
+            - name: connector-runtime
+              mountPath: /var/run/schemabridge/connectors
+              readOnly: true
+          startupProbe:
+            exec:
+              command: ["schemabridge-worker", "--probe-ready"]
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          readinessProbe:
+            exec:
+              command: ["schemabridge-worker", "--probe-ready"]
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: ["/bin/sh", "-ec", "kill -0 1"]
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+      volumes:
+        - name: datahub-reader-source
+          secret:
+            secretName: schemabridge-worker-datahub-reader
+            defaultMode: 0440
+            items:
+              - key: reader.env
+                path: reader.env
+        - name: datahub-reader-runtime
+          emptyDir:
+            medium: Memory
+            sizeLimit: 128Ki
+        - name: execution-connector-source
+          secret:
+            secretName: schemabridge-worker-connector-secrets
+            defaultMode: 0440
+        - name: connector-runtime
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: schemabridge-catalog
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: schemabridge-catalog
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: schemabridge-catalog
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 180
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: stage-catalog-connectors
+          image: registry.example/schemabridge-runtime:replace-with-release-digest
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              umask 077
+              mkdir -p /var/run/schemabridge/connectors/catalog
+              chmod 0700 /var/run/schemabridge/connectors/catalog
+              test "$(id -u)" -eq 10001
+              test -d /var/run/schemabridge/connectors/catalog
+              test ! -L /var/run/schemabridge/connectors/catalog
+              test "$(stat -c %u /var/run/schemabridge/connectors/catalog)" -eq 10001
+              test "$(stat -c %a /var/run/schemabridge/connectors/catalog)" = 700
+              for source in /var/run/secrets/schemabridge/catalog-connectors/*.json; do
+                test -f "$source"
+                destination="/var/run/schemabridge/connectors/catalog/${source##*/}"
+                cp -- "$source" "$destination"
+                chmod 0600 "$destination"
+                test -f "$destination"
+                test ! -L "$destination"
+                test "$(stat -c %u "$destination")" -eq 10001
+                test "$(stat -c %a "$destination")" = 600
+              done
+          volumeMounts:
+            - name: catalog-connector-source
+              mountPath: /var/run/secrets/schemabridge/catalog-connectors
+              readOnly: true
+            - name: connector-runtime
+              mountPath: /var/run/schemabridge/connectors
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+      containers:
+        - name: catalog
+          image: registry.example/schemabridge-runtime:replace-with-release-digest
+          imagePullPolicy: IfNotPresent
+          command: ["schemabridge-catalog"]
+          envFrom:
+            - configMapRef:
+                name: schemabridge-catalog-config
+          env:
+            - name: SCHEMABRIDGE_CATALOG_INDEXER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: SCHEMABRIDGE_CONTROL_CATALOG_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: schemabridge-catalog-secrets
+                  key: control-catalog-dsn
+          volumeMounts:
+            - name: connector-runtime
+              mountPath: /var/run/schemabridge/connectors
+              readOnly: true
+          startupProbe:
+            exec:
+              command: ["schemabridge-catalog", "--probe-ready"]
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          readinessProbe:
+            exec:
+              command: ["schemabridge-catalog", "--probe-ready"]
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: ["/bin/sh", "-ec", "kill -0 1"]
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+      volumes:
+        - name: catalog-connector-source
+          secret:
+            secretName: schemabridge-catalog-connector-secrets
+            defaultMode: 0440
+        - name: connector-runtime
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi

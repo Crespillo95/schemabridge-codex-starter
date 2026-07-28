@@ -1,29 +1,59 @@
 # Current task
 
-- Current milestone: M16 — Ultra end-to-end architecture, security, integration, and submission audit
-- Status: partial; automated zero-state development audit complete, release remains NO-GO
-- Operator acceptance: pending
-- Recommended Codex: GPT-5.6 Sol — Ultra
-- Prompt: `prompts/M16_END_TO_END_HARDENING.md`
-- Plan: `plans/M16_END_TO_END_HARDENING.md`
+- Current milestone: M28 — Governed connector routing, explicit dialects, and query cost controls
+- Status: complete and accepted locally on 2026-07-28
+- Recommended operator decision: retain M28 as the local synthetic baseline; M29 is eligible but
+  not started
+- Prompt: `prompts/M28_COMPILER_CONNECTORS_COST_CONTROLS.md`
+- Plan: `plans/M28_COMPILER_CONNECTORS_COST_CONTROLS.md`
+- Production/release GO: **NO**
 
-## Blockers
+## Accepted result
 
-1. The repository has no `HEAD`; every candidate file is untracked, so strict release identity and
-   clean-commit reproducibility cannot pass until the operator reviews and creates the initial
-   release-candidate commit.
-2. DataHub publication retains approval, decision, payload, and per-target results, but does not
-   yet persist actor/time plus explicit old/new fingerprints together for every target. This is the
-   high governance blocker `GOV-001` in `reports/release-audit.md`.
-3. The operator's clean live-browser journey, timing/manual-intervention record, and screen capture
-   remain unperformed (`UX-001`).
+M28 binds every managed executable plan to one exact tenant connection, immutable connector-route
+revision, PostgreSQL dialect, approved reader, immutable catalog/type evidence, and complete cost
+budget. Secrets remain capability-private; the LLM still cannot produce executable SQL; a
+deterministic compiler and independent AST guard own SQL; bounded `EXPLAIN ... ANALYZE FALSE`
+preflight repeats before each read-only preview.
 
-## Next operator action
+Schema v9, pristine and v8→v9 migration paths, the six-role capability matrix, two-tenant source
+isolation, dynamic catalog/profile/execution routing, and the 10/75 plus 5,434/41,028 inventory
+profiles pass. PostgreSQL is the sole executable M28 dialect; unsupported dialects and federation
+fail closed.
 
-1. Review the five independent audit dispositions and challenge at least one finding against its
-   reproduction evidence.
-2. Resolve or explicitly reject `GOV-001`, review all untracked candidate files, and create the
-   initial release-candidate commit only if acceptable.
-3. Check free disk space and run strict `make release-clean` from that clean commit.
-4. Perform and record the live browser north-star journey, then make an explicit M16 go/no-go
-   decision. Do not deploy while a critical/high blocker remains.
+## Final evidence
+
+- Focused M28 unit groups: 427 passed.
+- Focused connector/route/cost integration: 37 passed; focused acceptance with PostgreSQL:
+  28 passed.
+- Critical schema/tenant/managed-query cut: 17 passed.
+- Full integration: 164 passed, one retained M27 fixture skip, six expected DataHub warnings in
+  662.06 seconds.
+- Full acceptance: 47 passed with one expected DataHub warning in 133.50 seconds.
+- `make check`: Ruff format/lint, strict mypy over 276 source files, and 2,714 tests passed with
+  207 deselected in 989.17 seconds.
+- `make coverage`: 2,920 passed, one retained M27 fixture skip, seven expected DataHub warnings,
+  81.76% coverage in 2,626.35 seconds.
+- Deterministic evaluation: PASS over 11 tables/465 rows; `live_llm=not_run`.
+- Runtime wheel, release scan, schema v9/six-role check, scale correctness, PostgreSQL scale plans,
+  and whole-tree diff hygiene: PASS. The release scan's dirty-tree warning is retained.
+- Codex internal browser: all nine scenarios passed at desktop 1280x720 and mobile 390x844 with
+  clean consoles, no overflow/XSS/protected-data hits, distinct tenant readers/results, and exact
+  cleanup.
+
+## Scope guard
+
+M28 keeps inventory cardinality dynamic, while a single request remains constrained to one
+connection, at most three tables, and two joins. Application preflight never uses
+`EXPLAIN ANALYZE`; engineering timing diagnostics remain synthetic-only.
+
+Local acceptance is not production approval. The tree is dirty and uncommitted; remote secret
+management, TLS/NetworkPolicy, observability/SIEM, supply-chain controls, backup/recovery,
+production capacity/SLO evidence, real-tenant evaluation, penetration/security review, clean
+signed release identity, and external sign-off remain open.
+
+## Next milestone
+
+M29 is eligible but has not started. Its operated remote-secret, infrastructure, observability,
+supply-chain, and recovery scope must be planned and executed as a separate milestone. M30
+production evaluation/security verification and M31 pilot/GA remain sequentially blocked.

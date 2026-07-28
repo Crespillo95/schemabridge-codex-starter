@@ -1,0 +1,349 @@
+context_source: recorded:demo/ground_truth/registries/synthetic_enterprise.yml
+context_version: 1
+context_fingerprint: 0710148874049078f751ac96f0a18131cf01daa41f27dc034ca52a8b212dd966
+request:
+  primary_entity: Customer
+  dimensions:
+  - field: Customer.registration_date
+    grain: day
+  metrics:
+  - operation: count_distinct
+    field: Customer.customer_key
+    alias: secondary_holder_customers
+  filters:
+  - field: AccountHolder.holder_role
+    operator: equals
+    value: SECONDARY
+  order_by:
+  - field: Customer.registration_date
+    direction: asc
+  limit: 500
+selected_mappings:
+- mapping:
+    logical_field: Customer.registration_date
+    physical_field: crm.customers.registration_date
+    confidence: 1.0
+    status: approved
+    evidence:
+    - Approved synthetic CRM registration date.
+    risks: []
+    transformation_plan:
+      version: 1
+      steps:
+      - operation: identity
+    version: 1
+  physical_type: date
+  logical_field_version: 1
+  approval_decision_id: ground-truth-map-registration-date-v1
+- mapping:
+    logical_field: Customer.customer_key
+    physical_field: crm.customers.customer_id
+    confidence: 1.0
+    status: approved
+    evidence:
+    - Approved synthetic CRM mapping used by the governed north-star fixture.
+    risks:
+    - Padded identifiers require explicit normalization before joining.
+    transformation_plan:
+      version: 1
+      steps:
+      - operation: trim
+      - operation: validate_regex
+        pattern: ^[0-9]+$
+      - operation: strip_leading_zeros
+      - operation: reject_invalid
+    version: 1
+  physical_type: string
+  logical_field_version: 1
+  approval_decision_id: ground-truth-map-customer-key-v1
+- mapping:
+    logical_field: AccountHolder.holder_role
+    physical_field: bank.account_holders.holder_type
+    confidence: 1.0
+    status: approved
+    evidence:
+    - Approved closed role-code normalization for the synthetic holder fixture.
+    risks:
+    - Unknown holder codes fail closed instead of being guessed.
+    transformation_plan:
+      version: 1
+      steps:
+      - operation: map_values
+        entries:
+        - source: PRIMARY
+          target: PRIMARY
+        - source: SECONDARY
+          target: SECONDARY
+        - source: '2'
+          target: SECONDARY
+        - source: CO_HOLDER
+          target: SECONDARY
+      - operation: reject_invalid
+    version: 1
+  physical_type: string
+  logical_field_version: 1
+  approval_decision_id: ground-truth-map-holder-role-v1
+- mapping:
+    logical_field: AccountHolder.customer_key
+    physical_field: bank.account_holders.gf_customer_id
+    confidence: 1.0
+    status: approved
+    evidence:
+    - Approved synthetic global customer identifier on holder relationships.
+    risks:
+    - Float representation includes NULL, NaN, and fractional invalid examples.
+    transformation_plan:
+      version: 1
+      steps:
+      - operation: validate_finite
+      - operation: validate_integral
+      - operation: cast_integer_to_string
+      - operation: reject_invalid
+    version: 1
+  physical_type: float
+  logical_field_version: 1
+  approval_decision_id: ground-truth-map-holder-customer-v1
+selected_contracts:
+- id: customer_to_account_holder
+  left_key:
+    logical_field: Customer.customer_key
+    physical_field: crm.customers.customer_id
+    transformation_plan:
+      version: 1
+      steps:
+      - operation: trim
+      - operation: validate_regex
+        pattern: ^[0-9]+$
+      - operation: strip_leading_zeros
+      - operation: reject_invalid
+  right_key:
+    logical_field: AccountHolder.customer_key
+    physical_field: bank.account_holders.gf_customer_id
+    transformation_plan:
+      version: 1
+      steps:
+      - operation: validate_finite
+      - operation: validate_integral
+      - operation: cast_integer_to_string
+      - operation: reject_invalid
+  cardinality: one_to_many
+  default_join_type: inner
+  fanout_policy: require_distinct_for_left_entity_metrics
+  status: approved
+  version: 1
+  evidence:
+  - five normalized keys overlap in the bounded synthetic rows
+  - observed left/right maximum multiplicity is 1/2
+  risks:
+  - customer 123 has two holder links and can multiply customer metrics
+  - null, non-finite, and fractional right keys are rejected before matching
+  approval_decision_id: ground-truth-customer-holder-v1
+assumptions:
+- code: approved_context_selected
+  message: Selected planning context recorded:demo/ground_truth/registries/synthetic_enterprise.yml
+    version 1 with explicit mapping and decision versions.
+- code: shortest_approved_join_path
+  message: 'Selected unique shortest approved join path: customer_to_account_holder'
+- code: approved_dataset_selection
+  message: Customer resolves to crm.customers using approved mappings.
+- code: approved_dataset_selection
+  message: AccountHolder resolves to bank.account_holders using approved mappings.
+fanout_mitigations:
+- contract_id: customer_to_account_holder
+  metric_alias: secondary_holder_customers
+  requested_operation: count_distinct
+  applied_operation: count_distinct
+  automatic: false
+  reason: customer_to_account_holder is one_to_many and can multiply Customer rows;
+    count_distinct is invariant under duplicate rows.
+rejection_checks:
+- logical_field: Customer.customer_key
+  physical_field: crm.customers.customer_id
+  transformation_plan:
+    version: 1
+    steps:
+    - operation: trim
+    - operation: validate_regex
+      pattern: ^[0-9]+$
+    - operation: strip_leading_zeros
+    - operation: reject_invalid
+- logical_field: AccountHolder.customer_key
+  physical_field: bank.account_holders.gf_customer_id
+  transformation_plan:
+    version: 1
+    steps:
+    - operation: validate_finite
+    - operation: validate_integral
+    - operation: cast_integer_to_string
+    - operation: reject_invalid
+query_plan:
+  version: 1
+  root_scan:
+    dataset: crm.customers
+    alias: r0
+  joins:
+  - contract:
+      id: customer_to_account_holder
+      left_key:
+        logical_field: Customer.customer_key
+        physical_field: crm.customers.customer_id
+        transformation_plan:
+          version: 1
+          steps:
+          - operation: trim
+          - operation: validate_regex
+            pattern: ^[0-9]+$
+          - operation: strip_leading_zeros
+          - operation: reject_invalid
+      right_key:
+        logical_field: AccountHolder.customer_key
+        physical_field: bank.account_holders.gf_customer_id
+        transformation_plan:
+          version: 1
+          steps:
+          - operation: validate_finite
+          - operation: validate_integral
+          - operation: cast_integer_to_string
+          - operation: reject_invalid
+      cardinality: one_to_many
+      default_join_type: inner
+      fanout_policy: require_distinct_for_left_entity_metrics
+      status: approved
+      version: 1
+      evidence:
+      - five normalized keys overlap in the bounded synthetic rows
+      - observed left/right maximum multiplicity is 1/2
+      risks:
+      - customer 123 has two holder links and can multiply customer metrics
+      - null, non-finite, and fractional right keys are rejected before matching
+      approval_decision_id: ground-truth-customer-holder-v1
+    right_scan:
+      dataset: bank.account_holders
+      alias: r1
+    'on':
+      left:
+        kind: mapped
+        source:
+          kind: column
+          relation: r0
+          field: crm.customers.customer_id
+        transformation_plan:
+          version: 1
+          steps:
+          - operation: trim
+          - operation: validate_regex
+            pattern: ^[0-9]+$
+          - operation: strip_leading_zeros
+          - operation: reject_invalid
+      right:
+        kind: mapped
+        source:
+          kind: column
+          relation: r1
+          field: bank.account_holders.gf_customer_id
+        transformation_plan:
+          version: 1
+          steps:
+          - operation: validate_finite
+          - operation: validate_integral
+          - operation: cast_integer_to_string
+          - operation: reject_invalid
+  projections:
+  - expression:
+      kind: date_grain
+      source:
+        kind: mapped
+        source:
+          kind: column
+          relation: r0
+          field: crm.customers.registration_date
+        transformation_plan:
+          version: 1
+          steps:
+          - operation: identity
+      grain: day
+    alias: registration_date
+  - expression:
+      kind: aggregate
+      operation: count_distinct
+      source:
+        kind: mapped
+        source:
+          kind: column
+          relation: r0
+          field: crm.customers.customer_id
+        transformation_plan:
+          version: 1
+          steps:
+          - operation: trim
+          - operation: validate_regex
+            pattern: ^[0-9]+$
+          - operation: strip_leading_zeros
+          - operation: reject_invalid
+    alias: secondary_holder_customers
+  filters:
+  - expression:
+      kind: mapped
+      source:
+        kind: column
+        relation: r1
+        field: bank.account_holders.holder_type
+      transformation_plan:
+        version: 1
+        steps:
+        - operation: map_values
+          entries:
+          - source: PRIMARY
+            target: PRIMARY
+          - source: SECONDARY
+            target: SECONDARY
+          - source: '2'
+            target: SECONDARY
+          - source: CO_HOLDER
+            target: SECONDARY
+        - operation: reject_invalid
+    operator: equals
+    values:
+    - value: SECONDARY
+  group_by:
+  - kind: date_grain
+    source:
+      kind: mapped
+      source:
+        kind: column
+        relation: r0
+        field: crm.customers.registration_date
+      transformation_plan:
+        version: 1
+        steps:
+        - operation: identity
+    grain: day
+  order_by:
+  - expression:
+      kind: date_grain
+      source:
+        kind: mapped
+        source:
+          kind: column
+          relation: r0
+          field: crm.customers.registration_date
+        transformation_plan:
+          version: 1
+          steps:
+          - operation: identity
+      grain: day
+    direction: asc
+  limit: 500
+query_policy:
+  assets:
+  - dataset: crm.customers
+    columns:
+    - customer_id
+    - registration_date
+  - dataset: bank.account_holders
+    columns:
+    - gf_customer_id
+    - holder_type
+  max_tables: 3
+  max_preview_rows: 500
+  statement_timeout_ms: 5000

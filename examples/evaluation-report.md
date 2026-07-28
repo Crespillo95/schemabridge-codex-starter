@@ -3,10 +3,10 @@
 > Generated evidence for the small synthetic fixture only. Raw counts are shown; no confidence interval or production-quality claim is justified.
 
 - Overall required-run status: **PASS**
-- Source revision: `working-tree-uncommitted (dirty/uncommitted; not a release-commit claim)`
-- Source fingerprint: `45895511b1abebdbbd21cca961d4bd5f5e7e3e85f143e7e982ee3f8e91348dc5`
-- Ground-truth version: `1`
-- Fixture fingerprint: `f4519ac9073737a90b74b98e8e3f06e3f7b64969506236e401c68fa848dd7840`
+- Source revision: `231187a9bddb16e9b3718e359a63ce682faf5eed (dirty/uncommitted; not a release-commit claim)`
+- Source fingerprint: `59b81d71ea3b54352faecccf4debe5b970cae3d7ecb88e2d5adc6ebda56cf844`
+- Ground-truth version: `2`
+- Fixture fingerprint: `61c6930b16d1c477fbf1e0caef54b69a362d65998f8dbab63a14a0e782e03138`
 - Package: `0.1.0`
 - Regression thresholds: none; the measured fixture is too small to justify one.
 
@@ -52,7 +52,7 @@ Section status: **completed**
 
 | Metric | Raw ratio | Value | Evaluated | Skipped | Failures |
 |---|---:|---:|---:|---:|---:|
-| `join_path_accuracy` | 2/2 | 1.000 | 2 | 0 | 0 |
+| `join_path_accuracy` | 5/5 | 1.000 | 5 | 0 | 0 |
 | `join_cardinality_accuracy` | 2/2 | 1.000 | 2 | 0 | 0 |
 
 - `join_path_accuracy`: Exact query join-path matches, including the no-join control.
@@ -62,6 +62,9 @@ Section status: **completed**
 |---|---|---|---|---|
 | `join_path_secondary_holders_by_registration_date` | passed | customer_to_account_holder | customer_to_account_holder | Exact ordered approved join-contract path comparison. |
 | `join_path_active_customers_by_country` | passed | no_join | no_join | Exact ordered approved join-contract path comparison. |
+| `join_path_active_products_by_category` | passed | no_join | no_join | Exact ordered approved join-contract path comparison. |
+| `join_path_delivered_orders_by_month` | passed | sales_order_to_shipment | sales_order_to_shipment | Exact ordered approved join-contract path comparison. |
+| `join_path_commerce_revenue_by_category_month` | passed | product_to_sale_line,sales_order_to_sale_line | product_to_sale_line,sales_order_to_sale_line | Exact ordered approved join-contract path comparison. |
 | `cardinality_customer_to_account_holder` | passed | one_to_many | one_to_many | Cardinality classified from declared and aggregate read evidence. |
 | `cardinality_account_holder_to_account` | passed | many_to_one | many_to_one | Cardinality classified from declared and aggregate read evidence. |
 
@@ -71,7 +74,7 @@ Section status: **completed**
 
 | Metric | Raw ratio | Value | Evaluated | Skipped | Failures |
 |---|---:|---:|---:|---:|---:|
-| `intent_equivalence` | 1/1 | 1.000 | 1 | 1 | 0 |
+| `intent_equivalence` | 1/1 | 1.000 | 1 | 4 | 0 |
 
 - `intent_equivalence`: Exact typed-request equality after explicit ambiguity confirmation.
 
@@ -79,6 +82,9 @@ Section status: **completed**
 |---|---|---|---|---|
 | `intent_secondary_holders_by_registration_date` | passed | d94f4317d638a514abfa960208aada13b021ba10f42d6a89ba1c06fba05383ce | d94f4317d638a514abfa960208aada13b021ba10f42d6a89ba1c06fba05383ce | Confirmed typed request fingerprint equivalence; no SQL involved. |
 | `intent_active_customers_by_country` | skipped | typed request equivalence | not_evaluated | The deterministic M11 parser intentionally has no active-customer control phrase; this query remains evaluated for planning, execution, and result correctness. |
+| `intent_active_products_by_category` | skipped | typed request equivalence | not_evaluated | The deterministic M11 parser is intentionally Customer-focused until M27; this typed Product request remains evaluated for planning, execution, and exact results. |
+| `intent_delivered_orders_by_month` | skipped | typed request equivalence | not_evaluated | The deterministic M11 parser is intentionally Customer-focused until M27; this typed fulfillment request remains evaluated for planning, fanout, execution, and exact results. |
+| `intent_commerce_revenue_by_category_month` | skipped | typed request equivalence | not_evaluated | The deterministic M11 parser is intentionally Customer-focused until M27; this typed three-table commerce request remains evaluated end to end. |
 
 ### Compilation, execution, and results
 
@@ -86,10 +92,10 @@ Section status: **completed**
 
 | Metric | Raw ratio | Value | Evaluated | Skipped | Failures |
 |---|---:|---:|---:|---:|---:|
-| `compile_success` | 2/2 | 1.000 | 2 | 0 | 0 |
-| `execution_success` | 2/2 | 1.000 | 2 | 0 | 0 |
-| `result_correctness` | 2/2 | 1.000 | 2 | 0 | 0 |
-| `source_rejection_correctness` | 2/2 | 1.000 | 2 | 0 | 0 |
+| `compile_success` | 5/5 | 1.000 | 5 | 0 | 0 |
+| `execution_success` | 5/5 | 1.000 | 5 | 0 | 0 |
+| `result_correctness` | 5/5 | 1.000 | 5 | 0 | 0 |
+| `source_rejection_correctness` | 5/5 | 1.000 | 5 | 0 | 0 |
 
 - `compile_success`: Cases producing independently guarded final SQL.
 - `execution_success`: Cases completing with the exact reader, read-only mode, and timeout.
@@ -106,6 +112,18 @@ Section status: **completed**
 | `execution_active_customers_by_country` | passed | schemabridge_reader\|read_only=true\|timeout_ms=5000 | schemabridge_reader\|read_only=true\|timeout_ms=5000 | Bounded preview safety facts observed from PostgreSQL. |
 | `result_active_customers_by_country` | passed | [[{"column":"active_customers","value":"int:1"},{"column":"country_code","value":"str:FR"}],[{"column":"active_customers","value":"int:1"},{"column":"country_code","value":"str:PT"}],[{"column":"active_customers","value":"int:4"},{"column":"country_code","value":"str:ES"}]] | [[{"column":"active_customers","value":"int:1"},{"column":"country_code","value":"str:FR"}],[{"column":"active_customers","value":"int:1"},{"column":"country_code","value":"str:PT"}],[{"column":"active_customers","value":"int:4"},{"column":"country_code","value":"str:ES"}]] | Type-tagged, column-keyed, order-independent normalized row multiset. |
 | `rejections_active_customers_by_country` | passed | none | none | Stable rejected-source codes; source values are not retained here. |
+| `compile_active_products_by_category` | passed | independently_guarded_query | accepted | Restricted plan compiled and final SQL passed the independent guard. |
+| `execution_active_products_by_category` | passed | schemabridge_reader\|read_only=true\|timeout_ms=5000 | schemabridge_reader\|read_only=true\|timeout_ms=5000 | Bounded preview safety facts observed from PostgreSQL. |
+| `result_active_products_by_category` | passed | [[{"column":"active_products","value":"int:8"},{"column":"category","value":"str:BOOKS"}],[{"column":"active_products","value":"int:9"},{"column":"category","value":"str:ELECTRONICS"}],[{"column":"active_products","value":"int:9"},{"column":"category","value":"str:HOME"}],[{"column":"active_products","value":"int:9"},{"column":"category","value":"str:SPORTS"}]] | [[{"column":"active_products","value":"int:8"},{"column":"category","value":"str:BOOKS"}],[{"column":"active_products","value":"int:9"},{"column":"category","value":"str:ELECTRONICS"}],[{"column":"active_products","value":"int:9"},{"column":"category","value":"str:HOME"}],[{"column":"active_products","value":"int:9"},{"column":"category","value":"str:SPORTS"}]] | Type-tagged, column-keyed, order-independent normalized row multiset. |
+| `rejections_active_products_by_category` | passed | none | none | Stable rejected-source codes; source values are not retained here. |
+| `compile_delivered_orders_by_month` | passed | independently_guarded_query | accepted | Restricted plan compiled and final SQL passed the independent guard. |
+| `execution_delivered_orders_by_month` | passed | schemabridge_reader\|read_only=true\|timeout_ms=5000 | schemabridge_reader\|read_only=true\|timeout_ms=5000 | Bounded preview safety facts observed from PostgreSQL. |
+| `result_delivered_orders_by_month` | passed | [[{"column":"delivered_orders","value":"int:11"},{"column":"ordered_at","value":"date:2026-02-01"}],[{"column":"delivered_orders","value":"int:22"},{"column":"ordered_at","value":"date:2026-01-01"}]] | [[{"column":"delivered_orders","value":"int:11"},{"column":"ordered_at","value":"date:2026-02-01"}],[{"column":"delivered_orders","value":"int:22"},{"column":"ordered_at","value":"date:2026-01-01"}]] | Type-tagged, column-keyed, order-independent normalized row multiset. |
+| `rejections_delivered_orders_by_month` | passed | malformed_identifier,negative_identifier,malformed_identifier,null_join_key | malformed_identifier,negative_identifier,malformed_identifier,null_join_key | Stable rejected-source codes; source values are not retained here. |
+| `compile_commerce_revenue_by_category_month` | passed | independently_guarded_query | accepted | Restricted plan compiled and final SQL passed the independent guard. |
+| `execution_commerce_revenue_by_category_month` | passed | schemabridge_reader\|read_only=true\|timeout_ms=5000 | schemabridge_reader\|read_only=true\|timeout_ms=5000 | Bounded preview safety facts observed from PostgreSQL. |
+| `result_commerce_revenue_by_category_month` | passed | [[{"column":"category","value":"str:BOOKS"},{"column":"net_revenue","value":"decimal:1496.45"},{"column":"ordered_at","value":"date:2026-01-01"},{"column":"units","value":"int:25"}],[{"column":"category","value":"str:BOOKS"},{"column":"net_revenue","value":"decimal:988"},{"column":"ordered_at","value":"date:2026-02-01"},{"column":"units","value":"int:16"}],[{"column":"category","value":"str:ELECTRONICS"},{"column":"net_revenue","value":"decimal:440.85"},{"column":"ordered_at","value":"date:2026-02-01"},{"column":"units","value":"int:7"}],[{"column":"category","value":"str:ELECTRONICS"},{"column":"net_revenue","value":"decimal:938.65"},{"column":"ordered_at","value":"date:2026-01-01"},{"column":"units","value":"int:23"}],[{"column":"category","value":"str:HOME"},{"column":"net_revenue","value":"decimal:529.7"},{"column":"ordered_at","value":"date:2026-01-01"},{"column":"units","value":"int:13"}],[{"column":"category","value":"str:HOME"},{"column":"net_revenue","value":"decimal:637.8"},{"column":"ordered_at","value":"date:2026-02-01"},{"column":"units","value":"int:12"}],[{"column":"category","value":"str:SPORTS"},{"column":"net_revenue","value":"decimal:852"},{"column":"ordered_at","value":"date:2026-02-01"},{"column":"units","value":"int:11"}],[{"column":"category","value":"str:SPORTS"},{"column":"net_revenue","value":"decimal:988.8"},{"column":"ordered_at","value":"date:2026-01-01"},{"column":"units","value":"int:16"}]] | [[{"column":"category","value":"str:BOOKS"},{"column":"net_revenue","value":"decimal:1496.45"},{"column":"ordered_at","value":"date:2026-01-01"},{"column":"units","value":"int:25"}],[{"column":"category","value":"str:BOOKS"},{"column":"net_revenue","value":"decimal:988"},{"column":"ordered_at","value":"date:2026-02-01"},{"column":"units","value":"int:16"}],[{"column":"category","value":"str:ELECTRONICS"},{"column":"net_revenue","value":"decimal:440.85"},{"column":"ordered_at","value":"date:2026-02-01"},{"column":"units","value":"int:7"}],[{"column":"category","value":"str:ELECTRONICS"},{"column":"net_revenue","value":"decimal:938.65"},{"column":"ordered_at","value":"date:2026-01-01"},{"column":"units","value":"int:23"}],[{"column":"category","value":"str:HOME"},{"column":"net_revenue","value":"decimal:529.7"},{"column":"ordered_at","value":"date:2026-01-01"},{"column":"units","value":"int:13"}],[{"column":"category","value":"str:HOME"},{"column":"net_revenue","value":"decimal:637.8"},{"column":"ordered_at","value":"date:2026-02-01"},{"column":"units","value":"int:12"}],[{"column":"category","value":"str:SPORTS"},{"column":"net_revenue","value":"decimal:852"},{"column":"ordered_at","value":"date:2026-02-01"},{"column":"units","value":"int:11"}],[{"column":"category","value":"str:SPORTS"},{"column":"net_revenue","value":"decimal:988.8"},{"column":"ordered_at","value":"date:2026-01-01"},{"column":"units","value":"int:16"}]] | Type-tagged, column-keyed, order-independent normalized row multiset. |
+| `rejections_commerce_revenue_by_category_month` | passed | negative_identifier,null_join_key,malformed_identifier,negative_identifier,malformed_identifier,null_join_key | negative_identifier,null_join_key,malformed_identifier,negative_identifier,malformed_identifier,null_join_key | Stable rejected-source codes; source values are not retained here. |
 
 ### Independent SQL policy rejection
 

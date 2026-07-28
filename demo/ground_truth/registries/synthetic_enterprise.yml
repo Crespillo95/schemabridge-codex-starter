@@ -1,0 +1,1088 @@
+format_version: 1
+registry_id: synthetic_enterprise
+version: 1
+source: recorded:demo/ground_truth/registries/synthetic_enterprise.yml
+catalog_scope: synthetic-demo
+logical_context:
+  version: 1
+  source: recorded:demo/ground_truth/registries/synthetic_enterprise.yml
+  models:
+    - id: Customer
+      description: Approved synthetic customer context for guided request evaluation.
+      status: approved
+      version: 1
+      fields:
+        - id: Customer.customer_key
+          canonical_type: string
+          role: identifier
+          definition: Stable identifier for a customer across approved source representations.
+          status: approved
+          version: 1
+        - id: Customer.registration_date
+          canonical_type: date
+          role: temporal
+          definition: Calendar date on which the customer was registered.
+          status: approved
+          version: 1
+        - id: Customer.country_code
+          canonical_type: string
+          role: attribute
+          definition: Approved country code associated with the customer.
+          status: approved
+          version: 1
+        - id: Customer.customer_status
+          canonical_type: string
+          role: attribute
+          definition: Approved lifecycle status of the customer.
+          status: approved
+          version: 1
+    - id: AccountHolder
+      description: Approved synthetic relationship between a customer and an account.
+      status: approved
+      version: 1
+      fields:
+        - id: AccountHolder.customer_key
+          canonical_type: string
+          role: identifier
+          definition: Approved customer identifier on an account-holder relationship.
+          status: approved
+          version: 1
+        - id: AccountHolder.account_key
+          canonical_type: string
+          role: identifier
+          definition: Approved account identifier on an account-holder relationship.
+          status: approved
+          version: 1
+        - id: AccountHolder.holder_role
+          canonical_type: string
+          role: attribute
+          definition: Approved normalized role of the customer on the account.
+          status: approved
+          version: 1
+    - id: Account
+      description: Approved synthetic financial account context.
+      status: approved
+      version: 1
+      fields:
+        - id: Account.account_key
+          canonical_type: string
+          role: identifier
+          definition: Stable approved account identifier.
+          status: approved
+          version: 1
+        - id: Account.current_balance
+          canonical_type: decimal
+          role: measure
+          definition: Approved current account balance measure.
+          status: approved
+          version: 1
+    - id: Product
+      description: Approved synthetic commerce product catalog.
+      status: approved
+      version: 1
+      fields:
+        - id: Product.product_key
+          canonical_type: string
+          role: identifier
+          definition: Stable product identifier normalized across padded and integer sources.
+          status: approved
+          version: 1
+        - id: Product.category
+          canonical_type: string
+          role: attribute
+          definition: Approved business category assigned to the product.
+          allowed_values:
+            - ELECTRONICS
+            - HOME
+            - BOOKS
+            - SPORTS
+          status: approved
+          version: 1
+        - id: Product.unit_price
+          canonical_type: decimal
+          role: measure
+          definition: Approved catalog unit price in synthetic currency units.
+          status: approved
+          version: 1
+        - id: Product.is_active
+          canonical_type: boolean
+          role: attribute
+          definition: Whether the product is active in the approved catalog snapshot.
+          status: approved
+          version: 1
+        - id: Product.created_at
+          canonical_type: timestamp
+          role: temporal
+          definition: Timestamp when the product entered the synthetic catalog.
+          status: approved
+          version: 1
+    - id: SalesOrder
+      description: Approved synthetic commercial order header.
+      status: approved
+      version: 1
+      fields:
+        - id: SalesOrder.order_key
+          canonical_type: string
+          role: identifier
+          definition: Stable order identifier normalized from its integer source representation.
+          status: approved
+          version: 1
+        - id: SalesOrder.ordered_at
+          canonical_type: timestamp
+          role: temporal
+          definition: Timestamp when the order was registered.
+          status: approved
+          version: 1
+        - id: SalesOrder.order_status
+          canonical_type: string
+          role: attribute
+          definition: Approved normalized lifecycle status of the order.
+          allowed_values:
+            - CREATED
+            - PAID
+            - COMPLETED
+            - CANCELLED
+          status: approved
+          version: 1
+        - id: SalesOrder.sales_channel
+          canonical_type: string
+          role: attribute
+          definition: Approved channel through which the order was registered.
+          allowed_values:
+            - WEB
+            - STORE
+            - PARTNER
+          status: approved
+          version: 1
+        - id: SalesOrder.region
+          canonical_type: string
+          role: attribute
+          definition: Approved normalized commercial region for the order.
+          allowed_values:
+            - NORTH
+            - SOUTH
+            - EAST
+            - WEST
+          status: approved
+          version: 1
+        - id: SalesOrder.order_total
+          canonical_type: decimal
+          role: measure
+          definition: Approved gross total recorded on the order header.
+          status: approved
+          version: 1
+    - id: SaleLine
+      description: Approved synthetic repeated product line within an order.
+      status: approved
+      version: 1
+      fields:
+        - id: SaleLine.line_key
+          canonical_type: string
+          role: identifier
+          definition: Stable synthetic order-line identifier.
+          status: approved
+          version: 1
+        - id: SaleLine.order_key
+          canonical_type: string
+          role: identifier
+          definition: Approved order identifier on an order-line relationship.
+          status: approved
+          version: 1
+        - id: SaleLine.product_key
+          canonical_type: string
+          role: identifier
+          definition: Approved product identifier on an order-line relationship.
+          status: approved
+          version: 1
+        - id: SaleLine.quantity
+          canonical_type: integer
+          role: measure
+          definition: Number of product units represented by the order line.
+          status: approved
+          version: 1
+        - id: SaleLine.net_amount
+          canonical_type: decimal
+          role: measure
+          definition: Approved line amount after any synthetic discount.
+          status: approved
+          version: 1
+        - id: SaleLine.discount_amount
+          canonical_type: decimal
+          role: measure
+          definition: Approved nullable discount amount applied to the line.
+          status: approved
+          version: 1
+    - id: Shipment
+      description: Approved synthetic fulfillment attempt for a commercial order.
+      status: approved
+      version: 1
+      fields:
+        - id: Shipment.shipment_key
+          canonical_type: string
+          role: identifier
+          definition: Stable synthetic shipment identifier.
+          status: approved
+          version: 1
+        - id: Shipment.order_key
+          canonical_type: string
+          role: identifier
+          definition: Approved normalized order identifier on a shipment.
+          status: approved
+          version: 1
+        - id: Shipment.shipment_status
+          canonical_type: string
+          role: attribute
+          definition: Approved normalized fulfillment status.
+          allowed_values:
+            - PENDING
+            - IN_TRANSIT
+            - DELIVERED
+            - RETURNED
+          status: approved
+          version: 1
+        - id: Shipment.shipped_at
+          canonical_type: timestamp
+          role: temporal
+          definition: Nullable timestamp when the shipment left fulfillment.
+          status: approved
+          version: 1
+        - id: Shipment.delivered_at
+          canonical_type: timestamp
+          role: temporal
+          definition: Nullable timestamp when delivery completed.
+          status: approved
+          version: 1
+  joins:
+    - id: customer_to_account_holder
+      left_model: Customer
+      right_model: AccountHolder
+      cardinality: one_to_many
+      fanout_policy: require_distinct_for_left_entity_metrics
+      status: approved
+      version: 1
+      approval_decision_id: ground-truth-customer-holder-v1
+    - id: account_holder_to_account
+      left_model: AccountHolder
+      right_model: Account
+      cardinality: many_to_one
+      fanout_policy: none
+      status: approved
+      version: 1
+      approval_decision_id: ground-truth-holder-account-v1
+    - id: product_to_sale_line
+      left_model: Product
+      right_model: SaleLine
+      cardinality: one_to_many
+      fanout_policy: require_distinct_for_left_entity_metrics
+      status: approved
+      version: 1
+      approval_decision_id: ground-truth-product-sale-line-v1
+    - id: sales_order_to_sale_line
+      left_model: SalesOrder
+      right_model: SaleLine
+      cardinality: one_to_many
+      fanout_policy: require_distinct_for_left_entity_metrics
+      status: approved
+      version: 1
+      approval_decision_id: ground-truth-sales-order-line-v1
+    - id: sales_order_to_shipment
+      left_model: SalesOrder
+      right_model: Shipment
+      cardinality: one_to_many
+      fanout_policy: require_distinct_for_left_entity_metrics
+      status: approved
+      version: 1
+      approval_decision_id: ground-truth-sales-order-shipment-v1
+mapping_set:
+  version: 1
+  mappings:
+    - approval_decision_id: ground-truth-map-customer-key-v1
+      logical_field_version: 1
+      physical_type: string
+      mapping:
+        logical_field: Customer.customer_key
+        physical_field: crm.customers.customer_id
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Approved synthetic CRM mapping used by the governed north-star fixture.
+        risks:
+          - Padded identifiers require explicit normalization before joining.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: trim
+            - operation: validate_regex
+              pattern: ^[0-9]+$
+            - operation: strip_leading_zeros
+            - operation: reject_invalid
+        version: 1
+    - approval_decision_id: ground-truth-map-registration-date-v1
+      logical_field_version: 1
+      physical_type: date
+      mapping:
+        logical_field: Customer.registration_date
+        physical_field: crm.customers.registration_date
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Approved synthetic CRM registration date.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: identity
+        version: 1
+    - approval_decision_id: ground-truth-map-country-v1
+      logical_field_version: 1
+      physical_type: string
+      mapping:
+        logical_field: Customer.country_code
+        physical_field: crm.customers.country_cd
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Approved synthetic CRM country code.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: identity
+        version: 1
+    - approval_decision_id: ground-truth-map-status-v1
+      logical_field_version: 1
+      physical_type: string
+      mapping:
+        logical_field: Customer.customer_status
+        physical_field: crm.customers.customer_status
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Approved synthetic CRM lifecycle status.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: identity
+        version: 1
+    - approval_decision_id: ground-truth-map-holder-customer-v1
+      logical_field_version: 1
+      physical_type: float
+      mapping:
+        logical_field: AccountHolder.customer_key
+        physical_field: bank.account_holders.gf_customer_id
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Approved synthetic global customer identifier on holder relationships.
+        risks:
+          - Float representation includes NULL, NaN, and fractional invalid examples.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: validate_finite
+            - operation: validate_integral
+            - operation: cast_integer_to_string
+            - operation: reject_invalid
+        version: 1
+    - approval_decision_id: ground-truth-map-holder-account-v1
+      logical_field_version: 1
+      physical_type: string
+      mapping:
+        logical_field: AccountHolder.account_key
+        physical_field: bank.account_holders.account_number
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Approved declared foreign-key field in the synthetic bank schema.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: identity
+        version: 1
+    - approval_decision_id: ground-truth-map-holder-role-v1
+      logical_field_version: 1
+      physical_type: string
+      mapping:
+        logical_field: AccountHolder.holder_role
+        physical_field: bank.account_holders.holder_type
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Approved closed role-code normalization for the synthetic holder fixture.
+        risks:
+          - Unknown holder codes fail closed instead of being guessed.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: map_values
+              entries:
+                - source: PRIMARY
+                  target: PRIMARY
+                - source: SECONDARY
+                  target: SECONDARY
+                - source: "2"
+                  target: SECONDARY
+                - source: CO_HOLDER
+                  target: SECONDARY
+            - operation: reject_invalid
+        version: 1
+    - approval_decision_id: ground-truth-map-account-key-v1
+      logical_field_version: 1
+      physical_type: string
+      mapping:
+        logical_field: Account.account_key
+        physical_field: bank.accounts.account_number
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Approved synthetic bank account identifier.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: identity
+        version: 1
+    - approval_decision_id: ground-truth-map-current-balance-v1
+      logical_field_version: 1
+      physical_type: decimal
+      mapping:
+        logical_field: Account.current_balance
+        physical_field: bank.accounts.current_balance
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Approved synthetic account balance measure.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: identity
+        version: 1
+    - approval_decision_id: ground-truth-map-product-key-v1
+      logical_field_version: 1
+      physical_type: string
+      mapping:
+        logical_field: Product.product_key
+        physical_field: commerce.products.product_code
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Synthetic catalog keys use a documented fixed-width numeric representation.
+        risks:
+          - Leading zeros must be removed before comparison with legacy integer keys.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: trim
+            - operation: validate_regex
+              pattern: ^[0-9]+$
+            - operation: strip_leading_zeros
+            - operation: reject_invalid
+        version: 1
+    - approval_decision_id: ground-truth-map-product-category-v1
+      logical_field_version: 1
+      physical_type: string
+      mapping:
+        logical_field: Product.category
+        physical_field: commerce.products.category_code
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Four source category codes have an approved closed canonical mapping.
+        risks:
+          - Unrecognized category codes are rejected instead of inferred.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: map_values
+              entries:
+                - source: ELEC
+                  target: ELECTRONICS
+                - source: HOME
+                  target: HOME
+                - source: BOOK
+                  target: BOOKS
+                - source: SPORT
+                  target: SPORTS
+            - operation: reject_invalid
+        version: 1
+    - approval_decision_id: ground-truth-map-product-price-v1
+      logical_field_version: 1
+      physical_type: decimal
+      mapping:
+        logical_field: Product.unit_price
+        physical_field: commerce.products.unit_price
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Catalog unit price is stored as a constrained synthetic decimal.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: normalize_decimal_scale
+              scale: 2
+        version: 1
+    - approval_decision_id: ground-truth-map-product-active-v1
+      logical_field_version: 1
+      physical_type: boolean
+      mapping:
+        logical_field: Product.is_active
+        physical_field: commerce.products.is_active
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Catalog activity is represented by a native boolean.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: identity
+        version: 1
+    - approval_decision_id: ground-truth-map-product-created-v1
+      logical_field_version: 1
+      physical_type: timestamp
+      mapping:
+        logical_field: Product.created_at
+        physical_field: commerce.products.created_at
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Product creation is stored as a deterministic timestamp.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: identity
+        version: 1
+    - approval_decision_id: ground-truth-map-order-key-v1
+      logical_field_version: 1
+      physical_type: integer
+      mapping:
+        logical_field: SalesOrder.order_key
+        physical_field: sales.orders.order_id
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Order headers declare a positive integer primary key.
+        risks:
+          - String relationship references require an explicit integer-to-string conversion.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: cast_integer_to_string
+            - operation: reject_invalid
+        version: 1
+    - approval_decision_id: ground-truth-map-order-created-v1
+      logical_field_version: 1
+      physical_type: timestamp
+      mapping:
+        logical_field: SalesOrder.ordered_at
+        physical_field: sales.orders.ordered_at
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Order registration is stored as a deterministic timestamp.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: identity
+        version: 1
+    - approval_decision_id: ground-truth-map-order-status-v1
+      logical_field_version: 1
+      physical_type: string
+      mapping:
+        logical_field: SalesOrder.order_status
+        physical_field: sales.orders.status_code
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Four operational codes have an approved lifecycle mapping.
+        risks:
+          - Unknown operational status codes fail closed.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: map_values
+              entries:
+                - source: N
+                  target: CREATED
+                - source: P
+                  target: PAID
+                - source: C
+                  target: COMPLETED
+                - source: X
+                  target: CANCELLED
+            - operation: reject_invalid
+        version: 1
+    - approval_decision_id: ground-truth-map-order-channel-v1
+      logical_field_version: 1
+      physical_type: string
+      mapping:
+        logical_field: SalesOrder.sales_channel
+        physical_field: sales.orders.sales_channel
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Synthetic order channels use the approved closed vocabulary.
+        risks:
+          - Nullable source channels remain NULL under the approved policy.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: preserve_null
+            - operation: map_values
+              entries:
+                - source: WEB
+                  target: WEB
+                - source: STORE
+                  target: STORE
+                - source: PARTNER
+                  target: PARTNER
+            - operation: reject_invalid
+        version: 1
+    - approval_decision_id: ground-truth-map-order-region-v1
+      logical_field_version: 1
+      physical_type: string
+      mapping:
+        logical_field: SalesOrder.region
+        physical_field: sales.orders.region_code
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Four source region codes have an approved canonical expansion.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: map_values
+              entries:
+                - source: N
+                  target: NORTH
+                - source: S
+                  target: SOUTH
+                - source: E
+                  target: EAST
+                - source: W
+                  target: WEST
+            - operation: reject_invalid
+        version: 1
+    - approval_decision_id: ground-truth-map-order-total-v1
+      logical_field_version: 1
+      physical_type: decimal
+      mapping:
+        logical_field: SalesOrder.order_total
+        physical_field: sales.orders.order_total
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Order total is stored as a constrained synthetic decimal.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: normalize_decimal_scale
+              scale: 2
+        version: 1
+    - approval_decision_id: ground-truth-map-line-key-v1
+      logical_field_version: 1
+      physical_type: integer
+      mapping:
+        logical_field: SaleLine.line_key
+        physical_field: sales.order_lines.line_id
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Order lines declare a positive integer primary key.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: cast_integer_to_string
+            - operation: reject_invalid
+        version: 1
+    - approval_decision_id: ground-truth-map-line-order-v1
+      logical_field_version: 1
+      physical_type: string
+      mapping:
+        logical_field: SaleLine.order_key
+        physical_field: sales.order_lines.order_ref
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Valid order-line references overlap the approved order header key after normalization.
+        risks:
+          - Empty, malformed, and unmatched synthetic references must never be joined.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: trim
+            - operation: empty_to_null
+            - operation: validate_regex
+              pattern: ^[0-9]+$
+            - operation: strip_leading_zeros
+            - operation: reject_invalid
+        version: 1
+    - approval_decision_id: ground-truth-map-line-product-v1
+      logical_field_version: 1
+      physical_type: integer
+      mapping:
+        logical_field: SaleLine.product_key
+        physical_field: sales.order_lines.product_no
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Valid integer product references overlap the normalized catalog key.
+        risks:
+          - Orphan product numbers remain excluded from governed equality joins.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: cast_integer_to_string
+            - operation: reject_invalid
+        version: 1
+    - approval_decision_id: ground-truth-map-line-quantity-v1
+      logical_field_version: 1
+      physical_type: integer
+      mapping:
+        logical_field: SaleLine.quantity
+        physical_field: sales.order_lines.quantity
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Quantity is stored as a constrained positive integer.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: identity
+        version: 1
+    - approval_decision_id: ground-truth-map-line-net-v1
+      logical_field_version: 1
+      physical_type: decimal
+      mapping:
+        logical_field: SaleLine.net_amount
+        physical_field: sales.order_lines.net_amount
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Net line amount is stored as a constrained synthetic decimal.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: normalize_decimal_scale
+              scale: 2
+        version: 1
+    - approval_decision_id: ground-truth-map-line-discount-v1
+      logical_field_version: 1
+      physical_type: decimal
+      mapping:
+        logical_field: SaleLine.discount_amount
+        physical_field: sales.order_lines.discount_amount
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Discount amount uses a nullable constrained synthetic decimal.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: preserve_null
+            - operation: normalize_decimal_scale
+              scale: 2
+        version: 1
+    - approval_decision_id: ground-truth-map-shipment-key-v1
+      logical_field_version: 1
+      physical_type: integer
+      mapping:
+        logical_field: Shipment.shipment_key
+        physical_field: fulfillment.shipments.shipment_id
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Shipments declare a positive integer primary key.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: cast_integer_to_string
+            - operation: reject_invalid
+        version: 1
+    - approval_decision_id: ground-truth-map-shipment-order-v1
+      logical_field_version: 1
+      physical_type: string
+      mapping:
+        logical_field: Shipment.order_key
+        physical_field: fulfillment.shipments.order_ref
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Valid padded shipment references overlap the approved order key after normalization.
+        risks:
+          - NULL, empty, negative, malformed, and unmatched references are rejected before joining.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: trim
+            - operation: empty_to_null
+            - operation: validate_regex
+              pattern: ^[0-9]+$
+            - operation: strip_leading_zeros
+            - operation: reject_invalid
+        version: 1
+    - approval_decision_id: ground-truth-map-shipment-status-v1
+      logical_field_version: 1
+      physical_type: string
+      mapping:
+        logical_field: Shipment.shipment_status
+        physical_field: fulfillment.shipments.status_code
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Operational shipment synonyms have an approved closed canonical mapping.
+        risks:
+          - Unknown shipment statuses fail closed.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: map_values
+              entries:
+                - source: P
+                  target: PENDING
+                - source: T
+                  target: IN_TRANSIT
+                - source: D
+                  target: DELIVERED
+                - source: DELIVERED
+                  target: DELIVERED
+                - source: R
+                  target: RETURNED
+            - operation: reject_invalid
+        version: 1
+    - approval_decision_id: ground-truth-map-shipped-at-v1
+      logical_field_version: 1
+      physical_type: timestamp
+      mapping:
+        logical_field: Shipment.shipped_at
+        physical_field: fulfillment.shipments.shipped_at
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Shipment departure uses a nullable deterministic timestamp.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: preserve_null
+            - operation: identity
+        version: 1
+    - approval_decision_id: ground-truth-map-delivered-at-v1
+      logical_field_version: 1
+      physical_type: timestamp
+      mapping:
+        logical_field: Shipment.delivered_at
+        physical_field: fulfillment.shipments.delivered_at
+        confidence: 1.0
+        status: approved
+        evidence:
+          - Delivery completion uses a nullable deterministic timestamp.
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: preserve_null
+            - operation: identity
+        version: 1
+join_contracts:
+  version: 1
+  contracts:
+    - id: customer_to_account_holder
+      left_key:
+        logical_field: Customer.customer_key
+        physical_field: crm.customers.customer_id
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: trim
+            - operation: validate_regex
+              pattern: ^[0-9]+$
+            - operation: strip_leading_zeros
+            - operation: reject_invalid
+      right_key:
+        logical_field: AccountHolder.customer_key
+        physical_field: bank.account_holders.gf_customer_id
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: validate_finite
+            - operation: validate_integral
+            - operation: cast_integer_to_string
+            - operation: reject_invalid
+      cardinality: one_to_many
+      default_join_type: inner
+      status: approved
+      fanout_policy: require_distinct_for_left_entity_metrics
+      version: 1
+      evidence:
+        - five normalized keys overlap in the bounded synthetic rows
+        - observed left/right maximum multiplicity is 1/2
+      risks:
+        - customer 123 has two holder links and can multiply customer metrics
+        - null, non-finite, and fractional right keys are rejected before matching
+      approval_decision_id: ground-truth-customer-holder-v1
+    - id: account_holder_to_account
+      left_key:
+        logical_field: AccountHolder.account_key
+        physical_field: bank.account_holders.account_number
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: identity
+      right_key:
+        logical_field: Account.account_key
+        physical_field: bank.accounts.account_number
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: identity
+      cardinality: many_to_one
+      default_join_type: inner
+      status: approved
+      fanout_policy: none
+      version: 1
+      evidence:
+        - bank.account_holders.account_number declares a foreign key to bank.accounts.account_number
+        - all nine normalized account keys overlap in the bounded synthetic rows
+      risks:
+        - current rows are unique on both sides but the foreign key permits many holders per account
+      approval_decision_id: ground-truth-holder-account-v1
+    - id: product_to_sale_line
+      left_key:
+        logical_field: Product.product_key
+        physical_field: commerce.products.product_code
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: trim
+            - operation: validate_regex
+              pattern: ^[0-9]+$
+            - operation: strip_leading_zeros
+            - operation: reject_invalid
+      right_key:
+        logical_field: SaleLine.product_key
+        physical_field: sales.order_lines.product_no
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: cast_integer_to_string
+            - operation: reject_invalid
+      cardinality: one_to_many
+      default_join_type: inner
+      status: approved
+      fanout_policy: require_distinct_for_left_entity_metrics
+      version: 1
+      evidence:
+        - catalog codes and valid order-line product numbers overlap after approved normalization
+        - repeated product numbers on lines create an observed one-to-many relationship
+      risks:
+        - product-level metrics can multiply across repeated order lines without distinct mitigation
+        - orphan product numbers remain excluded from governed joins
+      approval_decision_id: ground-truth-product-sale-line-v1
+    - id: sales_order_to_sale_line
+      left_key:
+        logical_field: SalesOrder.order_key
+        physical_field: sales.orders.order_id
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: cast_integer_to_string
+            - operation: reject_invalid
+      right_key:
+        logical_field: SaleLine.order_key
+        physical_field: sales.order_lines.order_ref
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: trim
+            - operation: empty_to_null
+            - operation: validate_regex
+              pattern: ^[0-9]+$
+            - operation: strip_leading_zeros
+            - operation: reject_invalid
+      cardinality: one_to_many
+      default_join_type: inner
+      status: approved
+      fanout_policy: require_distinct_for_left_entity_metrics
+      version: 1
+      evidence:
+        - valid padded line references overlap order header identifiers after normalization
+        - three generated lines per order create an observed one-to-many relationship
+      risks:
+        - order-level metrics can multiply across lines without distinct mitigation
+        - malformed and unmatched line references remain excluded from governed joins
+      approval_decision_id: ground-truth-sales-order-line-v1
+    - id: sales_order_to_shipment
+      left_key:
+        logical_field: SalesOrder.order_key
+        physical_field: sales.orders.order_id
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: cast_integer_to_string
+            - operation: reject_invalid
+      right_key:
+        logical_field: Shipment.order_key
+        physical_field: fulfillment.shipments.order_ref
+        transformation_plan:
+          version: 1
+          steps:
+            - operation: trim
+            - operation: empty_to_null
+            - operation: validate_regex
+              pattern: ^[0-9]+$
+            - operation: strip_leading_zeros
+            - operation: reject_invalid
+      cardinality: one_to_many
+      default_join_type: inner
+      status: approved
+      fanout_policy: require_distinct_for_left_entity_metrics
+      version: 1
+      evidence:
+        - valid padded shipment references overlap order header identifiers after normalization
+        - selected orders have duplicate fulfillment attempts in the synthetic corpus
+      risks:
+        - order-level metrics can multiply across shipment attempts without distinct mitigation
+        - invalid shipment references are inspected and rejected before governed equality joins
+      approval_decision_id: ground-truth-sales-order-shipment-v1
+provenance:
+  - kind: logical_models
+    source: decision-log:tasks/DECISION_LOG.md
+    decision_ids:
+      - m21-synthetic-logical-models-v1
+  - kind: physical_mappings
+    source: recorded:demo/ground_truth/registries/synthetic_enterprise.yml
+    decision_ids:
+      - ground-truth-map-customer-key-v1
+      - ground-truth-map-registration-date-v1
+      - ground-truth-map-country-v1
+      - ground-truth-map-status-v1
+      - ground-truth-map-holder-customer-v1
+      - ground-truth-map-holder-account-v1
+      - ground-truth-map-holder-role-v1
+      - ground-truth-map-account-key-v1
+      - ground-truth-map-current-balance-v1
+      - ground-truth-map-product-key-v1
+      - ground-truth-map-product-category-v1
+      - ground-truth-map-product-price-v1
+      - ground-truth-map-product-active-v1
+      - ground-truth-map-product-created-v1
+      - ground-truth-map-order-key-v1
+      - ground-truth-map-order-created-v1
+      - ground-truth-map-order-status-v1
+      - ground-truth-map-order-channel-v1
+      - ground-truth-map-order-region-v1
+      - ground-truth-map-order-total-v1
+      - ground-truth-map-line-key-v1
+      - ground-truth-map-line-order-v1
+      - ground-truth-map-line-product-v1
+      - ground-truth-map-line-quantity-v1
+      - ground-truth-map-line-net-v1
+      - ground-truth-map-line-discount-v1
+      - ground-truth-map-shipment-key-v1
+      - ground-truth-map-shipment-order-v1
+      - ground-truth-map-shipment-status-v1
+      - ground-truth-map-shipped-at-v1
+      - ground-truth-map-delivered-at-v1
+  - kind: join_contracts
+    source: recorded:demo/ground_truth/registries/synthetic_enterprise.yml
+    decision_ids:
+      - ground-truth-customer-holder-v1
+      - ground-truth-holder-account-v1
+      - ground-truth-product-sale-line-v1
+      - ground-truth-sales-order-line-v1
+      - ground-truth-sales-order-shipment-v1

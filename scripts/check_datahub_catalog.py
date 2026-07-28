@@ -14,6 +14,23 @@ import yaml
 
 FIXTURE_PATH = Path("tests/fixtures/datahub/mcp_catalog.json")
 GRAPHQL_URL = "http://127.0.0.1:8080/api/graphql"
+DATASET_URN_PREFIX = "urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge."
+DATASET_URN_SUFFIX = ",PROD)"
+EXPECTED_DATASETS = frozenset(
+    {
+        "bank.account_holders",
+        "bank.accounts",
+        "commerce.products",
+        "crm.customers",
+        "fulfillment.shipments",
+        "legacy.client_master",
+        "legacy.item_master",
+        "reporting.customer_accounts",
+        "sales.order_lines",
+        "sales.orders",
+        "support.order_cases",
+    }
+)
 
 
 def _token() -> str:
@@ -65,8 +82,52 @@ def _dataset(token: str, urn: str) -> dict[str, Any]:
     return dataset
 
 
+def _load_expectations(path: Path = FIXTURE_PATH) -> tuple[dict[str, Any], ...]:
+    try:
+        fixture = json.loads(path.read_text(encoding="utf-8"))
+        datasets = fixture["datasets"]
+    except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise SystemExit("DataHub catalog expectations could not be loaded.") from exc
+    if fixture.get("fixture_kind") != "sanitized_mcp_expectation":
+        raise SystemExit("DataHub catalog expectation kind is unsupported.")
+    if not isinstance(datasets, list) or not all(isinstance(item, dict) for item in datasets):
+        raise SystemExit("DataHub catalog expectations contain invalid datasets.")
+    expected = tuple(datasets)
+    names = tuple(_expectation_name(item) for item in expected)
+    if len(set(names)) != len(names) or frozenset(names) != EXPECTED_DATASETS:
+        raise SystemExit("DataHub catalog expectations do not name the exact synthetic corpus.")
+    return expected
+
+
+def _expectation_name(item: dict[str, Any]) -> str:
+    urn = item.get("urn")
+    fields = item.get("fields")
+    described_fields = item.get("described_fields")
+    row_count = item.get("row_count")
+    if (
+        not isinstance(urn, str)
+        or not urn.startswith(DATASET_URN_PREFIX)
+        or not urn.endswith(DATASET_URN_SUFFIX)
+        or not isinstance(row_count, int)
+        or isinstance(row_count, bool)
+        or row_count < 0
+        or not isinstance(fields, list)
+        or not fields
+        or any(not isinstance(field, str) or not field for field in fields)
+        or len(set(fields)) != len(fields)
+        or not isinstance(described_fields, list)
+        or any(
+            not isinstance(field, str) or not field or field not in fields
+            for field in described_fields
+        )
+        or len(set(described_fields)) != len(described_fields)
+    ):
+        raise SystemExit("DataHub catalog expectations contain an invalid dataset contract.")
+    return urn.removeprefix(DATASET_URN_PREFIX).removesuffix(DATASET_URN_SUFFIX)
+
+
 def main() -> None:
-    fixture = json.loads(FIXTURE_PATH.read_text())
+    expectations = _load_expectations()
     token = _token()
     feature_data = _graphql(
         token,
@@ -75,17 +136,23 @@ def main() -> None:
     )
     if not feature_data["appConfig"]["featureFlags"]["logicalModelsEnabled"]:
         raise SystemExit("DataHub logical-model UI support is not enabled.")
-    for expected in fixture["datasets"]:
+    for expected in expectations:
         deadline = time.monotonic() + 30
         while True:
             dataset = _dataset(token, expected["urn"])
             profiles = dataset.get("datasetProfiles") or []
-            if profiles and profiles[0].get("rowCount") == expected["row_count"]:
+            if (
+                profiles
+                and profiles[0].get("rowCount") == expected["row_count"]
+                and profiles[0].get("columnCount") == len(expected["fields"])
+            ):
                 break
             if time.monotonic() >= deadline:
                 raise SystemExit(f"Missing or unexpected profile for {expected['urn']}.")
             time.sleep(1)
         properties = dataset.get("properties") or {}
+        if dataset.get("urn") != expected["urn"]:
+            raise SystemExit(f"Unexpected dataset identity for {expected['urn']}.")
         if not properties.get("description"):
             raise SystemExit(f"Missing table description for {expected['urn']}.")
         fields = {
@@ -99,7 +166,7 @@ def main() -> None:
                 raise SystemExit(f"Missing field description for {expected['urn']}::{field_name}.")
     print(
         "DataHub catalog check passed: logical-model UI enabled; "
-        "5 datasets, descriptions, schemas, and profiles verified."
+        f"{len(expectations)} datasets, descriptions, schemas, and profiles verified."
     )
 
 
