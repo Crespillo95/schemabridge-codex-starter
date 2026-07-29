@@ -137,9 +137,8 @@ def test_correctness_report_covers_both_cardinalities_and_three_page_sizes(
 
 
 @pytest.mark.scale
-def test_load_harness_records_latency_concurrency_pool_wait_and_zero_errors(
-    no_cover: object,
-) -> None:
+@pytest.mark.performance
+def test_load_harness_records_latency_concurrency_pool_wait_and_zero_errors() -> None:
     result = run_load(
         LazySyntheticScaleReader(),
         read_count=64,

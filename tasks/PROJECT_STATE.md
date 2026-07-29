@@ -42,13 +42,17 @@ proved two additional fixture boundaries: control-PostgreSQL administrative test
 same explicit synthetic loopback credential as the container, and the approved registry seed must
 use a different authenticated local subject from the replay contract it prepares. A third hosted
 run passed quality and every service gate before coverage exposed that a generic job-wide source
-DSN crossed component credential boundaries and that wall-clock latency must not be measured while
-pytest-cov instruments it. The publication follow-up tracks only the required signed evidence,
+DSN crossed component credential boundaries. A fourth run proved the corrected credential scope
+and passed the push matrix completely, while the duplicate PR service job alone measured the
+unchanged wall-clock p95 budget on a contended runner after every functional gate had passed. The
+publication follow-up tracks only the required signed evidence,
 aligns bootstrap with the tested extras, uses color-free CI logs, compares CLI help after removing
 terminal styling, aligns every explicit test-admin fallback with the non-secret loopback-only
-Compose placeholder, scopes the generic source DSN to evaluation, measures the unchanged scale
-limits with coverage paused for the dedicated latency test, and explicitly publishes/read-checks
-the approved synthetic registry from a dedicated seed principal before live-registry integration.
+Compose placeholder, scopes the generic source DSN to evaluation, keeps the unchanged short scale
+limits in the hosted clean quality job, runs release quality before starting project services,
+excludes only the `performance` marker from service-loaded coverage while retaining exact
+deterministic limit checks, and explicitly publishes/read-checks the approved synthetic registry
+from a dedicated seed principal before live-registry integration.
 Operated
 Kubernetes, TLS, NetworkPolicy, external
 secrets, production replica/traffic scale, provider governance, and later operations/security
@@ -61,8 +65,10 @@ The publication follow-up's final local bytes pass the 2,719-test CI-shaped qual
 integration tests with one retained fixture skip, all 47 acceptance tests, clean-volume registry
 read-back, and the targeted PostgreSQL/CLI regressions. Full corrected coverage passes 2,925 tests
 with that one skip and seven expected warnings at 81.75%; the final credential-scope and
-latency-isolation regressions pass inside that gate. Replacement hosted checks remain the
-authoritative publication evidence.
+exact-limit regressions pass inside that gate. On the same commit, the hosted push matrix passes
+completely; the duplicate PR service job's sole failure is the contended wall-clock smoke described
+above. Replacement hosted checks after marker isolation remain the authoritative publication
+evidence.
 
 ## Current capability
 

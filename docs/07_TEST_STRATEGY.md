@@ -643,12 +643,14 @@ p95, p99, pool wait, cold/warm state, and database/process settings. The local r
 are zero unexpected errors, p95 at or below 250 ms, and p99 at or below 500 ms. These figures are
 not production availability or capacity claims.
 
-The short wall-clock smoke remains part of both quality and full-coverage runs with those limits
-unchanged. During a coverage run, pytest-cov pauses instrumentation for that dedicated latency test
-so the profiler does not alter the latency it is checking. A separately executed deterministic
-gate proves the exact error, percentile, row, and materialization boundaries; a failure prints the
-sanitized metrics and the exact failed checks. The authoritative operated check remains the
-explicit 5,000-read PostgreSQL benchmark above.
+The short wall-clock smoke remains mandatory in the hosted service-free quality job with those
+limits unchanged; release clean-room likewise runs `make check` before starting project services.
+It carries the `performance` marker and coverage runs deselect that marker so the measurement does
+not inherit pytest-cov or active DataHub/PostgreSQL service-job contention. The pure deterministic
+regression gate remains selected by coverage and proves the exact error, percentile, row, and
+materialization boundaries; a failure prints three-decimal sanitized metrics and the exact failed
+checks. The authoritative operated check remains the explicit 5,000-read PostgreSQL benchmark
+above.
 
 Acceptance must also execute an approved one-, two-, and three-table plan against the large
 tenant's governed connection, then prove that inventory size does not weaken the query rejection

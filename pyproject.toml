@@ -98,6 +98,7 @@ markers = [
   "integration: requires local services",
   "acceptance: exercises a complete user path",
   "scale: exercises bounded-memory and indexed high-cardinality paths",
+  "performance: measures wall-clock behavior and must run without coverage or service contention",
 ]
 
 [tool.coverage.run]

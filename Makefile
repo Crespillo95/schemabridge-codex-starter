@@ -236,10 +236,10 @@ test:
 	$(BIN)/pytest -m 'not integration and not acceptance'
 
 coverage:
-	@SCHEMABRIDGE_TEST_DATABASE_URL='$(DEMO_DATABASE_URL)' $(BIN)/pytest --cov=schemabridge --cov-report=term-missing
+	@SCHEMABRIDGE_TEST_DATABASE_URL='$(DEMO_DATABASE_URL)' $(BIN)/pytest -m 'not performance' --cov=schemabridge --cov-report=term-missing
 
 coverage-unit:
-	$(BIN)/pytest --cov=schemabridge --cov-report=term-missing --cov-fail-under=0 -m 'not integration and not acceptance'
+	$(BIN)/pytest --cov=schemabridge --cov-report=term-missing --cov-fail-under=0 -m 'not integration and not acceptance and not performance'
 
 check: lint type test
 

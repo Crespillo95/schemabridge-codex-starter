@@ -86,11 +86,7 @@ job-wide `DATABASE_URL` crossed the component credential boundary and caused 31 
 fail-closed configuration tests; coverage instrumentation also made the 64-read wall-clock scale
 smoke exceed an unchanged latency budget once, while its zero-error and bounded-page checks
 passed. The generic DSN is now scoped only to the evaluation step, all 19 control-admin fallbacks
-match the explicit local Compose placeholder, and the scale smoke still runs under every gate with
-its 250/500 ms limits unchanged while pytest-cov pauses instrumentation for that dedicated latency
-test. A separately executed deterministic gate covers every exact threshold, and future failures
-print sanitized metrics plus the exact failed checks. Focused regressions pass; the replacement
-draft-PR checks remain the authoritative publication result.
+match the explicit local Compose placeholder. Focused regressions pass.
 
 The final local publication bytes pass Ruff, strict mypy over 276 source files, and 2,719
 service-free tests with 207 deselected in 766.64 seconds. From clean synthetic demo, DataHub, and
@@ -99,6 +95,17 @@ one retained skip, and all 47 acceptance tests pass. The complete corrected cove
 2,925 tests with that one skip and seven expected DataHub warnings at 81.75% in 2,588.95 seconds.
 The generic source/admin variables were explicitly absent from that process; the scale smoke and
 all 31 formerly contaminated component-boundary tests passed.
+
+The fourth hosted run proved the corrected credential scope: on the same commit, both quality jobs
+passed, GitGuardian passed, and the push service job passed 2,925 tests with one retained skip at
+81.75% coverage. Its duplicate PR service job passed DataHub, control-plane, integration,
+acceptance, and every functional coverage check, but the 64-read smoke measured p95 292.712 ms
+under active service/shared-runner contention and failed only its unchanged 250 ms budget. The
+smoke is therefore marked `performance` and remains mandatory in the clean `make check` quality
+job with unchanged 250/500 ms limits; release clean-room now also runs that gate before starting
+project services. Coverage deselects only that marker while retaining the pure exact-limit
+regression gate. The separately operated 5,000-read concurrency-16 PostgreSQL benchmark remains
+authoritative. Replacement draft-PR checks remain the publication authority.
 
 ## Scope guard
 
