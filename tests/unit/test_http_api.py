@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+import io
+import json
+import socket
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from threading import Event
+from urllib.request import urlopen
 
 from fastapi.testclient import TestClient
 
 from schemabridge.adapters.identity.local import LocalDemoPrincipalFactory
+from schemabridge.adapters.observability.http_export import MetricsHttpExporter
+from schemabridge.adapters.observability.runtime import RuntimeOperationalTelemetry
 from schemabridge.application.api_capacity import (
     ApiCapacityError,
     ApiCapacityErrorCode,
@@ -15,6 +21,10 @@ from schemabridge.application.api_capacity import (
 from schemabridge.application.api_workflows import (
     ExecutionJobUseCaseError,
     ExecutionJobUseCaseErrorCode,
+)
+from schemabridge.application.ports.operational_telemetry import (
+    OperationalResourceAccessCause,
+    OperationalTelemetryPort,
 )
 from schemabridge.domain.background_jobs import (
     BackgroundJob,
@@ -139,6 +149,7 @@ def _client(
     max_body_bytes: int = 65_536,
     max_concurrency: int = 100,
     docs_enabled: bool = False,
+    telemetry: OperationalTelemetryPort | None = None,
 ) -> TestClient:
     app = create_http_app(
         ApiHttpServices(
@@ -153,8 +164,17 @@ def _client(
         max_body_bytes=max_body_bytes,
         max_concurrency=max_concurrency,
         docs_enabled=docs_enabled,
+        telemetry=telemetry,
     )
     return TestClient(app, raise_server_exceptions=False)
+
+
+def _available_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as candidate:
+        candidate.bind(("127.0.0.1", 0))
+        port = candidate.getsockname()[1]
+    assert isinstance(port, int)
+    return port
 
 
 def _headers() -> dict[str, str]:
@@ -205,6 +225,218 @@ def test_health_is_sanitized_and_docs_are_disabled_by_default() -> None:
     assert len(live.headers["x-request-id"]) == 32
     assert live.headers["cache-control"] == "no-store"
     assert live.headers["x-content-type-options"] == "nosniff"
+
+
+def test_public_metrics_is_hidden_and_requests_emit_bounded_telemetry() -> None:
+    stream = io.StringIO()
+    telemetry = RuntimeOperationalTelemetry(
+        service="api",
+        environment="staging",
+        stream=stream,
+    )
+
+    with _client(telemetry=telemetry) as client:
+        business = client.get(
+            f"/v1/execution-jobs/{_job('workflow-1').id}",
+            headers={"Authorization": "Bearer accepted-local-test-token"},
+        )
+        live = client.get("/health/live")
+        metrics = client.get("/metrics")
+
+    events = [json.loads(line) for line in stream.getvalue().splitlines()]
+    request_events = [item for item in events if item["event"] == "http.request"]
+    assert business.status_code == 200
+    assert len(request_events) == 1
+    assert request_events[0]["correlation_id"] == business.headers["x-request-id"]
+    assert request_events[0]["requests_completed"] == 1
+    assert live.headers["x-request-id"] not in {item["correlation_id"] for item in request_events}
+    assert metrics.headers["x-request-id"] not in {
+        item["correlation_id"] for item in request_events
+    }
+    assert all(
+        set(item)
+        <= {
+            "schema_version",
+            "timestamp",
+            "severity",
+            "service",
+            "environment",
+            "event",
+            "outcome",
+            "duration_ms",
+            "correlation_id",
+            "requests_completed",
+        }
+        for item in request_events
+    )
+    assert metrics.status_code == 404
+    assert metrics.headers["cache-control"] == "no-store"
+    assert metrics.headers["content-type"].startswith("application/problem+json")
+    assert metrics.json()["code"] == "not_found"
+    assert (
+        'schemabridge_http_requests_total{outcome="success",service="api"} 1.0'
+        in telemetry.render_openmetrics()
+    )
+
+
+def test_collapsed_sensitive_404_is_publicly_indistinguishable_but_internally_denied() -> None:
+    secret = "tenant=private-workspace resource=other-owner-job"
+    stream = io.StringIO()
+    telemetry = RuntimeOperationalTelemetry(
+        service="api",
+        environment="staging",
+        stream=stream,
+    )
+    submit = _Submit(
+        error=ExecutionJobUseCaseError(
+            ExecutionJobUseCaseErrorCode.UNAVAILABLE,
+            secret,
+            resource_access_cause=OperationalResourceAccessCause.DENIED,
+        )
+    )
+
+    with _client(submit=submit, telemetry=telemetry) as client:
+        live = client.get("/health/live")
+        unknown = client.get("/v1/not-a-real-business-route")
+        denied = client.post(
+            "/v1/workflows/workflow-1/execution-jobs",
+            headers=_headers(),
+            json=_body(),
+        )
+
+    assert denied.status_code == 404
+    assert denied.json() == {
+        "type": "urn:schemabridge:problem:execution_job_unavailable",
+        "title": "The execution job is not available.",
+        "status": 404,
+        "code": "execution_job_unavailable",
+        "request_id": denied.headers["x-request-id"],
+    }
+    assert secret not in denied.text
+    assert "denied" not in denied.text.casefold()
+    assert "unauthorized" not in denied.text.casefold()
+
+    events = [json.loads(line) for line in stream.getvalue().splitlines()]
+    request_events = [item for item in events if item["event"] == "http.request"]
+    assert request_events == [
+        {
+            "schema_version": "schemabridge.telemetry.v1",
+            "timestamp": request_events[0]["timestamp"],
+            "severity": "warning",
+            "service": "api",
+            "environment": "staging",
+            "event": "http.request",
+            "outcome": "denied",
+            "duration_ms": request_events[0]["duration_ms"],
+            "correlation_id": denied.headers["x-request-id"],
+            "error_code": "unauthorized",
+            "authorization_denials": 1,
+            "requests_completed": 1,
+        }
+    ]
+    assert live.headers["x-request-id"] != request_events[0]["correlation_id"]
+    assert unknown.headers["x-request-id"] != request_events[0]["correlation_id"]
+    document = telemetry.render_openmetrics()
+    assert 'schemabridge_http_requests_total{outcome="denied",service="api"} 1.0' in document
+    assert 'schemabridge_http_authorization_denials_total{service="api"} 1.0' in document
+    assert (
+        'schemabridge_http_request_duration_seconds_count{outcome="denied",service="api"} 1'
+        in document
+    )
+    assert 'schemabridge_http_requests_total{outcome="success",service="api"}' not in document
+
+
+def test_legitimate_protected_404_does_not_increment_authorization_denials() -> None:
+    stream = io.StringIO()
+    telemetry = RuntimeOperationalTelemetry(
+        service="api",
+        environment="staging",
+        stream=stream,
+    )
+    cause = OperationalResourceAccessCause.NOT_FOUND
+    submit = _Submit(
+        error=ExecutionJobUseCaseError(
+            ExecutionJobUseCaseErrorCode.UNAVAILABLE,
+            "private store detail",
+            resource_access_cause=cause,
+        )
+    )
+
+    with _client(submit=submit, telemetry=telemetry) as client:
+        missing = client.post(
+            "/v1/workflows/workflow-1/execution-jobs",
+            headers=_headers(),
+            json=_body(),
+        )
+
+    assert missing.status_code == 404
+    assert missing.json() == {
+        "type": "urn:schemabridge:problem:execution_job_unavailable",
+        "title": "The execution job is not available.",
+        "status": 404,
+        "code": "execution_job_unavailable",
+        "request_id": missing.headers["x-request-id"],
+    }
+    event = next(
+        json.loads(line)
+        for line in stream.getvalue().splitlines()
+        if '"event":"http.request"' in line
+    )
+    assert event["outcome"] == "succeeded"
+    assert "error_code" not in event
+    assert "authorization_denials" not in event
+    assert (
+        'schemabridge_http_authorization_denials_total{service="api"}'
+        not in telemetry.render_openmetrics()
+    )
+    try:
+        json.dumps(cause)
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("internal resource access causes must not be JSON serializable")
+
+
+def test_internal_metrics_exporter_shares_api_telemetry_and_lifecycle() -> None:
+    port = _available_port()
+    telemetry = RuntimeOperationalTelemetry(
+        service="api",
+        environment="staging",
+        stream=io.StringIO(),
+    )
+    exporter = MetricsHttpExporter(
+        bind_host="127.0.0.1",
+        port=port,
+        renderer=telemetry,
+    )
+    app = create_http_app(
+        ApiHttpServices(
+            authenticator=_Authenticator(),
+            clock=_Clock(),
+            submit=_Submit(),
+            inspect=_Inspect(),
+            cancel=_Cancel(),
+            readiness=_Readiness(),
+        ),
+        telemetry=telemetry,
+        metrics_exporter=exporter,
+    )
+
+    assert not exporter.is_open
+    with TestClient(app, raise_server_exceptions=False) as client:
+        assert exporter.is_open
+        assert (
+            client.get(
+                f"/v1/execution-jobs/{_job('workflow-1').id}",
+                headers={"Authorization": "Bearer accepted-local-test-token"},
+            ).status_code
+            == 200
+        )
+        with urlopen(f"http://127.0.0.1:{port}/metrics", timeout=2) as response:
+            document = response.read().decode()
+        assert 'schemabridge_process_ready{service="api"} 1.0' in document
+        assert 'schemabridge_http_requests_total{outcome="success",service="api"} 1.0' in document
+    assert not exporter.is_open
 
 
 def test_application_owns_explicit_resource_startup_and_shutdown() -> None:
@@ -307,6 +539,12 @@ def test_submission_returns_202_then_200_for_exact_replay() -> None:
 
 def test_distributed_api_admission_denial_is_a_safe_bounded_429() -> None:
     secret = "postgresql://capacity-user:private-password@control/rate_state"
+    stream = io.StringIO()
+    telemetry = RuntimeOperationalTelemetry(
+        service="api",
+        environment="staging",
+        stream=stream,
+    )
     admission = _Admission(
         error=ApiCapacityError(
             ApiCapacityErrorCode.RATE_LIMITED,
@@ -316,7 +554,7 @@ def test_distributed_api_admission_denial_is_a_safe_bounded_429() -> None:
     )
     submit = _Submit(error=AssertionError("submission must not run after admission denial"))
 
-    with _client(admission=admission, submit=submit) as client:
+    with _client(admission=admission, submit=submit, telemetry=telemetry) as client:
         response = client.post(
             "/v1/workflows/workflow-1/execution-jobs",
             headers=_headers(),
@@ -332,6 +570,17 @@ def test_distributed_api_admission_denial_is_a_safe_bounded_429() -> None:
     assert response.json()["request_id"] == response.headers["x-request-id"]
     assert secret not in response.text
     assert admission.calls == 1
+    request_event = next(
+        item
+        for item in (json.loads(line) for line in stream.getvalue().splitlines())
+        if item["event"] == "http.request"
+    )
+    assert request_event["outcome"] == "denied"
+    assert request_event["error_code"] == "request_rejected"
+    assert "authorization_denials" not in request_event
+    assert 'schemabridge_http_authorization_denials_total{service="api"}' not in (
+        telemetry.render_openmetrics()
+    )
 
 
 def test_malformed_retry_metadata_is_defensively_bounded_at_http_boundary() -> None:

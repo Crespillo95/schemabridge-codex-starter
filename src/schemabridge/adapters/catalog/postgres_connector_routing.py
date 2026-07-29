@@ -28,12 +28,12 @@ from schemabridge.domain.catalog_inventory import (
 from schemabridge.domain.connectors import MAX_ROUTE_REVISION
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
-_ROUTE_COLUMN_COUNT = 11
+_ROUTE_COLUMN_COUNT = 12
 
 
 @dataclass(frozen=True, slots=True)
 class PostgresCatalogConnectorRouteReader:
-    """Read one current v9 catalog binding for the exact live refresh lease."""
+    """Read one current version-pinned catalog binding for the exact live refresh lease."""
 
     dsn: str = field(repr=False)
     schema: str = "schemabridge_control"
@@ -66,7 +66,7 @@ class PostgresCatalogConnectorRouteReader:
         """Resolve the current public head and private catalog capability atomically."""
 
         target_loader = self._database.table("load_current_connector_target")
-        route_loader = self._database.table("load_owned_catalog_connector_route")
+        route_loader = self._database.table("load_owned_catalog_connector_route_v2")
         try:
             with self._database.connect() as connection, connection.transaction():
                 rows = [
@@ -85,7 +85,8 @@ class PostgresCatalogConnectorRouteReader:
                                 route.contract_version,
                                 route.route_revision,
                                 route.target_fingerprint,
-                                route.credential_binding_ref
+                                route.credential_binding_ref,
+                                route.provider_secret_version
                             FROM {}(%s, %s) AS target
                             CROSS JOIN LATERAL {}(
                                 %s, %s, %s, %s, %s, %s,
@@ -171,6 +172,7 @@ def _route_from_row(
             target_fingerprint=target_fingerprint,
         ),
         credential_binding_ref=_text(row[10]),
+        provider_secret_version=_positive_counter(row[11]),
     )
 
 

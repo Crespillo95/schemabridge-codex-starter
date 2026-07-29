@@ -33,9 +33,28 @@ if ($null -eq $selected) {
 $pythonCommand = $selected.Command
 $pythonArguments = @($selected.Arguments)
 & $pythonCommand @pythonArguments -V
-& $pythonCommand @pythonArguments -m venv --clear .venv
-& .venv\Scripts\python.exe -m pip install --upgrade pip
-& .venv\Scripts\python.exe -m pip install -e ".[dev,postgres,sql,ui,llm]"
+$pythonExecutable = (& $pythonCommand @pythonArguments -c "import sys; print(sys.executable)").Trim()
+if (-not (Test-Path -LiteralPath $pythonExecutable -PathType Leaf)) {
+    throw "The selected Python executable could not be resolved."
+}
+
+$uv = Get-Command "uv" -ErrorAction SilentlyContinue
+if ($null -eq $uv) {
+    throw "uv 0.11.30 is required for a frozen bootstrap."
+}
+$uvVersion = (& $uv.Source --version).Trim()
+if ($uvVersion -ne "uv 0.11.30") {
+    throw "uv must be exactly 0.11.30."
+}
+
+& $uv.Source lock --check --no-python-downloads
+if ($LASTEXITCODE -ne 0) {
+    throw "The frozen dependency lock is not current."
+}
+& $uv.Source sync --frozen --all-extras --all-groups --python $pythonExecutable --no-python-downloads
+if ($LASTEXITCODE -ne 0) {
+    throw "Frozen bootstrap failed."
+}
 & .venv\Scripts\schemabridge.exe version
 & .venv\Scripts\schemabridge.exe doctor
 

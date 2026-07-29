@@ -1,0 +1,136 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: schemabridge-web
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/name: schemabridge-web
+    app.kubernetes.io/part-of: schemabridge
+    app.kubernetes.io/component: web
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: schemabridge-web
+  ports:
+    - name: http
+      port: 7860
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: schemabridge-api
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/name: schemabridge-api
+    app.kubernetes.io/part-of: schemabridge
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: schemabridge-api
+  ports:
+    - name: http
+      port: 8520
+      targetPort: http
+      protocol: TCP
+    - name: metrics
+      port: 9464
+      targetPort: metrics
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: schemabridge-observer
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/name: schemabridge-observer
+    app.kubernetes.io/part-of: schemabridge
+    app.kubernetes.io/component: observer
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: schemabridge-observer
+  ports:
+    - name: metrics
+      port: 9464
+      targetPort: metrics
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: schemabridge-worker
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/name: schemabridge-worker
+    app.kubernetes.io/part-of: schemabridge
+    app.kubernetes.io/component: worker
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: schemabridge-worker
+  ports:
+    - name: metrics
+      port: 9464
+      targetPort: metrics
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: schemabridge-catalog
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/name: schemabridge-catalog
+    app.kubernetes.io/part-of: schemabridge
+    app.kubernetes.io/component: catalog
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: schemabridge-catalog
+  ports:
+    - name: metrics
+      port: 9464
+      targetPort: metrics
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: schemabridge-profile
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/name: schemabridge-profile
+    app.kubernetes.io/part-of: schemabridge
+    app.kubernetes.io/component: profile
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: schemabridge-profile
+  ports:
+    - name: metrics
+      port: 9464
+      targetPort: metrics
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: schemabridge-reconciler
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/name: schemabridge-reconciler
+    app.kubernetes.io/part-of: schemabridge
+    app.kubernetes.io/component: reconciler
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: schemabridge-reconciler
+  ports:
+    - name: metrics
+      port: 9464
+      targetPort: metrics
+      protocol: TCP

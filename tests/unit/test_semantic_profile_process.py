@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,13 +10,17 @@ from threading import Event
 
 import pytest
 
+from schemabridge.adapters.observability.runtime import RuntimeOperationalTelemetry
 from schemabridge.application.semantic_profile_worker import (
     SemanticJoinProfileWorkerError,
     SemanticJoinProfileWorkerErrorCode,
     SemanticJoinProfileWorkerOutcome,
     SemanticJoinProfileWorkerResult,
 )
-from schemabridge.domain.semantic_profile_jobs import SemanticJoinProfileJobStatus
+from schemabridge.domain.semantic_profile_jobs import (
+    SemanticJoinProfileFailureCode,
+    SemanticJoinProfileJobStatus,
+)
 from schemabridge.entrypoints.semantic_profile_worker.main import (
     SemanticProfileWorkerProcessRuntime,
     command,
@@ -74,32 +79,48 @@ def _completed() -> SemanticJoinProfileWorkerResult:
     )
 
 
+def _source_timeout() -> SemanticJoinProfileWorkerResult:
+    return SemanticJoinProfileWorkerResult(
+        outcome=SemanticJoinProfileWorkerOutcome.RETRY_SCHEDULED,
+        job_id=f"profile_job_{'a' * 64}",
+        status=SemanticJoinProfileJobStatus.RETRY_WAIT,
+        attempts=1,
+        failure_code=SemanticJoinProfileFailureCode.SOURCE_TIMEOUT,
+    )
+
+
 def test_probe_opens_only_control_resource() -> None:
     lifecycle = _Lifecycle()
+    metrics_exporter = _Lifecycle()
     runtime = SemanticProfileWorkerProcessRuntime(
         worker=None,
         log_level="INFO",
         poll_interval_seconds=0.5,
         control_resource=lifecycle,
+        metrics_exporter=metrics_exporter,
     )
 
     assert command(["--probe-ready"], runtime=runtime) == 0
     assert lifecycle.opened == lifecycle.closed == 1
+    assert metrics_exporter.opened == metrics_exporter.closed == 0
 
 
 def test_once_processes_one_job_and_closes_resource() -> None:
     lifecycle = _Lifecycle()
+    metrics_exporter = _Lifecycle()
     iteration = _Iteration(_completed())
     runtime = SemanticProfileWorkerProcessRuntime(
         worker=iteration,
         log_level="INFO",
         poll_interval_seconds=0.5,
         control_resource=lifecycle,
+        metrics_exporter=metrics_exporter,
     )
 
     assert command(["--once"], runtime=runtime) == 0
     assert iteration.calls == 1
     assert lifecycle.opened == lifecycle.closed == 1
+    assert metrics_exporter.opened == metrics_exporter.closed == 1
 
 
 def test_idle_wait_is_interruptible() -> None:
@@ -116,6 +137,44 @@ def test_idle_wait_is_interruptible() -> None:
     )
     assert iteration.calls == 1
     assert stopping.waits == 1
+
+
+@pytest.mark.parametrize(
+    ("result", "source_outcome"),
+    [
+        (_idle(), None),
+        (_completed(), "success"),
+        (_source_timeout(), "timeout"),
+    ],
+)
+def test_profile_source_metrics_exclude_idle_polls(
+    result: SemanticJoinProfileWorkerResult,
+    source_outcome: str | None,
+) -> None:
+    telemetry = RuntimeOperationalTelemetry(
+        service="profile",
+        environment="production",
+        stream=io.StringIO(),
+    )
+
+    assert (
+        run_semantic_profile_worker(
+            _Iteration(result),
+            poll_interval_seconds=0.05,
+            once=True,
+            telemetry=telemetry,
+        )
+        == 0
+    )
+
+    metrics = telemetry.render_openmetrics()
+    if source_outcome is None:
+        assert "schemabridge_source_operations_total{" not in metrics
+    else:
+        assert (
+            "schemabridge_source_operations_total"
+            f'{{capability="profile",outcome="{source_outcome}"}} 1.0' in metrics
+        )
 
 
 def test_closed_and_unexpected_errors_never_log_payload(
@@ -137,7 +196,7 @@ def test_closed_and_unexpected_errors_never_log_payload(
             )
             == 1
         )
-    assert "semantic_profile_worker_store_unavailable" in caplog.text
+    assert "profile.run outcome=failed error_code=queue_unavailable" in caplog.text
     assert "source-secret-and-capability" not in caplog.text
 
     caplog.clear()
@@ -151,7 +210,8 @@ def test_closed_and_unexpected_errors_never_log_payload(
             )
             == 1
         )
-    assert "RuntimeError" in caplog.text
+    assert "profile.run outcome=failed error_code=internal_failure" in caplog.text
+    assert "RuntimeError" not in caplog.text
     assert "protected-source-value" not in caplog.text
 
 
@@ -164,4 +224,5 @@ def test_entrypoint_has_no_llm_datahub_or_database_adapter_imports() -> None:
     assert "openai" not in lowered
     assert "datahub" not in lowered
     assert "psycopg" not in lowered
-    assert "schemabridge.adapters" not in source
+    assert source.count("from schemabridge.adapters.") == 0
+    assert "from schemabridge.bootstrap import configure_runtime_logging" in source

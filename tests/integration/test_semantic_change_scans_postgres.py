@@ -124,7 +124,7 @@ def scan_database() -> Iterator[_DatabaseUrls]:
         )
     try:
         migrated = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert migrated.inspection.current_version == 9
+        assert migrated.inspection.current_version == 11
         yield urls
     finally:
         with psycopg.connect(admin_dsn, autocommit=True) as connection:

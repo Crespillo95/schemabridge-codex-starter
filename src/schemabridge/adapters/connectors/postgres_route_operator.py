@@ -42,7 +42,7 @@ _APPLY_RESULT_COLUMNS = 9
 
 @dataclass(frozen=True, slots=True)
 class PostgresConnectorRouteOperator:
-    """Invoke only v9 migrator functions; never select private route tables."""
+    """Invoke only version-pinned migrator functions; never select private route tables."""
 
     dsn: str = field(repr=False)
     schema: str = "schemabridge_control"
@@ -127,7 +127,7 @@ class PostgresConnectorRouteOperator:
         statement = sql.SQL(
             """
             SELECT *
-            FROM {}.apply_connector_route_change(
+            FROM {}.apply_connector_route_change_v2(
                 %s::varchar, %s::varchar, %s::varchar, %s::bigint,
                 %s::bigint, %s::bigint, %s::char, %s::varchar,
                 %s::integer, %s::char, %s::char, %s::char,
@@ -135,6 +135,7 @@ class PostgresConnectorRouteOperator:
                 %s::integer, %s::integer,
                 %s::integer, %s::char, %s::char, %s::char,
                 %s::varchar, %s::varchar, %s::varchar, %s::varchar,
+                %s::bigint, %s::bigint, %s::bigint, %s::bigint,
                 %s::char, %s::varchar, %s::char, %s::varchar,
                 %s::char, %s::varchar, %s::char, %s::char,
                 %s::varchar
@@ -164,10 +165,14 @@ class PostgresConnectorRouteOperator:
             change.cost_budget_fingerprint,
             change.contract_fingerprint,
             change.target_fingerprint,
-            None if bindings is None else bindings.preflight,
-            None if bindings is None else bindings.catalog,
-            None if bindings is None else bindings.execution,
-            None if bindings is None else bindings.profile,
+            None if bindings is None else bindings.preflight.reference,
+            None if bindings is None else bindings.catalog.reference,
+            None if bindings is None else bindings.execution.reference,
+            None if bindings is None else bindings.profile.reference,
+            None if bindings is None else bindings.preflight.provider_secret_version,
+            None if bindings is None else bindings.catalog.provider_secret_version,
+            None if bindings is None else bindings.execution.provider_secret_version,
+            None if bindings is None else bindings.profile.provider_secret_version,
             change.proposal_fingerprint,
             change.approval_id,
             change.approval_fingerprint,

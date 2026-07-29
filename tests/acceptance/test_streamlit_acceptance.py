@@ -217,11 +217,11 @@ def test_production_anonymous_session_stops_at_oidc_login_boundary(
         """
 [auth]
 redirect_uri = "https://app.example.test/oauth2callback"
-cookie_secret = "6KzTEe9Wt7JfM2xP8vAc4nQ1sRg5yUhB"
+cookie_secret = "6KzTEe9Wt7JfM2xP8vAc4nQ1sRg5yUhB" # gitleaks:allow -- synthetic fixture
 
 [auth.corporate-oidc]
 client_id = "schemabridge"
-client_secret = "G7nYw4rQ9tVz6mXp2sKa8cHd"
+client_secret = "G7nYw4rQ9tVz6mXp2sKa8cHd" # gitleaks:allow -- synthetic fixture
 server_metadata_url = "https://identity.example.test/.well-known/openid-configuration"
 """.strip(),
         encoding="utf-8",
@@ -229,6 +229,8 @@ server_metadata_url = "https://identity.example.test/.well-known/openid-configur
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("SCHEMABRIDGE_ENVIRONMENT", "production")
     monkeypatch.setenv("SCHEMABRIDGE_AUTH_MODE", "oidc")
+    monkeypatch.setenv("SCHEMABRIDGE_PUBLICATION_MODE", "disabled")
+    monkeypatch.setenv("SCHEMABRIDGE_JUDGE_EXECUTION", "disabled")
     monkeypatch.setenv("SCHEMABRIDGE_OIDC_ISSUER", "https://identity.example.test")
     monkeypatch.setenv("SCHEMABRIDGE_OIDC_AUDIENCE", "schemabridge")
     monkeypatch.setenv("SCHEMABRIDGE_OIDC_PROVIDER", "corporate-oidc")
@@ -240,10 +242,6 @@ server_metadata_url = "https://identity.example.test/.well-known/openid-configur
     monkeypatch.setenv(
         "SCHEMABRIDGE_PSEUDONYMIZATION_KEY",
         "acceptance-pseudonymization-key-at-least-32-bytes",
-    )
-    monkeypatch.setenv(
-        "DATABASE_URL",
-        "postgresql://source_reader:source_password@source.example.test/source?sslmode=verify-full",
     )
     monkeypatch.setenv(
         "SCHEMABRIDGE_CONTROL_DATABASE_URL",
@@ -262,12 +260,49 @@ server_metadata_url = "https://identity.example.test/.well-known/openid-configur
         "SCHEMABRIDGE_QUERY_STUDIO_SIGNING_KEY",
         "acceptance-query-studio-signing-key-with-diversity",
     )
-    connector_secret_directory = tmp_path / "connector-secrets"
-    connector_secret_directory.mkdir(mode=0o700)
+    trust_root = tmp_path / "trust"
+    trust_root.mkdir()
+    ca_bundle = trust_root / "ca.crt"
+    ca_bundle.write_text("synthetic test trust anchor", encoding="utf-8")
+    ca_bundle.chmod(0o600)
+    identity_root = tmp_path / "identity"
+    identity_root.mkdir()
+    token_file = identity_root / "token"
+    token_file.write_text("synthetic projected identity", encoding="utf-8")
+    token_file.chmod(0o400)
+    monkeypatch.setenv("SCHEMABRIDGE_CONNECTOR_SECRET_MODE", "remote")
     monkeypatch.setenv(
-        "SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY",
-        str(connector_secret_directory),
+        "SCHEMABRIDGE_CONNECTOR_SECRET_PROVIDER_URL",
+        "https://secrets.example.test",
     )
+    monkeypatch.setenv("SCHEMABRIDGE_CONNECTOR_SECRET_ROLE", "schemabridge-preflight")
+    monkeypatch.setenv("SCHEMABRIDGE_CONNECTOR_SECRET_KV_MOUNT", "tenant-connectors")
+    monkeypatch.setenv("SCHEMABRIDGE_CONNECTOR_SECRET_CAPABILITY", "preflight")
+    monkeypatch.setenv(
+        "SCHEMABRIDGE_CONNECTOR_SECRET_CA_BUNDLE",
+        str(ca_bundle.resolve()),
+    )
+    monkeypatch.setenv(
+        "SCHEMABRIDGE_WORKLOAD_IDENTITY_TOKEN_FILE",
+        str(token_file.resolve()),
+    )
+    monkeypatch.setenv(
+        "SCHEMABRIDGE_WORKLOAD_IDENTITY_ROOT",
+        str(identity_root.resolve()),
+    )
+    monkeypatch.setenv(
+        "SCHEMABRIDGE_WORKLOAD_IDENTITY_AUDIENCE",
+        "schemabridge-secret-manager",
+    )
+    monkeypatch.setenv(
+        "SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_ROLE",
+        "schemabridge-registry-reader",
+    )
+    monkeypatch.setenv(
+        "SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_BINDING_REF",
+        "registry.reader.primary",
+    )
+    monkeypatch.setenv("SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_VERSION", "17")
     monkeypatch.setenv("SCHEMABRIDGE_DRAFT_STORE_PATH", str(tmp_path / "production.db"))
     app_path = Path(__file__).parents[2] / "src/schemabridge/entrypoints/streamlit/app.py"
 

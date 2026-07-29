@@ -20,6 +20,9 @@ from schemabridge.application.ports.catalog_inventory import (
     InventoryCursorPort,
     TenantCapacityPolicyOperatorPort,
 )
+from schemabridge.application.ports.operational_telemetry import (
+    OperationalResourceAccessCause,
+)
 from schemabridge.domain.catalog_inventory import (
     CatalogAssetFilter,
     CatalogAssetLocator,
@@ -78,8 +81,17 @@ class CatalogUseCaseErrorCode(StrEnum):
 class CatalogUseCaseError(RuntimeError):
     """A sanitized catalog operation failure."""
 
-    def __init__(self, code: CatalogUseCaseErrorCode, message: str) -> None:
+    def __init__(
+        self,
+        code: CatalogUseCaseErrorCode,
+        message: str,
+        *,
+        resource_access_cause: OperationalResourceAccessCause | None = None,
+    ) -> None:
+        if (code is CatalogUseCaseErrorCode.UNAVAILABLE) != (resource_access_cause is not None):
+            raise ValueError("invalid internal resource access cause")
         self.code = code
+        self.resource_access_cause = resource_access_cause
         super().__init__(message)
 
 
@@ -249,7 +261,7 @@ class ListCatalogFields:
         now = self.clock.now()
         _require_reader(principal, now)
         if asset.workspace_id != principal.workspace_id:
-            raise _unavailable()
+            raise _not_found()
         if page.cursor is not None and generation is None:
             raise _cursor_unavailable()
         binding = (
@@ -443,7 +455,7 @@ class InspectCatalogRefresh:
             lambda: self.refreshes.load_public(principal.workspace_id, refresh_id)
         )
         if summary is None:
-            raise _unavailable()
+            raise _not_found()
         return summary
 
 
@@ -538,7 +550,7 @@ def _load_enabled_connection(
 ) -> CatalogConnectionSummary:
     connection = _call_store(lambda: store.load_public(workspace_id, connection_id))
     if connection is None or connection.status.value != "enabled":
-        raise _unavailable()
+        raise _not_found()
     return connection
 
 
@@ -552,12 +564,12 @@ def _required_binding(
 
 def _require_reader(principal: AuthenticatedPrincipal, at: datetime) -> None:
     if not principal.is_current(at) or not principal.roles:
-        raise _unavailable()
+        raise _denied()
 
 
 def _require_admin(principal: AuthenticatedPrincipal, at: datetime) -> None:
     if not principal.is_current(at) or IdentityRole.PLATFORM_ADMIN not in principal.roles:
-        raise _unavailable()
+        raise _denied()
 
 
 def _idempotency_digest(value: str) -> str:
@@ -572,6 +584,12 @@ def _call_store(operation: Callable[[], _ReadableT]) -> _ReadableT:
     except CatalogUseCaseError:
         raise
     except CatalogInventoryError as error:
+        if error.code in {
+            CatalogInventoryErrorCode.RESOURCE_UNAVAILABLE,
+            CatalogInventoryErrorCode.CONNECTION_DISABLED,
+            CatalogInventoryErrorCode.GENERATION_UNAVAILABLE,
+        }:
+            raise _not_found() from error
         code = {
             CatalogInventoryErrorCode.IDEMPOTENCY_CONFLICT: (
                 CatalogUseCaseErrorCode.IDEMPOTENCY_CONFLICT
@@ -580,9 +598,6 @@ def _call_store(operation: Callable[[], _ReadableT]) -> _ReadableT:
                 CatalogUseCaseErrorCode.CAPACITY_EXCEEDED
             ),
             CatalogInventoryErrorCode.POLICY_CONFLICT: (CatalogUseCaseErrorCode.POLICY_CONFLICT),
-            CatalogInventoryErrorCode.RESOURCE_UNAVAILABLE: (CatalogUseCaseErrorCode.UNAVAILABLE),
-            CatalogInventoryErrorCode.CONNECTION_DISABLED: (CatalogUseCaseErrorCode.UNAVAILABLE),
-            CatalogInventoryErrorCode.GENERATION_UNAVAILABLE: (CatalogUseCaseErrorCode.UNAVAILABLE),
         }.get(error.code, CatalogUseCaseErrorCode.SERVICE_UNAVAILABLE)
         raise CatalogUseCaseError(code, "catalog operation could not be completed") from error
     except Exception as error:
@@ -599,10 +614,19 @@ def _invalid_request() -> CatalogUseCaseError:
     )
 
 
-def _unavailable() -> CatalogUseCaseError:
+def _denied() -> CatalogUseCaseError:
     return CatalogUseCaseError(
         CatalogUseCaseErrorCode.UNAVAILABLE,
         "catalog resource is unavailable",
+        resource_access_cause=OperationalResourceAccessCause.DENIED,
+    )
+
+
+def _not_found() -> CatalogUseCaseError:
+    return CatalogUseCaseError(
+        CatalogUseCaseErrorCode.UNAVAILABLE,
+        "catalog resource is unavailable",
+        resource_access_cause=OperationalResourceAccessCause.NOT_FOUND,
     )
 
 

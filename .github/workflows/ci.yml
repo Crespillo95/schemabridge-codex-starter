@@ -2,7 +2,16 @@ name: CI
 
 on:
   push:
+    branches:
+      - main
   pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 env:
   NO_COLOR: "1"
@@ -10,26 +19,38 @@ env:
 jobs:
   quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
-          cache: pip
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: "0.11.30"
+          enable-cache: true
       - run: make bootstrap
       - run: make check
       - run: make runtime-wheel-smoke
 
   postgres-integration:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     env:
       SCHEMABRIDGE_TEST_DATABASE_URL: postgresql://schemabridge_reader:schemabridge_reader@127.0.0.1:55433/schemabridge
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
-          cache: pip
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: "0.11.30"
+          enable-cache: true
       - run: make bootstrap
       - run: make install
       - run: make demo-reset
@@ -74,3 +95,120 @@ jobs:
         run: docker compose -f docker-compose.demo.yml down -v --remove-orphans
       - if: always()
         run: docker compose -f docker-compose.control.yml down -v --remove-orphans
+
+  supply-chain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      EVIDENCE_DIRECTORY: .local/supply-chain
+      IMAGE_NAME: schemabridge-runtime:${{ github.sha }}
+      REPOSITORY_URL: https://github.com/${{ github.repository }}
+      SOURCE_REVISION: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: "0.11.30"
+          enable-cache: true
+      - name: Install the complete frozen environment
+        run: make bootstrap
+      - name: Verify immutable inputs and hashed exports
+        run: make supply-chain-static
+      - name: Build the wheel once
+        run: >-
+          .venv/bin/uv build --wheel --no-build-isolation --no-create-gitignore
+          --out-dir "$EVIDENCE_DIRECTORY/dist"
+      - name: Build the runtime image once
+        run: >-
+          docker build --file Dockerfile.runtime
+          --build-arg "SCHEMABRIDGE_RELEASE_REF=$SOURCE_REVISION"
+          --tag "$IMAGE_NAME" .
+      - name: Record the immutable local image digest
+        id: image
+        run: |
+          image_digest="$(docker image inspect --format '{{.Id}}' "$IMAGE_NAME")"
+          case "$image_digest" in
+            sha256:[0-9a-f][0-9a-f]*) ;;
+            *) printf '%s\n' 'Docker returned an invalid image digest.' >&2; exit 1 ;;
+          esac
+          printf 'digest=%s\n' "$image_digest" >> "$GITHUB_OUTPUT"
+      - name: Generate the complete runtime-image CycloneDX SBOM
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.IMAGE_NAME }}
+          format: cyclonedx
+          output: .local/supply-chain/runtime-image.cdx.json
+      - name: Scan the runtime image
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.IMAGE_NAME }}
+          scanners: vuln
+          format: json
+          output: .local/supply-chain/trivy-image.json
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          list-all-pkgs: true
+          exit-code: "0"
+      - name: Audit exact Python runtime dependencies
+        run: |
+          set +e
+          .venv/bin/pip-audit --require-hashes --format json \
+            --output "$EVIDENCE_DIRECTORY/pip-audit.json" \
+            --requirement requirements/runtime.txt
+          audit_status=$?
+          set -e
+          if [[ "$audit_status" -gt 1 ]]; then
+            exit "$audit_status"
+          fi
+      - name: Generate unsigned attestable provenance and bind both SBOMs
+        run: |
+          wheel_path="$(find "$EVIDENCE_DIRECTORY/dist" -maxdepth 1 -type f -name '*.whl')"
+          test -n "$wheel_path"
+          test "$(printf '%s\n' "$wheel_path" | wc -l | tr -d ' ')" = "1"
+          .venv/bin/python scripts/verify_supply_chain.py generate-evidence \
+            --repository "$REPOSITORY_URL" \
+            --revision "$SOURCE_REVISION" \
+            --wheel "$wheel_path" \
+            --image-name "$IMAGE_NAME" \
+            --image-digest "${{ steps.image.outputs.digest }}" \
+            --output-directory "$EVIDENCE_DIRECTORY" \
+            --workflow ".github/workflows/ci.yml"
+      - name: Enforce vulnerability exceptions and evidence bindings
+        run: |
+          .venv/bin/python scripts/verify_supply_chain.py vulnerabilities \
+            --report "$EVIDENCE_DIRECTORY/pip-audit.json" \
+            --report "$EVIDENCE_DIRECTORY/trivy-image.json" \
+            --image-name "$IMAGE_NAME" \
+            --image-digest "${{ steps.image.outputs.digest }}"
+          wheel_path="$(find "$EVIDENCE_DIRECTORY/dist" -maxdepth 1 -type f -name '*.whl')"
+          .venv/bin/python scripts/verify_supply_chain.py verify-evidence \
+            --repository "$REPOSITORY_URL" \
+            --revision "$SOURCE_REVISION" \
+            --wheel "$wheel_path" \
+            --image-name "$IMAGE_NAME" \
+            --image-digest "${{ steps.image.outputs.digest }}" \
+            --output-directory "$EVIDENCE_DIRECTORY" \
+            --workflow ".github/workflows/ci.yml"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: supply-chain-evidence-${{ github.sha }}
+          path: |
+            .local/supply-chain/dist/*.whl
+            .local/supply-chain/wheel.cdx.json
+            .local/supply-chain/runtime-image.cdx.json
+            .local/supply-chain/provenance.intoto.json
+            .local/supply-chain/direct-licenses.json
+            .local/supply-chain/pip-audit.json
+            .local/supply-chain/trivy-image.json
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 14

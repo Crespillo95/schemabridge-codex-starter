@@ -113,6 +113,8 @@ class JudgeUiService:
     access_store: WorkflowAccessStorePort
     authorization: WorkflowAuthorizationPort
     clock: WorkflowClockPort
+    execution_actions_enabled: bool = True
+    publication_actions_enabled: bool = True
     require_separate_publisher: bool = False
     max_live_publication_identity_age: timedelta = timedelta(minutes=15)
 
@@ -134,8 +136,12 @@ class JudgeUiService:
             can_view=WorkflowPermission.VIEW in permissions,
             can_create=WorkflowPermission.CREATE in permissions,
             can_confirm=WorkflowPermission.CONFIRM in permissions,
-            can_execute=WorkflowPermission.EXECUTE in permissions,
-            can_publish=WorkflowPermission.PUBLISH in permissions,
+            can_execute=(
+                self.execution_actions_enabled and WorkflowPermission.EXECUTE in permissions
+            ),
+            can_publish=(
+                self.publication_actions_enabled and WorkflowPermission.PUBLISH in permissions
+            ),
             can_skip=WorkflowPermission.SKIP in permissions,
             can_retry=bool(
                 permissions & frozenset({WorkflowPermission.RETRY, WorkflowPermission.PUBLISH})
@@ -282,6 +288,7 @@ class JudgeUiService:
 
     def approve_execution(self, workflow_id: str) -> JudgeUiView:
         self._require_workflow(workflow_id, WorkflowPermission.EXECUTE)
+        self._require_execution_actions()
         orchestrator = self._orchestrator()
         try:
             current = orchestrator.inspect(workflow_id)
@@ -307,6 +314,7 @@ class JudgeUiService:
 
     def publish_context(self, workflow_id: str) -> JudgeUiView:
         self._require_workflow(workflow_id, WorkflowPermission.PUBLISH)
+        self._require_publication_actions()
         self._require_fresh_live_publisher()
         orchestrator = self._orchestrator()
         try:
@@ -385,7 +393,10 @@ class JudgeUiService:
             )
             self._require_grant(grant, permission)
             if permission is WorkflowPermission.PUBLISH:
+                self._require_publication_actions()
                 self._require_fresh_live_publisher()
+            elif current.failure.operation is WorkflowOperation.PREVIEW_EXECUTION:
+                self._require_execution_actions()
             if current.failure.operation is WorkflowOperation.CONTEXT_PUBLICATION and (
                 current.publication_approval is None
                 or current.publication_approval.actor != self.principal.actor_id
@@ -430,7 +441,10 @@ class JudgeUiService:
             )
             self._require_grant(grant, permission)
             if permission is WorkflowPermission.PUBLISH:
+                self._require_publication_actions()
                 self._require_fresh_live_publisher()
+            elif operation is WorkflowOperation.PREVIEW_EXECUTION:
+                self._require_execution_actions()
             draft = orchestrator.recover_interrupted(
                 workflow_id,
                 expected_operation=operation,
@@ -529,6 +543,24 @@ class JudgeUiService:
                 "Live publication requires a recently issued authenticated identity.",
                 "Sign out and authenticate again before reviewing the publication proposal.",
             )
+
+    def _require_execution_actions(self) -> None:
+        if self.execution_actions_enabled:
+            return
+        raise UiActionError(
+            "managed_execution_submission_unavailable",
+            "This managed web runtime cannot execute source queries.",
+            "Use the authenticated execution API after a queued UI client is configured.",
+        )
+
+    def _require_publication_actions(self) -> None:
+        if self.publication_actions_enabled:
+            return
+        raise UiActionError(
+            "managed_publication_submission_unavailable",
+            "This managed web runtime cannot publish context to DataHub.",
+            "Use a dedicated approval queue and publisher worker after that lane is implemented.",
+        )
 
 
 def _safe_action_error(error: Exception) -> UiActionError:

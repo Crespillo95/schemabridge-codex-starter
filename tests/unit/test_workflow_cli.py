@@ -68,10 +68,10 @@ def test_workflow_demo_start_then_show_restores_same_pause(tmp_path: Path) -> No
 
 
 def test_managed_profile_disables_legacy_caller_identified_cli(tmp_path: Path) -> None:
-    connector_secret_directory = tmp_path / "connector-secrets"
-    connector_secret_directory.mkdir(mode=0o700)
+    identity_root = tmp_path / "identity"
     environment = {
         "SCHEMABRIDGE_ENVIRONMENT": "production",
+        "SCHEMABRIDGE_COMPONENT": "web",
         "SCHEMABRIDGE_AUTH_MODE": "oidc",
         "SCHEMABRIDGE_OIDC_ISSUER": "https://identity.example.test",
         "SCHEMABRIDGE_OIDC_AUDIENCE": "schemabridge",
@@ -82,10 +82,6 @@ def test_managed_profile_disables_legacy_caller_identified_cli(tmp_path: Path) -
         "SCHEMABRIDGE_QUERY_STUDIO_SIGNING_KEY": (
             "unit-test-query-studio-signing-key-with-distinct-material"
         ),
-        "DATABASE_URL": (
-            "postgresql://source_reader:source_password@source.example.test/source"
-            "?sslmode=verify-full"
-        ),
         "SCHEMABRIDGE_CONTROL_DATABASE_URL": (
             "postgresql://control_runtime:control_password@control.example.test/control"
             "?sslmode=verify-full"
@@ -94,7 +90,20 @@ def test_managed_profile_disables_legacy_caller_identified_cli(tmp_path: Path) -
             "unit-test-control-audit-signing-key-with-diversity"
         ),
         "SCHEMABRIDGE_IDENTITY_MIGRATION_KEY": ("unit-test-identity-migration-key-with-diversity"),
-        "SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY": str(connector_secret_directory),
+        "SCHEMABRIDGE_CONNECTOR_SECRET_MODE": "remote",
+        "SCHEMABRIDGE_CONNECTOR_SECRET_PROVIDER_URL": "https://secrets.example.test",
+        "SCHEMABRIDGE_CONNECTOR_SECRET_ROLE": "schemabridge-preflight",
+        "SCHEMABRIDGE_CONNECTOR_SECRET_KV_MOUNT": "tenant-connectors",
+        "SCHEMABRIDGE_CONNECTOR_SECRET_CAPABILITY": "preflight",
+        "SCHEMABRIDGE_CONNECTOR_SECRET_CA_BUNDLE": str(tmp_path / "trust" / "ca.crt"),
+        "SCHEMABRIDGE_WORKLOAD_IDENTITY_TOKEN_FILE": str(identity_root / "token"),
+        "SCHEMABRIDGE_WORKLOAD_IDENTITY_ROOT": str(identity_root),
+        "SCHEMABRIDGE_WORKLOAD_IDENTITY_AUDIENCE": "schemabridge-secret-manager",
+        "SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_ROLE": "schemabridge-registry-reader",
+        "SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_BINDING_REF": "registry.reader.primary",
+        "SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_VERSION": "17",
+        "SCHEMABRIDGE_PUBLICATION_MODE": "disabled",
+        "SCHEMABRIDGE_JUDGE_EXECUTION": "disabled",
         "SCHEMABRIDGE_DRAFT_STORE_PATH": str(tmp_path / "production-cli.db"),
     }
 
@@ -160,20 +169,11 @@ def test_managed_cli_allows_only_explicit_control_plane_operator_group(
 
     monkeypatch.setattr(cli_module, "build_control_plane_migrator", fake_builder)
     secret_marker = "operator-secret-must-not-be-rendered"
-    connector_secret_directory = tmp_path / "connector-secrets"
-    connector_secret_directory.mkdir(mode=0o700)
     environment = {
         "SCHEMABRIDGE_ENVIRONMENT": "production",
-        "SCHEMABRIDGE_AUTH_MODE": "oidc",
-        "SCHEMABRIDGE_OIDC_ISSUER": "https://identity.example.test",
-        "SCHEMABRIDGE_OIDC_AUDIENCE": "schemabridge",
-        "SCHEMABRIDGE_OIDC_PROVIDER": "corporate-oidc",
-        "SCHEMABRIDGE_OIDC_ALLOWED_GROUPS": '{"operators":["platform_admin"]}',
-        "SCHEMABRIDGE_OIDC_ALLOWED_TENANTS": '["tenant-a"]',
-        "SCHEMABRIDGE_PSEUDONYMIZATION_KEY": ("unit-test-pseudonymization-key-at-least-32-bytes"),
-        "SCHEMABRIDGE_QUERY_STUDIO_SIGNING_KEY": (
-            "unit-test-query-studio-signing-key-with-distinct-material"
-        ),
+        "SCHEMABRIDGE_COMPONENT": "operator",
+        "SCHEMABRIDGE_AUTH_MODE": "local-demo",
+        "SCHEMABRIDGE_CONTROL_PLANE_MODE": "postgres",
         "DATABASE_URL": (
             "postgresql://source_reader:source_password@source.example.test/source"
             "?sslmode=verify-full"
@@ -194,7 +194,6 @@ def test_managed_cli_allows_only_explicit_control_plane_operator_group(
             "unit-test-control-audit-signing-key-with-diversity"
         ),
         "SCHEMABRIDGE_IDENTITY_MIGRATION_KEY": ("unit-test-identity-migration-key-with-diversity"),
-        "SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY": str(connector_secret_directory),
     }
 
     result = runner.invoke(

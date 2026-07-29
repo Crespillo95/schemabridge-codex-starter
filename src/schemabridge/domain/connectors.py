@@ -43,7 +43,7 @@ _COST_ASSESSMENT_FINGERPRINT_VERSION = "m28-query-cost-assessment-v1"
 _POSTGRES_TYPE_CONTRACT_FINGERPRINT_VERSION = "m28-postgresql-native-type-contract-v1"
 _POSTGRES_SOURCE_IDENTITY_FINGERPRINT_VERSION = "m28-postgresql-source-identity-v1"
 _ROUTE_CONTRACT_FINGERPRINT_VERSION = "m28-connector-contract-v1"
-_ROUTE_BINDING_SET_FINGERPRINT_VERSION = "m28-connector-private-binding-set-v1"
+_ROUTE_BINDING_SET_FINGERPRINT_VERSION = "m29-connector-private-binding-set-v2"
 _ROUTE_FINGERPRINT_VERSION = "m28-connector-route-v1"
 _ROUTE_STATE_FINGERPRINT_VERSION = "m28-connector-route-state-v1"
 _ROUTE_PROPOSAL_FINGERPRINT_VERSION = "m28-connector-route-proposal-v1"
@@ -926,25 +926,36 @@ def connector_contract_fingerprint(
 
 
 def connector_private_bindings_fingerprint(
-    capability_digests: dict[ConnectorRouteCapability, str],
+    capability_bindings: dict[ConnectorRouteCapability, tuple[str, int]],
 ) -> str:
-    """Bind four one-way capability digests without accepting private values."""
+    """Bind four one-way capability digests and exact immutable provider versions."""
 
-    if set(capability_digests) != set(ConnectorRouteCapability):
-        raise ValueError("connector private binding digest set is incomplete")
+    if set(capability_bindings) != set(ConnectorRouteCapability):
+        raise ValueError("connector private binding set is incomplete")
     normalized = {
-        capability.value: _lowercase_sha256(capability_digests[capability])
+        capability.value: {
+            "binding_digest": _lowercase_sha256(capability_bindings[capability][0]),
+            "provider_secret_version": _provider_secret_version(capability_bindings[capability][1]),
+        }
         for capability in ConnectorRouteCapability
     }
-    if len(set(normalized.values())) != len(ConnectorRouteCapability):
+    if len({binding["binding_digest"] for binding in normalized.values()}) != len(
+        ConnectorRouteCapability
+    ):
         raise ValueError("connector private binding digests must be distinct")
     return _fingerprint(
         {
-            "capability_digests": normalized,
+            "capability_bindings": normalized,
             "fingerprint_version": _ROUTE_BINDING_SET_FINGERPRINT_VERSION,
-            "version": 1,
+            "version": 2,
         }
     )
+
+
+def _provider_secret_version(value: object) -> int:
+    if type(value) is not int or not 1 <= value <= MAX_ROUTE_REVISION:
+        raise ValueError("connector provider secret version is invalid")
+    return value
 
 
 def connector_route_fingerprint(

@@ -1,9 +1,11 @@
+# Legacy M24 local-secret reference only. Managed staging/production deployments
+# must use deploy/kubernetes/m29 and remote exact-version secret resolution.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: schemabridge-api-config
 data:
-  SCHEMABRIDGE_ENVIRONMENT: production
+  SCHEMABRIDGE_ENVIRONMENT: development
   SCHEMABRIDGE_COMPONENT: api
   SCHEMABRIDGE_CONTROL_PLANE_MODE: postgres
   SCHEMABRIDGE_AUTH_MODE: oidc
@@ -23,8 +25,9 @@ kind: ConfigMap
 metadata:
   name: schemabridge-worker-config
 data:
-  SCHEMABRIDGE_ENVIRONMENT: production
+  SCHEMABRIDGE_ENVIRONMENT: development
   SCHEMABRIDGE_COMPONENT: worker
+  SCHEMABRIDGE_ALLOW_LOCAL_LIVE_READS: "true"
   SCHEMABRIDGE_CONTROL_PLANE_MODE: postgres
   SCHEMABRIDGE_REGISTRY_MODE: live
   SCHEMABRIDGE_SEMANTIC_REGISTRY_SELECTION: active
@@ -42,8 +45,9 @@ kind: ConfigMap
 metadata:
   name: schemabridge-catalog-config
 data:
-  SCHEMABRIDGE_ENVIRONMENT: production
+  SCHEMABRIDGE_ENVIRONMENT: development
   SCHEMABRIDGE_COMPONENT: catalog
+  SCHEMABRIDGE_ALLOW_LOCAL_LIVE_READS: "true"
   SCHEMABRIDGE_CONTROL_PLANE_MODE: postgres
   SCHEMABRIDGE_CATALOG_MODE: live
   SCHEMABRIDGE_CATALOG_POLL_INTERVAL_MS: "1000"
@@ -58,8 +62,9 @@ kind: ConfigMap
 metadata:
   name: schemabridge-semantic-reconciler-config
 data:
-  SCHEMABRIDGE_ENVIRONMENT: production
+  SCHEMABRIDGE_ENVIRONMENT: development
   SCHEMABRIDGE_COMPONENT: reconciler
+  SCHEMABRIDGE_ALLOW_LOCAL_LIVE_READS: "true"
   SCHEMABRIDGE_AUTH_MODE: local-demo
   SCHEMABRIDGE_CONTROL_PLANE_MODE: postgres
   SCHEMABRIDGE_REGISTRY_MODE: live
@@ -80,8 +85,9 @@ kind: ConfigMap
 metadata:
   name: schemabridge-semantic-profile-worker-config
 data:
-  SCHEMABRIDGE_ENVIRONMENT: production
+  SCHEMABRIDGE_ENVIRONMENT: development
   SCHEMABRIDGE_COMPONENT: worker
+  SCHEMABRIDGE_ALLOW_LOCAL_LIVE_READS: "true"
   SCHEMABRIDGE_AUTH_MODE: local-demo
   SCHEMABRIDGE_CONTROL_PLANE_MODE: postgres
   SCHEMABRIDGE_WORKER_IDENTITY_LINEAGE_MODE: verified-oidc

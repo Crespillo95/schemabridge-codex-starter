@@ -325,11 +325,17 @@ def test_m28_component_configmaps_do_not_cross_capability_boundaries() -> None:
     }
 
 
-def test_m28_configmaps_pass_the_managed_component_preflight() -> None:
+def test_m28_legacy_configmaps_pass_only_the_development_component_preflight() -> None:
     worker_config = _config_map("schemabridge-worker-config")["data"]
     catalog_config = _config_map("schemabridge-catalog-config")["data"]
     reconciler_config = _config_map("schemabridge-semantic-reconciler-config")["data"]
     profile_worker_config = _config_map("schemabridge-semantic-profile-worker-config")["data"]
+    assert {
+        worker_config["SCHEMABRIDGE_ENVIRONMENT"],
+        catalog_config["SCHEMABRIDGE_ENVIRONMENT"],
+        reconciler_config["SCHEMABRIDGE_ENVIRONMENT"],
+        profile_worker_config["SCHEMABRIDGE_ENVIRONMENT"],
+    } == {"development"}
 
     with patch.dict(
         os.environ,
@@ -699,7 +705,8 @@ def test_runtime_image_contains_schema_preflight_assets_and_non_root_user() -> N
     dockerfile = (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8")
 
     assert "COPY migrations ./migrations" in dockerfile
-    assert "'.[api,postgres,sql]'" in dockerfile
+    assert "COPY requirements/runtime.txt ./requirements/runtime.txt" in dockerfile
+    assert "API, worker, SQL, and UI runtime" in dockerfile
     assert "USER 10001:10001" in dockerfile
     assert 'CMD ["schemabridge-api"]' in dockerfile
 

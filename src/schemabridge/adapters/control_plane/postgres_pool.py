@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Iterator, Mapping
 from contextlib import AbstractContextManager, contextmanager
@@ -12,8 +13,29 @@ import psycopg
 from psycopg_pool import ConnectionPool, PoolClosed, PoolTimeout, TooManyRequests
 
 _APPLICATION_NAME = re.compile(
-    r"^schemabridge-control-(?:api|worker|catalog|runtime|reconciler|migrator)$"
+    r"^schemabridge-control-(?:api|worker|catalog|runtime|reconciler|migrator|observer)$"
 )
+_PSYCOPG_POOL_LOGGER = logging.getLogger("psycopg.pool")
+
+
+class _PsycopgPoolLogSanitizer(logging.Filter):
+    """Replace upstream connection text before it reaches any configured handler."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.msg = "control_pool_internal_event"
+        record.args = ()
+        record.exc_info = None
+        record.exc_text = None
+        record.stack_info = None
+        return True
+
+
+_PSYCOPG_POOL_LOG_SANITIZER = _PsycopgPoolLogSanitizer()
+
+
+def _install_psycopg_pool_log_sanitizer() -> None:
+    if _PSYCOPG_POOL_LOG_SANITIZER not in _PSYCOPG_POOL_LOGGER.filters:
+        _PSYCOPG_POOL_LOGGER.addFilter(_PSYCOPG_POOL_LOG_SANITIZER)
 
 
 class ControlPoolUnavailable(psycopg.OperationalError):
@@ -91,6 +113,7 @@ class PostgresControlPool:
         *,
         _pool: _Pool | None = None,
     ) -> None:
+        _install_psycopg_pool_log_sanitizer()
         self._settings = settings
         self._started = False
         self._pool: _Pool = _pool or ConnectionPool(
@@ -130,9 +153,9 @@ class PostgresControlPool:
                 wait=True,
                 timeout=self._settings.startup_timeout_seconds,
             )
-        except (PoolTimeout, PoolClosed, TooManyRequests) as error:
+        except (PoolTimeout, PoolClosed, TooManyRequests):
             self._started = False
-            raise ControlPoolUnavailable("control database pool is unavailable") from error
+            raise ControlPoolUnavailable("control database pool is unavailable") from None
         self._started = True
 
     def close(self) -> None:
@@ -155,8 +178,8 @@ class PostgresControlPool:
                 timeout=self._settings.acquisition_timeout_seconds,
             ) as connection:
                 yield connection
-        except (PoolTimeout, PoolClosed, TooManyRequests) as error:
-            raise ControlPoolUnavailable("control database pool is unavailable") from error
+        except (PoolTimeout, PoolClosed, TooManyRequests):
+            raise ControlPoolUnavailable("control database pool is unavailable") from None
 
     def stats(self) -> Mapping[str, int]:
         """Return numeric pool metrics without connection material."""

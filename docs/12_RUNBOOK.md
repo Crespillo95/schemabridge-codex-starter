@@ -1788,9 +1788,15 @@ make control-plane-check
 Equivalent operator commands are:
 
 ```bash
+export SCHEMABRIDGE_COMPONENT=operator
+export SCHEMABRIDGE_CONTROL_PLANE_MODE=postgres
 .venv/bin/schemabridge control-plane migrate --json
 .venv/bin/schemabridge control-plane check --json
 ```
+
+Keep `SCHEMABRIDGE_COMPONENT=operator` for every command under `control-plane`, including backup
+and restore. This boundary reads only the process environment (never the developer `.env`) and
+fails closed if it receives web, DataHub, OIDC, LLM, API-auth, or connector-secret credentials.
 
 `migrate` must report schema version 1 and the applied version, or `already_current=true` on an
 exact replay. `check` opens all three control credential paths read-only and reports version 1 with
@@ -3559,8 +3565,8 @@ operator sign-off, and produce a clean exact-commit release.
 M28 is accepted locally on synthetic evidence. Integration passed 164 tests with one known skip in
 662.06 seconds; acceptance passed 47 tests in 133.50 seconds. The final internal-browser run passed
 all nine scenarios at desktop 1280x720 and mobile 390x844 with state fingerprint
-`2b854c0596ada31ab5a80f5e6d25c23282f0096ac90a712e953476dff899be33`. M29 is eligible but has
-not started. This procedure and local acceptance must not be read as a production or release GO.
+`2b854c0596ada31ab5a80f5e6d25c23282f0096ac90a712e953476dff899be33`. M29 is now in progress;
+this historical M28 procedure and local acceptance must not be read as a production or release GO.
 
 ### Preconditions and invariants
 
@@ -3582,14 +3588,31 @@ not started. This procedure and local acceptance must not be read as a productio
    binding, DSN, password, token, endpoint, or secret path in argv, logs, screenshots, fixtures,
    state, or tracked files.
 
-The private-binding artifact consumed by the route operator has only `format_version=1` and the
-four opaque references. It is also owner-only mode `0600`. Source secret documents contain exactly
+The private-binding artifact consumed by the current route operator has `format_version=2`. Each
+of its four capabilities contains exactly `reference` and a positive
+`provider_secret_version`. It is also owner-only mode `0600`. The provider version is independent
+from `route_revision`, remains private, and is covered by the proposal fingerprint. This
+non-deployable synthetic document shows only the required shape:
+
+```json
+{
+  "format_version": 2,
+  "private_bindings": {
+    "preflight": {"reference": "example.preflight.synthetic", "provider_secret_version": 101},
+    "catalog": {"reference": "example.catalog.synthetic", "provider_secret_version": 202},
+    "execution": {"reference": "example.execution.synthetic", "provider_secret_version": 303},
+    "profile": {"reference": "example.profile.synthetic", "provider_secret_version": 404}
+  }
+}
+```
+
+Do not copy those synthetic references into an environment. Source secret documents contain exactly
 `format_version`, `dialect`, `expected_reader`, and `dsn`; DataHub catalog documents contain
 exactly `format_version`, `kind`, `server`, `token`, and `platform`. The secret filename is the
 SHA-256 of its opaque reference plus `.json`; operators should use approved provisioning tooling
 to create it and must not derive or print the filename in application output.
 
-### 1. Apply and verify exact control-plane schema v9
+### 1. Apply and verify exact control-plane schema v11
 
 ```bash
 make control-plane-reset
@@ -3597,15 +3620,22 @@ make control-plane-migrate
 make control-plane-check
 ```
 
-The migrator must apply immutable migrations 0001–0008 followed by
-`0009_tenant_connector_routing.sql`. Every managed component must report current/expected
-schema version 9 with no pending migration and source/control separation. Retain pristine and
-v8→v9 results, immutable historical checksums, and the exact six-role positive/negative matrix.
+The migrator must preserve immutable migrations 0001–0009, apply
+`0010_operational_observer.sql`, then apply `0011_connector_secret_versions.sql`. Every managed
+component must report current/expected schema version 11 with no pending migration and
+source/control separation. Retain pristine and upgrade results, immutable historical checksums,
+and the exact role positive/negative matrix.
 
 Migration v9 refuses undrained non-terminal legacy work. Historical terminal targetless work may
 remain non-executable. Existing catalog generations with null M28 identities remain historical
 and visible only where allowed; they cannot satisfy executable planning, preflight, preview,
 rejection inspection, profiling, or current semantic evidence.
+
+Migration v11 creates no provider-version backfill. A v9/v10 connector route without four explicit
+version rows is intentionally invisible to the new private loaders. Do not equate its
+`route_revision` with an external KV version and do not insert companion rows manually. Provision
+and verify the intended external versions, prepare and approve the next route revision with a
+format-v2 binding artifact, then apply it through `schemabridge-connector-route`.
 
 ### 2. Derive and review public identities without exposing topology
 
@@ -3705,6 +3735,11 @@ reviewed contract/budget/binding values; its exact approval phrase is
 uses `--operation disable`, the current head revision, none of the enabled-route values or private
 bindings, and `DISABLE CONNECTOR ROUTE`. Any old confirmed plan becomes stale after rotation or
 disable; it is never redirected.
+
+For the remote-secret proof, deliberately choose provider versions that differ from the route
+revision. Capture sanitized provider audit evidence showing reads only for those exact versions.
+An omitted version, a destroyed/deleted/wrong version, or a legacy unversioned route must stop
+before workload authentication or source/DataHub I/O where the local boundary can reject it.
 
 ### 4. Refresh catalog evidence after route activation or identity change
 
@@ -3861,10 +3896,10 @@ M28_POST_FIX_MAKE_CHECK=PASS_2714
 M28_POST_FIX_COVERAGE=PASS_81.76_PERCENT
 ```
 
-M28 is accepted locally, and M29 is eligible but not started. This remains a production and release
-NO-GO. M29 operated remote secrets, TLS/NetworkPolicy, observability, supply-chain and recovery
-controls; M30 production-data/security evaluation; M31 pilot/GA; a reviewed clean release identity;
-and external operator/security approval all remain blockers.
+M28 is accepted locally, and M29 is in progress. This remains a production and release NO-GO.
+Checked-in M29 contracts do not prove operated remote secrets, TLS/NetworkPolicy, observability,
+supply-chain, or recovery controls; M30 production-data/security evaluation, M31 pilot/GA, a
+reviewed clean release identity, and external operator/security approval all remain blockers.
 
 ## Troubleshooting record
 
@@ -3932,3 +3967,98 @@ and external operator/security approval all remain blockers.
   only when the MCP credential is genuinely absent or expired.
 - Offline boundary: use `--adapter recorded` only when an explicitly labeled sanitized snapshot is
   acceptable; the live path never activates it automatically.
+
+## M29 operator runbook
+
+### Validate the production-shaped Kubernetes contract
+
+The checked-in production overlay is deliberately blocked by placeholders. Copy or patch it in a
+reviewed release workspace; do not commit credentials, Secret resources, certificate material, or
+private endpoints. Supply exact image digests, trust roots, public hosts, versioned external Secret
+names, provider roles, registry scope, and cluster selectors, then run:
+
+```bash
+kubectl kustomize deploy/kubernetes/m29/overlays/production > rendered-m29.yaml
+python deploy/kubernetes/m29/validate_rendered.py rendered-m29.yaml
+kubectl apply --server-side --dry-run=server -f rendered-m29.yaml
+```
+
+Stop if the local validator reports any code or the target cluster rejects admission. A local
+render does not prove CNI, ingress, `ServiceMonitor`, external-secret, egress-plane, or admission
+behavior.
+
+### Operate and rotate connector secrets
+
+1. Confirm the workload uses the exact component service account and 600-second
+   `schemabridge-secret-manager` audience token.
+2. Create a new immutable provider version and bind only the one capability/tenant path required
+   by that workload.
+3. Create a new version-named external Kubernetes Secret for that component; never mutate data
+   under an existing name.
+4. Patch only that Deployment to the new reference and record the upstream version, Kubernetes
+   object UID, image/source revision, and sanitized timestamps.
+5. Prove a new operation resolves the new version, an old target fails, the revoked external
+   credential is denied, and rollback to the previous reviewed reference stays within the approved
+   window.
+6. Stop on wrong audience/role, redirect, TLS/CA/hostname failure, missing exact version, malformed
+   or oversized response, timeout, provider outage, or any secret/path/endpoint disclosure.
+
+The runtime never falls back to a local file or global credential in managed mode.
+
+### Observe workloads
+
+Start the aggregate observer locally only with its exact role:
+
+```bash
+make observer
+```
+
+The observer exposes health/readiness and bounded OpenMetrics on its configured internal port. API,
+execution worker, catalog, profile, and reconciler expose their own internal port `9464`; the API
+business port `8520` must return no metrics document. Prometheus may scrape only through the exact
+namespace/pod selectors in the M29 NetworkPolicies.
+
+Validate `deploy/observability/bundle.yaml` before loading its alert, SLO, dashboard, SIEM, or
+runbook children. Treat a missing required series, failed scrape, SIEM error/drop, stale backup,
+stale reconciliation, failed integrity/release check, queue backlog, unavailable process, or
+security-control failure according to the linked runbook. Do not paste raw alert payloads,
+tracebacks, paths, endpoints, identities, SQL, parameters, rows, or secrets into an incident.
+
+### Supply-chain evidence
+
+```bash
+make supply-chain-static
+make supply-chain-licenses
+```
+
+CI builds the wheel and runtime image once, generates CycloneDX evidence, verifies complete
+artifact-bound pip-audit and Trivy reports, and validates unsigned local provenance. Only the
+protected published-release workflow may request short-lived OIDC signing. Pull requests never
+receive signing authority. Reject empty/incomplete scanner output, a mutable action/image, a
+different source revision or artifact digest, an expired/unknown exception, or prohibited/unknown
+direct license.
+
+Before enabling a release, create and protect the exact GitHub environment
+`production-release`, require independent reviewers, restrict deployment branches/tags, and add
+an environment-only secret named `SCHEMABRIDGE_RELEASE_APPROVAL_SENTINEL` containing 32–128 safe
+random characters. The first release step validates that sentinel before checkout or any
+third-party action. If the environment, protection, or sentinel is absent, publication fails
+closed. The release job also reruns `release_audit.py --require-release` on the exact clean tag
+before registry login or artifact construction.
+
+### Backup, retention, restore, and rollback
+
+The executable retention and recovery commands, exact confirmation, fingerprint review, RPO/RTO,
+fresh-target restore sequence, and rollback decision tree are in
+`deploy/recovery/RUNBOOK.md`. Planning is dry-run by default. Execution moves verified expired
+pairs to recoverable owner-only quarantine; it never purges them. Remote encryption/object lock,
+quarantine purge, restore target provisioning, and cutover are separate externally authorized
+operations.
+
+### Production stop conditions
+
+Do not declare production ready from this repository alone. Stop at NO-GO if any of these remain
+unoperated: provider IAM/rotation/revocation, target-cluster server-side admission and policy
+enforcement, production TLS/mTLS, metrics/SIEM/pages, immutable remote backup retention,
+fresh-target restore and rollback, production traffic/SLO evidence, M30/M31, clean signed release
+identity, or independent security/operator approval.

@@ -1045,3 +1045,69 @@ M28's local owner-only secret resolvers, reference Kubernetes manifests, synthet
 browser state prove the application contract only. M29 must still provide operated remote secret
 management, workload identity, network/TLS policy, observability/alerting, supply-chain evidence,
 and production rollback before any production GO.
+
+## M29 operated-runtime architecture
+
+M29 adds a provider-neutral connector-secret port in `application/ports`. The existing owner-only
+file adapter and the HTTPS remote adapter implement that port independently. Managed composition
+accepts only remote mode: each read requires a short-lived projected workload token with an exact
+audience, one closed capability role, an exact immutable secret version, verified TLS, bounded
+request/response sizes, no redirects, and no persistent copy. The connector still opens only one
+transient capability-specific connection. API, reconciler, observer, and migrator composition
+cannot receive connector-secret authority.
+
+The immutable provider version is private route state and is independent from the public
+`route_revision`. The route proposal binds a one-way digest of each opaque reference together
+with that exact provider version, so a version change invalidates the proposal and approval even
+when the opaque reference is reused. Schema v11 stores those versions in an immutable companion
+relation and exposes only version-bearing capability loaders. It deliberately does not backfill
+v9/v10 rows from `route_revision`; an unversioned historical route is non-executable until an
+operator performs a newly approved rotation.
+
+Control-plane schema v10 introduces the exact `schemabridge_observer` principal, and schema v11
+adds immutable connector-provider version pins. The observer has default and transaction read-only
+enforcement plus `SELECT` only on the security-barrier
+`schemabridge_control.operational_queue_snapshot` aggregate and migration identity. It cannot read
+queue records, identifiers, SQL, parameters, routes, bindings, audit payloads, or source data, and
+it owns no mutation, routine-execution, role-switching, or schema-creation capability.
+
+The observer refreshes the four closed queue aggregates into one process-local OpenMetrics
+registry. API, execution worker, catalog indexer, profile worker, and reconciler each own a
+separate bounded internal metrics listener; the API business listener never exposes `/metrics`.
+All six scrape targets emit readiness without source I/O. Structured JSON events and SIEM batches
+use closed schemas and low-cardinality enums; unknown fields and sensitive payload classes are
+rejected before serialization. Alert, SLO, dashboard, SIEM, and runbook files form one
+self-validating versioned bundle.
+
+The Kubernetes M29 base composes seven long-running workloads with distinct service accounts,
+immutable external Secret references, projected capability identities only where needed,
+restricted pod security, resource limits, topology spread, PDBs, TLS ingress, default-deny
+networking, six internal metrics Services/ServiceMonitors, and capability-specific egress-plane
+selectors. Migration and backup remain reviewed one-shot operator workflows rather than fake
+Deployments. The production overlay intentionally contains blocking placeholders and is not
+deployable until the target operator supplies reviewed image digests, trust roots, hosts, external
+Secret names, provider roles, and cluster selectors.
+
+The managed web composition is intentionally planning-only at its mutation boundary. It must set
+`SCHEMABRIDGE_JUDGE_EXECUTION=disabled` and
+`SCHEMABRIDGE_PUBLICATION_MODE=disabled`; consequently it can load the active registry, retrieve a
+bounded governed closure, compile deterministic SQL, apply the independent AST policy, and run
+remote cost preflight, but it cannot open a source execution connection or load DataHub writer
+material. The existing authenticated API and execution worker retain the execution job lane, but
+Streamlit does not yet submit to that API. Publication has no equivalent durable approval queue or
+publisher worker yet. Both browser actions therefore remain explicit NO-GO capabilities rather
+than silently using recorded data or a synchronous writer.
+
+Dependency and build inputs are locked and hash exported. Strict workflow validation rejects
+mutable action/image references, YAML aliases/merge keys/duplicates, broad permissions, unsafe
+triggers, incomplete vulnerability reports, or attestations that do not cover the reviewed wheel,
+SBOM/provenance evidence, and runtime image. Recovery remains a separate capability: signed
+archive/manifest pairs are fully reverified, retention is bound to exact reviewed policy and plan
+fingerprints, and expired pairs move into a recoverable owner-only quarantine. Restore targets must
+be distinct and empty; cutover remains external and automatic down-migration remains forbidden.
+
+These components are production-shaped local contracts, not proof of an operated provider or
+cluster. Production remains NO-GO until exact external secret rotation/revocation, server-side
+cluster admission, telemetry delivery/pages, immutable remote backup retention, fresh-target
+restore, rollback, production traffic/SLOs, M30/M31, and independent security/operator approval
+are actually exercised.

@@ -33,6 +33,7 @@ CAPABILITY = "catalog-route-capability-" + ("x" * 48)
 TARGET_FINGERPRINT = "a" * 64
 CATALOG_IDENTITY_FINGERPRINT = "b" * 64
 PRIVATE_BINDING = "vault:datahub:catalog-route"
+PROVIDER_SECRET_VERSION = 91
 
 
 class _Composable(Protocol):
@@ -94,6 +95,7 @@ def _row(**updates: object) -> tuple[object, ...]:
         7,
         TARGET_FINGERPRINT,
         PRIVATE_BINDING,
+        PROVIDER_SECRET_VERSION,
     ]
     positions = {
         "workspace_id": 0,
@@ -107,6 +109,7 @@ def _row(**updates: object) -> tuple[object, ...]:
         "route_revision": 8,
         "target_fingerprint": 9,
         "credential_binding_ref": 10,
+        "provider_secret_version": 11,
     }
     for key, value in updates.items():
         values[positions[key]] = value
@@ -156,9 +159,10 @@ def test_catalog_route_reader_binds_current_target_and_exact_live_lease() -> Non
     assert route.catalog_identity_fingerprint == CATALOG_IDENTITY_FINGERPRINT
     assert route.platform_instance is not None
     assert managed.credential_binding_ref == PRIVATE_BINDING
+    assert managed.provider_secret_version == PROVIDER_SECRET_VERSION
     query, params = connection.statements[0]
     assert "load_current_connector_target" in query
-    assert "load_owned_catalog_connector_route" in query
+    assert "load_owned_catalog_connector_route_v2" in query
     assert params == (
         WORKSPACE_ID,
         CONNECTION_ID.root,
@@ -201,6 +205,7 @@ def test_catalog_route_reader_preserves_explicitly_absent_platform_instance() ->
         _row(catalog_identity_fingerprint="not-a-fingerprint"),
         _row(platform_instance=" "),
         _row(credential_binding_ref="https://secret.invalid"),
+        _row(provider_secret_version=0),
         _row()[:-1],
         (*_row(), "extra"),
     ],

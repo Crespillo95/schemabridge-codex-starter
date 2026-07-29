@@ -6,6 +6,11 @@
 .env.*
 !.env.example
 .secrets
+.streamlit/secrets.toml
+*.p12
+*.pfx
+*.jks
+*.keystore
 __pycache__
 *.pyc
 *.pyo
@@ -14,6 +19,7 @@ __pycache__
 .mypy_cache
 .ruff_cache
 .coverage
+.coverage.*
 htmlcov
 artifacts
 reports

@@ -32,7 +32,13 @@ M28 is complete and accepted locally. Schema v9, the six-role matrix, exact two-
 PostgreSQL-only compilation/guarding, bounded cost preflight, dynamic 10/75 and 5,434/41,028
 inventory paths, 164-test integration, 47-test acceptance, 2,714-test quality, 81.76% coverage,
 package/release/scale/diff postflight, and all nine desktop/mobile internal-browser scenarios pass.
-M29 is eligible but not started.
+M29's reproducible local baseline is accepted. Control schema v11, the seven-role boundary,
+focused/full PostgreSQL gates, deterministic acceptance/evaluation, installed wheel, frozen
+dependency/supply-chain policy, distinct-target local recovery, scale contracts, and the 6×2
+internal-browser operations matrix pass. The final quality gate passes 3136 tests plus Ruff,
+mypy, supply-chain, and release audit; full coverage passes 3325 tests with 14 explicit external
+skips at 81.09%. No external provider, cluster, alert delivery, immutable retention, external
+cutover/rollback, protected release, or production operation has been accepted.
 
 This is not a production or release acceptance. The development branch is versioned on a draft
 GitHub PR but has not been reviewed or accepted as a release candidate. The
@@ -550,6 +556,58 @@ evidence.
   then removes sources and secrets before serving sanitized evidence through the product renderer.
   All nine scenarios passed at desktop 1280x720 and mobile 390x844 with distinct tenant results,
   clean consoles, no overflow/XSS/protected-data hits, and exact state/database/role/port cleanup.
+
+## M29 local baseline — accepted; production/release not accepted
+
+- The provider-neutral connector-secret application port has owner-only local and HTTPS
+  Vault/OpenBao-compatible remote implementations. The remote path consumes a short-lived
+  audience-bound projected token, authenticates one closed capability role, requests one exact
+  immutable provider version, verifies TLS, rejects redirects and malformed/oversized replies,
+  retains no cross-operation secret cache, and returns only sanitized failures.
+- Remote connector, DataHub-catalog, and semantic-registry credential paths are composed without
+  global source/DataHub fallback in managed mode. API, reconciler, observer, and migrator do not
+  receive connector-secret authority.
+- Control schema v10 adds `schemabridge_observer` and a security-barrier aggregate queue view.
+  Schema v11 adds immutable per-capability provider-version pins and version-bearing route
+  loaders. It does not infer a provider version from `route_revision` or backfill historical
+  routes; an unversioned route requires a newly approved rotation before it is executable.
+- Runtime composition now has separate web, API, execution, catalog, profile, reconciler,
+  observer, and operator boundaries. Managed web explicitly disables synchronous execution and
+  publication; it can plan, compile, validate, and preflight, but has no source-execution or
+  DataHub-writer capability. Streamlit-to-API execution submission and a durable publisher
+  queue/worker are not implemented and remain explicit NO-GO capabilities.
+- Long-running service telemetry uses schema-versioned bounded structured events and closed
+  low-cardinality OpenMetrics contracts. The aggregate-only observer, internal metrics exporters,
+  SLOs, alert rules, dashboards, SIEM contract, runbooks, and six-state safe operations view are
+  present. The final internal-browser matrix passes 6/6 states at desktop and 6/6 at 390×844 with
+  clean console, escaped hostile text, no overflow, protected-data hit, or dangerous action.
+- The M29 Kubernetes reference base contains distinct service accounts, explicit projected
+  identities only for secret readers, restricted non-root workloads, resource/topology controls,
+  PDBs, TLS ingress, namespace default-deny, capability-specific network paths, and six isolated
+  metrics scrape services. The production overlay deliberately retains blocking placeholders and
+  has not passed target-cluster admission or network-policy enforcement.
+- Dependency inputs are represented by `uv.lock` plus exact hashed runtime/build exports.
+  Supply-chain validation covers immutable actions/images, direct-license policy,
+  vulnerability-report structure, SBOM/artifact binding, provenance subjects, and
+  protected-release OIDC. No clean protected release has been built, scanned, attested, signed,
+  or promoted from these bytes.
+- Recovery policy and tooling enforce the hourly/RPO/RTO floor, verify signed archive/manifest
+  pairs before retention decisions, default to dry-run, reject links/tampering/orphans, and move
+  expired verified pairs into recoverable owner-only quarantine only after exact review. Remote
+  encrypted object-lock transfer, external cutover, and operated rollback have not been performed.
+  The signed local backup restores into a distinct fresh database and verifies schema v11, state,
+  audit, and cleanup.
+- Operator commands use an explicit component boundary and clean environment rather than
+  inheriting web, OIDC, OpenAI, DataHub, API-auth, connector-secret, or developer `.env`
+  capabilities. The clean operator reset/migrate/check sequence reports all seven credentials
+  current at schema v11 and confirms source/control separation.
+- Final local evidence is recorded in `tasks/M29_HANDOFF.md`: 210 focused M29 tests; 18 focused
+  PostgreSQL tests; 158 full integration passes with 11 exact external skips; 43 acceptance passes
+  with four DataHub skips; deterministic evaluation; complete wheel migrations/entrypoints;
+  frozen install; local recovery; scale; browser acceptance; final 3136-test quality; and
+  3325-test/81.09% coverage. Production and release remain **NO-GO**; M30/M31 and external
+  provider, cluster, operations, recovery, release, security, and operator acceptance remain
+  blocked.
 
 ## Test evidence
 
@@ -1327,6 +1385,25 @@ M28 accepted evidence on 2026-07-28:
   cleanup; and
 - D103 accepts M28 locally. Production/release remains NO-GO and M29 is eligible but not started.
 
+M29 accepted local evidence on 2026-07-29:
+
+- schema v11 and all seven control credentials pass from a clean control-plane reset; 18 focused
+  observer/provider-version PostgreSQL tests pass, and the complete integration suite yields 158
+  passed with 11 explicit external skips;
+- acceptance passes 43 tests with four DataHub skips; deterministic evaluation, installed-wheel
+  migrations 1–11 and all ten entrypoints, frozen uv installation, dependency audit, local
+  distinct-target recovery, the 61-resource validator, and scale correctness pass;
+- `make check` passes supply-chain/release audit, Ruff over 592 files, strict mypy over 300 source
+  files, and 3136 tests with 211 deselected in 758.69 seconds. Full coverage passes 3325 tests with
+  14 explicit external skips and one performance deselection at 81.09% in 2436.86 seconds;
+- the final internal-browser operations matrix passes all six states at desktop and mobile with
+  zero console warnings/errors, overflow, injected scripts, protected-data hits, or dangerous
+  actions, followed by exact listener/state cleanup; and
+- candidate/history secret and artifact scans pass before commit. Static provider/cluster/release
+  contracts are not operated proof: production and release remain NO-GO pending operated external
+  provider, cluster, retention, cutover/rollback, release, and review evidence listed in the M29
+  handoff.
+
 ## Known risks
 
 - The standalone Codex CLI package 0.104.0 is present but cannot start because its native arm64
@@ -1406,10 +1483,10 @@ M28 accepted evidence on 2026-07-28:
   but no final M18 release/public-deployment screenshots have been captured.
 - The timed captions/video script exists, but no video file, duration/checksum, public upload,
   muted-playback review, or rights review has been completed.
-- M20 alone isolates workflow control-plane state, not live data-plane credentials. The M28
-  candidate adds workspace/connection-qualified source and DataHub routes, but deployments must
-  retain the historical single-scope restriction until M28's final acceptance and M29's operated
-  secret/infrastructure controls are complete.
+- M20 alone isolates workflow control-plane state, not live data-plane credentials. Accepted-local
+  M28 adds workspace/connection-qualified source and DataHub routes, but deployments must retain
+  the historical single-scope restriction until M29's provider and infrastructure controls are
+  operated and independently accepted.
 - Streamlit logout clears the current application session but is not enterprise-wide revocation;
   other sessions may remain, and the Streamlit identity cookie lifetime is independent of the ID
   token. SchemaBridge rejects expired claims on rerun, limits accepted token lifetime to one hour,
@@ -1419,9 +1496,10 @@ M28 accepted evidence on 2026-07-28:
   one process/replica profile only; autoscaling, production replica budgeting, alert thresholds,
   queue SLOs, and real traffic remain unverified.
 - M28 removes the managed catalog's global DataHub server/token fallback and resolves
-  a capability-private route per workspace/connection. The local owner-only file resolver is
-  integration evidence, not an operated production secret manager; remote provisioning,
-  revocation, rotation, and audit remain M29 work.
+  a capability-private route per workspace/connection. M29 now implements an exact-version remote
+  resolver contract, but local owner-only files and mocked HTTPS responses are still not an
+  operated production secret manager; real provider provisioning, revocation, rotation, and audit
+  remain unaccepted.
 - Generation activation recomputes complete counts/fingerprints in O(N) PostgreSQL work. It avoids
   API-side materialization but is measured only at 5,434 assets, not at the policy ceiling of
   100,000,000 assets.
@@ -1499,8 +1577,9 @@ M28 accepted evidence on 2026-07-28:
   case/request digest, it must not be described as native content-derived per-case identity.
 - M27's final whole-tree migration/service/package/quality/81.47%-coverage/scale/diff matrix
   passes. M28's final schema/service/package/quality/81.76%-coverage/scale/diff and desktop/mobile
-  browser matrices also pass locally. The dirty-tree release warning, remote production controls,
-  and M29–M31 remain open.
+  browser matrices also pass locally. M29's reproducible local baseline passes, while the
+  dirty-tree/hosted release boundary, operated remote production controls, M30, and M31 remain
+  open.
 - PostgreSQL `EXPLAIN` estimates depend on current planner statistics and are an admission bound,
   not proof of runtime latency, memory, or result correctness. M28 deliberately uses
   `ANALYZE FALSE`; production capacity/SLO evidence and operated statement observability remain
@@ -1523,9 +1602,10 @@ browser evidence, and the final matrix passing.
 M28 — governed connector routing, explicit dialects, immutable generation identity, and query-cost
 preflight — is complete and accepted locally. Its exact final automated and Codex internal-browser
 desktop/390x844 matrices are recorded in `tasks/M28_HANDOFF.md`.
-M29 — operations and supply-chain hardening — is eligible but not started. M28 local acceptance
-does not authorize production: M29 operational controls and the remaining evaluation/pilot/release
-milestones still require separate evidence.
+M29 — operations and supply-chain hardening — has an accepted reproducible local baseline and
+remains a production/release NO-GO. Its checked-in contracts and local drills are not operated
+evidence; external rotation, cluster admission, alert delivery, immutable retention, external
+cutover/rollback, protected release provenance, M30, and M31 still require separate acceptance.
 M17/M18 release work remains independently blocked on a reviewed clean commit, strict
 `make release-clean`, exact-commit deployment, public/incognito and cold-start evidence, final
 media/links/checksums, and external reviewer sign-off.

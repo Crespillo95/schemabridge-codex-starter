@@ -23,7 +23,7 @@ _MIGRATION_FILE_PATTERN = re.compile(r"^(?P<version>[0-9]{4})_(?P<name>[a-z][a-z
 _MAX_MIGRATION_BYTES = 1_048_576
 _SCHEMA_NAME = "schemabridge_control"
 _APPLICATION_NAME_PATTERN = re.compile(
-    r"^schemabridge-control-(?:runtime|api|worker|catalog|reconciler|migrator)$"
+    r"^schemabridge-control-(?:runtime|api|worker|catalog|reconciler|migrator|observer)$"
 )
 _HISTORY_RELATION = f"{_SCHEMA_NAME}.schema_migrations"
 _LOCK_ID = int.from_bytes(

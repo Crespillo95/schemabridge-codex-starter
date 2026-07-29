@@ -50,8 +50,8 @@ Use the hosting platform secret store. Never commit tokens. Service accounts sho
 |---|---|---|---|---|---|
 | `hosted-demo` | fixed pseudonymous local demo | recorded | recorded | recorded | fake |
 | `development` | local demo by default; OIDC may be tested | recorded by default | recorded by default | recorded by default | fake unless OIDC |
-| `staging` | OIDC required | live | live immutable version | server configured | server configured |
-| `production` | OIDC required | live | live immutable version | server configured | server configured |
+| `staging` | OIDC required | live | live immutable version | web disabled; worker lane | web disabled |
+| `production` | OIDC required | live | live immutable version | web disabled; worker lane | web disabled |
 
 Managed modes are not rendered as selectors. `SCHEMABRIDGE_ENVIRONMENT`,
 `SCHEMABRIDGE_AUTH_MODE`, `SCHEMABRIDGE_CATALOG_MODE`,
@@ -60,6 +60,10 @@ Managed modes are not rendered as selectors. `SCHEMABRIDGE_ENVIRONMENT`,
 recorded registry/catalog in a managed profile, local live publication, or incomplete managed OIDC
 configuration stops startup. Local-demo live catalog/registry/query reads are development-only and
 require `SCHEMABRIDGE_ALLOW_LOCAL_LIVE_READS=true`; recorded execution remains the safe default.
+Staging and production web settings must explicitly declare
+`SCHEMABRIDGE_JUDGE_EXECUTION=disabled` and
+`SCHEMABRIDGE_PUBLICATION_MODE=disabled`. The existing API/worker execution lane is separate from
+the browser and is not yet wired to Streamlit; no durable publication-submission lane exists.
 
 OIDC non-secret metadata, exact tenant allowlists, and group-to-role allowlists use the variables documented in
 `.env.example`. Copy `.streamlit/secrets.toml.example` to an untracked/mounted
@@ -227,9 +231,16 @@ replacement for the platform's authenticated job-launch boundary.
 Migration is a pre-deployment operation:
 
 ```bash
+export SCHEMABRIDGE_COMPONENT=operator
+export SCHEMABRIDGE_CONTROL_PLANE_MODE=postgres
 .venv/bin/schemabridge control-plane migrate --json
 .venv/bin/schemabridge control-plane check --json
 ```
+
+The `operator` component is the only managed configuration boundary that accepts migration,
+backup, restore, and multi-role schema-check credentials. It does not load `.env` and rejects
+source-execution, DataHub, OIDC, LLM, API-auth, and connector-secret capabilities. The web
+component rejects those operator credentials before UI composition.
 
 Every web replica then performs the same read-only exact-version check. No replica auto-migrates.
 Blue/green rollout must keep traffic on the old release if the migration/check or active pointer
@@ -341,7 +352,9 @@ PyJWT[crypto]        asymmetric JWT/JWK signature verification
 These runtime dependencies are direct because the API must not rely on Streamlit/DataHub
 transitive packages. HTTPX is intentionally a direct `dev` dependency only: unit and real-socket
 acceptance clients use it, but neither the `api` extra nor the runtime image installs or imports it.
-The final version lock and SBOM remain M29.
+The final runtime image installs the frozen hashed API, PostgreSQL, SQL, worker, and UI dependency
+set from `requirements/runtime.txt`, then installs the project wheel with `--no-deps`. Its version
+lock, SBOM, vulnerability scan, provenance, and digest binding are enforced by M29.
 
 `make runtime-wheel-smoke` builds the current wheel, installs its runtime extras into an empty
 virtual environment and working directory, verifies that migrations are packaged, and composes
@@ -577,7 +590,7 @@ resolves that reference immediately before each page from a strict owner-only JS
 containing the HTTPS DataHub server and read token; neither value is an environment variable or a
 public API field. `SCHEMABRIDGE_CATALOG_DATAHUB_CREDENTIAL_BINDING_REF` is retired and rejected.
 The indexer must not receive `DATABASE_URL`, `DATAHUB_GMS_URL`, `DATAHUB_GMS_TOKEN`,
-API/worker/web control credentials, OIDC/JWKS/bearer material,
+API/worker/web control credentials, OIDC/JWKS/bearer material, <!-- gitleaks:allow — names only -->
 pseudonymization/audit/identity keys, DataHub writer material, or `OPENAI_API_KEY`. A synthetic
 source is for explicit local/scale fixtures only and must not become fallback behavior after a
 live DataHub failure.
@@ -971,7 +984,8 @@ zero external links, while retaining the dirty-tree warning. M27 is therefore co
 accepted locally, but this is not clean-room release evidence.
 
 Despite those local passes, neither M27 nor locally accepted M28 is a production deployment GO.
-M29 is eligible but has not started. Production still requires tenant provider
+M29 is now in progress, but its checked-in contracts are not operated evidence. Production still
+requires tenant provider
 DPA/retention/region/legal approval, data classification, operated remote secret rotation,
 TLS/NetworkPolicy, monitoring/SIEM, capacity/SLO evidence, HA/DR, clean release artifacts, and
 M29–M31 acceptance.
@@ -1113,8 +1127,8 @@ M28_POST_FIX_MAKE_CHECK=PASS_2714
 M28_POST_FIX_COVERAGE=PASS_81.76_PERCENT
 ```
 
-Local M28 acceptance makes M29 eligible but does not start it and is not a production deployment
-GO. Operated external
+Local M28 acceptance did not itself start M29 and was not a production deployment GO. M29 is now
+in progress, while operated external
 secrets, rotation/revocation, TLS/NetworkPolicy, metrics/logs/traces/SIEM, alerts and runbooks,
 production replica/traffic/tenant scale, availability/SLOs, backup/restore and HA/DR drills,
 provider/legal governance, real-tenant metadata evaluation, penetration/security review, a clean
@@ -1129,3 +1143,67 @@ signed release identity, and M29–M31 remain required.
 - deployment remains available through judging;
 - demo data reset is reliable;
 - application degrades honestly when an integration is unavailable.
+
+## M29 production-shaped deployment profile
+
+`deploy/kubernetes/m29` is the canonical M29 deployment contract. Its base contains seven
+long-running workloads—web, API, execution worker, catalog, profile, reconciler, and observer—with
+distinct service accounts and control identities. Connector workload identity exists only for web
+preflight, execution, catalog, and profile. Six internal metrics targets use port `9464`; API
+business traffic remains on `8520` and does not serve `/metrics`.
+
+The production overlay is intentionally non-deployable as committed. Before use, an operator must
+replace every `.invalid`, `replace-with-*`, all-zero digest, placeholder trust bundle, public host,
+external Secret name, provider role, registry scope, and cluster selector with an independently
+reviewed exact value. External Secret objects and values, private endpoints, credentials, and
+certificate material must remain outside the repository.
+
+Render and validate:
+
+```bash
+kubectl kustomize deploy/kubernetes/m29/overlays/production > rendered-m29.yaml
+python deploy/kubernetes/m29/validate_rendered.py rendered-m29.yaml
+kubectl apply --server-side --dry-run=server -f rendered-m29.yaml
+```
+
+The local validator requires the exact closed resource graph, digest-only images, distinct
+identities, immutable versioned external references, no application RBAC or embedded Secret,
+restricted pod security, probes, graceful termination, limits, topology spread, PDBs, TLS ingress,
+default-deny networking, capability egress selectors, and metrics scrape isolation. Server-side
+dry-run is mandatory because static YAML cannot prove target Kubernetes/CRD/admission/CNI/ingress
+behavior.
+
+Managed runtime settings require exact-version HTTPS remote secrets with verified trust and
+projected audience-bound identity; no local/global fallback is permitted. Every control DSN uses
+verified TLS and the component-specific principal. The observer principal is exactly
+`schemabridge_observer` and receives only aggregate operational reads.
+
+The web ConfigMap explicitly sets execution and publication to `disabled`. Query Studio remains
+useful for bounded field matching, active-registry resolution, deterministic compilation,
+independent SQL validation, and cost preflight, while the web pod receives no execution or DataHub
+writer credential. The authenticated API and execution worker already provide a queued execution
+boundary, but this release has no Streamlit-to-API submission client. It also has no typed durable
+publication approval queue or dedicated publisher worker. Treat both web actions as NO-GO until
+those separately reviewed lanes are implemented; never work around the boundary with `live` or
+recorded/fake production modes.
+
+Control schema v11 separates each private provider version from the public connector
+`route_revision`. Roll out migration `0011_connector_secret_versions.sql` before the binaries that
+call the `*_v2` route functions. Existing v9/v10 route rows are intentionally not assigned an
+inferred version and therefore return no executable private route. Rotate each required route
+through the reviewed operator using binding artifact format v2, verify the exact external version,
+then drain/revoke the former credential. Never repair an unversioned route with direct SQL.
+
+Deployment acceptance additionally requires a clean immutable revision, frozen install,
+wheel/image SBOM and vulnerability evidence, signed protected-release provenance, actual
+provider rotation/revocation, real metrics/SIEM/page delivery, encrypted immutable remote backups,
+a verified distinct-target recovery and rollback exercise, production capacity/SLO evidence,
+M30/M31, and external security/operator sign-off. Until those actions are operated, the profile is
+reference evidence and production/release remains NO-GO.
+
+The repository does not currently prove GitHub release protection. Before publishing, an operator
+must create the exact `production-release` environment, require independent reviewers, restrict
+eligible refs, and provision the environment-only
+`SCHEMABRIDGE_RELEASE_APPROVAL_SENTINEL`. The release workflow validates this 32–128-character
+sentinel as its first step and reruns the clean exact-revision release audit before registry
+authentication. A missing environment or sentinel blocks every publish/attestation step.

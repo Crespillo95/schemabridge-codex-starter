@@ -3,6 +3,15 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 
+import pytest
+from scripts.smoke_runtime_wheel import (
+    EXPECTED_CONTROL_PLANE_MIGRATIONS,
+    EXPECTED_RUNTIME_ENTRYPOINTS,
+    HELP_CAPABLE_RUNTIME_COMMANDS,
+    SMOKE_PROGRAM,
+    _require_exact_contract,
+)
+
 
 def test_runtime_wheel_smoke_uses_isolated_installed_package() -> None:
     root = Path(__file__).resolve().parents[2]
@@ -16,40 +25,114 @@ def test_runtime_wheel_smoke_uses_isolated_installed_package() -> None:
     assert "known_migrations()" in source
     assert "build_control_plane_migrator" in source
     assert "composed.migrations_path == path" in source
-    assert "(1, 2, 3, 4, 5, 6, 7, 8, 9)" in source
-    assert '"dynamic_catalog_inventory"' in source
-    assert '"semantic_change_management"' in source
-    assert '"dynamic_query_studio"' in source
-    assert '"harden_ai_usage_settlement"' in source
-    assert '"serialize_ai_provider_accounting"' in source
-    assert '"tenant_connector_routing"' in source
-    for command in (
-        "schemabridge-ai-policy",
-        "schemabridge-semantic-change",
-        "schemabridge-semantic-reconciler",
-        "schemabridge-semantic-profile-worker",
-        "schemabridge-connector-route",
-    ):
-        assert command in source
+    assert 'distribution("schemabridge").entry_points' in source
+    assert "entry_point.load()" in source
+    assert "installed_commands" in source
     assert '"--help"' in source
     assert "timeout=30" in source
 
 
-def test_runtime_wheel_exports_independent_m26_process_commands() -> None:
+def test_runtime_wheel_contract_matches_every_current_packaged_asset() -> None:
     root = Path(__file__).resolve().parents[2]
     project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     scripts = project["project"]["scripts"]
 
-    assert scripts["schemabridge-semantic-reconciler"] == (
-        "schemabridge.entrypoints.semantic_reconciler.main:main"
+    assert EXPECTED_CONTROL_PLANE_MIGRATIONS == (
+        (1, "initial_control_plane"),
+        (2, "authenticated_api_jobs"),
+        (3, "reject_expired_job_success"),
+        (4, "dynamic_catalog_inventory"),
+        (5, "semantic_change_management"),
+        (6, "dynamic_query_studio"),
+        (7, "harden_ai_usage_settlement"),
+        (8, "serialize_ai_provider_accounting"),
+        (9, "tenant_connector_routing"),
+        (10, "operational_observer"),
+        (11, "connector_secret_versions"),
     )
-    assert scripts["schemabridge-semantic-profile-worker"] == (
-        "schemabridge.entrypoints.semantic_profile_worker.main:main"
+    migration_files = sorted((root / "migrations" / "control_plane").glob("*.sql"))
+    assert (
+        tuple((int(path.name[:4]), path.stem[5:]) for path in migration_files)
+        == EXPECTED_CONTROL_PLANE_MIGRATIONS
     )
-    assert scripts["schemabridge-semantic-change"] == (
-        "schemabridge.entrypoints.semantic_change.main:main"
+    assert dict(EXPECTED_RUNTIME_ENTRYPOINTS) == scripts
+    assert tuple(name for name, _target in EXPECTED_RUNTIME_ENTRYPOINTS) == tuple(scripts)
+    assert ("schemabridge-observer", "schemabridge.entrypoints.observer.main:main") in (
+        EXPECTED_RUNTIME_ENTRYPOINTS
     )
-    assert scripts["schemabridge-ai-policy"] == ("schemabridge.entrypoints.ai_policy.main:main")
+    assert HELP_CAPABLE_RUNTIME_COMMANDS == (
+        "schemabridge",
+        "schemabridge-ai-policy",
+        "schemabridge-catalog",
+        "schemabridge-connector-route",
+        "schemabridge-semantic-change",
+        "schemabridge-semantic-profile-worker",
+        "schemabridge-semantic-reconciler",
+        "schemabridge-worker",
+    )
+    assert set(HELP_CAPABLE_RUNTIME_COMMANDS) < set(scripts)
+    assert repr(EXPECTED_CONTROL_PLANE_MIGRATIONS) in SMOKE_PROGRAM
+    assert repr(EXPECTED_RUNTIME_ENTRYPOINTS) in SMOKE_PROGRAM
+
+
+@pytest.mark.parametrize(
+    ("label", "expected", "actual"),
+    (
+        (
+            "migration deletion",
+            EXPECTED_CONTROL_PLANE_MIGRATIONS,
+            EXPECTED_CONTROL_PLANE_MIGRATIONS[:-1],
+        ),
+        (
+            "migration rename",
+            EXPECTED_CONTROL_PLANE_MIGRATIONS,
+            (
+                *EXPECTED_CONTROL_PLANE_MIGRATIONS[:-1],
+                (11, "connector_secrets"),
+            ),
+        ),
+        (
+            "migration addition",
+            EXPECTED_CONTROL_PLANE_MIGRATIONS,
+            (*EXPECTED_CONTROL_PLANE_MIGRATIONS, (12, "unexpected")),
+        ),
+        (
+            "entrypoint deletion",
+            EXPECTED_RUNTIME_ENTRYPOINTS,
+            tuple(
+                item for item in EXPECTED_RUNTIME_ENTRYPOINTS if item[0] != "schemabridge-observer"
+            ),
+        ),
+        (
+            "entrypoint target",
+            EXPECTED_RUNTIME_ENTRYPOINTS,
+            tuple(
+                (
+                    name,
+                    "schemabridge.entrypoints.http.main:main"
+                    if name == "schemabridge-observer"
+                    else target,
+                )
+                for name, target in EXPECTED_RUNTIME_ENTRYPOINTS
+            ),
+        ),
+        (
+            "entrypoint addition",
+            EXPECTED_RUNTIME_ENTRYPOINTS,
+            (
+                *EXPECTED_RUNTIME_ENTRYPOINTS,
+                ("schemabridge-unexpected", "schemabridge.entrypoints.cli.main:app"),
+            ),
+        ),
+    ),
+)
+def test_runtime_wheel_exact_contract_rejects_mutations(
+    label: str,
+    expected: tuple[object, ...],
+    actual: tuple[object, ...],
+) -> None:
+    with pytest.raises(RuntimeError, match=f"{label} contract mismatch"):
+        _require_exact_contract(label=label, actual=actual, expected=expected)
 
 
 def test_make_exposes_strict_m26_process_and_probe_targets() -> None:
@@ -87,7 +170,11 @@ def test_env_example_documents_m28_dynamic_profile_limits_without_a_secret_value
     assert "SCHEMABRIDGE_SEMANTIC_PROFILE_SOURCE_WORKSPACE_ID=" not in source
     assert "SCHEMABRIDGE_SEMANTIC_PROFILE_SOURCE_CONNECTION_ID=" not in source
     assert "# SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY=" in source
-    assert "Never share one directory across capabilities" in source
+    assert "require the remote exact-version resolver and projected workload identity" in source
+    assert "# SCHEMABRIDGE_CONNECTOR_SECRET_CAPABILITY=execution" in source
+    assert "# SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_ROLE=" in source
+    assert "# SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_BINDING_REF=" in source
+    assert "# SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_VERSION=17" in source
     assert "# SCHEMABRIDGE_CONTROL_AUDIT_SIGNING_KEY=" in source
 
 
@@ -95,8 +182,8 @@ def test_env_example_documents_query_studio_ai_as_disabled_and_keyless() -> None
     root = Path(__file__).resolve().parents[2]
     source = (root / ".env.example").read_text(encoding="utf-8")
 
-    assert "\nOPENAI_API_KEY=\n" in source
+    assert "\n# OPENAI_API_KEY=\n" in source
     assert "\nSCHEMABRIDGE_QUERY_STUDIO_AI_MODE=disabled\n" in source
     assert "\nSCHEMABRIDGE_QUERY_STUDIO_AI_MODEL=gpt-5-nano-2025-08-07\n" in source
     assert "\nSCHEMABRIDGE_QUERY_STUDIO_AI_REGION=global\n" in source
-    assert "\nSCHEMABRIDGE_QUERY_STUDIO_SIGNING_KEY=\n" in source
+    assert "\n# SCHEMABRIDGE_QUERY_STUDIO_SIGNING_KEY=\n" in source

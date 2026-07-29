@@ -89,15 +89,23 @@ class _DraftStore:
 
 
 def _production_settings(tmp_path: Path) -> Settings:
-    connector_secret_directory = tmp_path / "connector-secrets"
-    connector_secret_directory.mkdir(mode=0o700)
+    trust_root = (tmp_path / "trust").resolve()
+    trust_root.mkdir()
+    ca_bundle = trust_root / "ca.crt"
+    ca_bundle.write_text("synthetic test trust anchor", encoding="utf-8")
+    ca_bundle.chmod(0o600)
+    identity_root = (tmp_path / "identity").resolve()
+    identity_root.mkdir()
+    token_file = identity_root / "token"
+    token_file.write_text("not-read-by-these-composition-tests", encoding="utf-8")
+    token_file.chmod(0o400)
     return Settings.model_validate(
         {
             "SCHEMABRIDGE_ENVIRONMENT": "production",
             "SCHEMABRIDGE_AUTH_MODE": "oidc",
             "SCHEMABRIDGE_CATALOG_MODE": "live",
-            "SCHEMABRIDGE_PUBLICATION_MODE": "fake",
-            "SCHEMABRIDGE_JUDGE_EXECUTION": "recorded",
+            "SCHEMABRIDGE_PUBLICATION_MODE": "disabled",
+            "SCHEMABRIDGE_JUDGE_EXECUTION": "disabled",
             "SCHEMABRIDGE_OIDC_ISSUER": "https://identity.example.test",
             "SCHEMABRIDGE_OIDC_AUDIENCE": "schemabridge",
             "SCHEMABRIDGE_OIDC_PROVIDER": "corporate-oidc",
@@ -109,10 +117,6 @@ def _production_settings(tmp_path: Path) -> Settings:
             "SCHEMABRIDGE_OIDC_ALLOWED_TENANTS": ("tenant-a",),
             "SCHEMABRIDGE_PSEUDONYMIZATION_KEY": (
                 "unit-test-pseudonymization-key-at-least-32-bytes"
-            ),
-            "DATABASE_URL": (
-                "postgresql://source_reader:source_password@source.example.test/source"
-                "?sslmode=verify-full"
             ),
             "SCHEMABRIDGE_CONTROL_DATABASE_URL": (
                 "postgresql://control_runtime:control_password@control.example.test/control"
@@ -127,7 +131,18 @@ def _production_settings(tmp_path: Path) -> Settings:
             "SCHEMABRIDGE_QUERY_STUDIO_SIGNING_KEY": (
                 "unit-test-query-studio-signing-key-with-diversity"
             ),
-            "SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY": connector_secret_directory,
+            "SCHEMABRIDGE_CONNECTOR_SECRET_MODE": "remote",
+            "SCHEMABRIDGE_CONNECTOR_SECRET_PROVIDER_URL": ("https://secrets.example.test"),
+            "SCHEMABRIDGE_CONNECTOR_SECRET_ROLE": "schemabridge-preflight",
+            "SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_ROLE": ("schemabridge-registry-reader"),
+            "SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_BINDING_REF": ("registry.reader.primary"),
+            "SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_VERSION": 17,
+            "SCHEMABRIDGE_CONNECTOR_SECRET_KV_MOUNT": "tenant-connectors",
+            "SCHEMABRIDGE_CONNECTOR_SECRET_CAPABILITY": "preflight",
+            "SCHEMABRIDGE_CONNECTOR_SECRET_CA_BUNDLE": ca_bundle,
+            "SCHEMABRIDGE_WORKLOAD_IDENTITY_TOKEN_FILE": token_file,
+            "SCHEMABRIDGE_WORKLOAD_IDENTITY_ROOT": identity_root,
+            "SCHEMABRIDGE_WORKLOAD_IDENTITY_AUDIENCE": ("schemabridge-secret-manager"),
             "SCHEMABRIDGE_DRAFT_STORE_PATH": tmp_path / "production.db",
         }
     )
@@ -154,8 +169,8 @@ def test_runtime_options_expose_only_server_selected_non_secret_modes(tmp_path: 
     assert options.auth_mode == "oidc"
     assert options.catalog_kind == "live"
     assert options.registry_kind == "live"
-    assert options.publication_kind == "fake"
-    assert options.execution_kind == "recorded"
+    assert options.publication_kind == "disabled"
+    assert options.execution_kind == "disabled"
     assert options.oidc_provider == "corporate-oidc"
     assert options.oidc_audience == "schemabridge"
     assert "secret" not in repr(options).casefold()
@@ -181,6 +196,20 @@ def test_managed_web_rejects_restore_database_credentials(tmp_path: Path) -> Non
             "control_restore_database_url": SecretStr(
                 "postgresql://restore:must-not-enter-web@restore.example.test/control_restore"
                 "?sslmode=verify-full"
+            )
+        }
+    )
+
+    with pytest.raises(RuntimeError, match="must not receive"):
+        build_streamlit_runtime_options(settings)
+
+
+def test_managed_web_rejects_observer_database_credentials(tmp_path: Path) -> None:
+    settings = _production_settings(tmp_path).model_copy(
+        update={
+            "control_observer_database_url": SecretStr(
+                "postgresql://schemabridge_observer:must-not-enter-web"
+                "@control.example.test/control?sslmode=verify-full"
             )
         }
     )

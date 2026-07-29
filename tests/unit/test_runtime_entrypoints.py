@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import json
 import logging
 import signal
 from decimal import Decimal
@@ -31,6 +33,8 @@ from schemabridge.adapters.control_plane.postgres_pool import PostgresControlPoo
 from schemabridge.adapters.control_plane.threaded_heartbeat import (
     ThreadedLeaseHeartbeatSupervisor,
 )
+from schemabridge.adapters.observability.http_export import MetricsHttpExporter
+from schemabridge.adapters.observability.runtime import RuntimeOperationalTelemetry
 from schemabridge.adapters.semantic_change.postgres_read import (
     PostgresSemanticChangeReadStore,
 )
@@ -67,7 +71,7 @@ from schemabridge.bootstrap import (
     require_current_control_plane_schema,
 )
 from schemabridge.config import Settings
-from schemabridge.domain.background_jobs import JobExecutionTargetRef
+from schemabridge.domain.background_jobs import JobExecutionTargetRef, JobFailureCode
 from schemabridge.domain.catalog_inventory import CatalogConnectionId
 from schemabridge.domain.connectors import (
     GovernedExecutionTarget,
@@ -81,7 +85,7 @@ ROOT = Path(__file__).resolve().parents[2]
 API_DSN = "postgresql://schemabridge_api:api-secret@control.example.test/control"
 WORKER_DSN = "postgresql://schemabridge_worker:worker-secret@control.example.test/control"
 LOCAL_TOKEN = "local-api-bearer-token-with-enough-byte-diversity-123"
-CURSOR_KEY = "inventory-cursor-signing-key-with-distinct-bytes-456"
+CURSOR_KEY = "inventory-cursor-signing-key-with-distinct-bytes-456"  # gitleaks:allow -- fixture
 
 
 class _OneResultWorker:
@@ -384,9 +388,191 @@ def test_worker_log_omits_unexpected_exception_message(
     )
 
     assert status == 1
-    assert "unexpected_worker_error" in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert "job.execution outcome=failed error_code=internal_failure" in caplog.text
+    assert "RuntimeError" not in caplog.text
     assert "must-not-appear-in-worker-log" not in caplog.text
+
+
+def test_managed_worker_emits_closed_json_and_metrics_without_exception_payload() -> None:
+    stream = io.StringIO()
+    telemetry = RuntimeOperationalTelemetry(
+        service="worker",
+        environment="production",
+        stream=stream,
+    )
+
+    status = worker_main.run_worker(
+        _CrashingWorker(),
+        poll_interval_seconds=0.05,
+        once=True,
+        telemetry=telemetry,
+    )
+
+    assert status == 1
+    lines = stream.getvalue().splitlines()
+    assert len(lines) == 1
+    event = json.loads(lines[0])
+    assert event["event"] == "job.execution"
+    assert event["outcome"] == "failed"
+    assert event["error_code"] == "internal_failure"
+    assert event["jobs_failed"] == 1
+    assert "must-not-appear-in-worker-log" not in stream.getvalue()
+    assert "schemabridge_source_operations_total{" not in telemetry.render_openmetrics()
+
+
+def test_managed_worker_does_not_report_an_idle_poll_as_source_success() -> None:
+    stream = io.StringIO()
+    telemetry = RuntimeOperationalTelemetry(
+        service="worker",
+        environment="production",
+        stream=stream,
+    )
+
+    status = worker_main.run_worker(
+        _OneResultWorker(WorkerIterationResult(outcome=WorkerIterationOutcome.IDLE)),
+        poll_interval_seconds=0.05,
+        once=True,
+        telemetry=telemetry,
+    )
+
+    assert status == 0
+    assert stream.getvalue() == ""
+    assert "schemabridge_source_operations_total{" not in telemetry.render_openmetrics()
+
+
+@pytest.mark.parametrize(
+    (
+        "iteration",
+        "failure_code",
+        "outcome",
+        "error_code",
+        "count_name",
+        "source_outcome",
+    ),
+    [
+        (
+            WorkerIterationOutcome.CANCELLED,
+            None,
+            "cancelled",
+            "operation_cancelled",
+            None,
+            None,
+        ),
+        (
+            WorkerIterationOutcome.RETRY_SCHEDULED,
+            JobFailureCode.SOURCE_TIMEOUT,
+            "degraded",
+            "source_timeout",
+            "retries_scheduled",
+            "timeout",
+        ),
+        (
+            WorkerIterationOutcome.FAILED,
+            JobFailureCode.AUTHORIZATION_EXPIRED,
+            "failed",
+            "stale_authorization",
+            "jobs_failed",
+            None,
+        ),
+        (
+            WorkerIterationOutcome.DEAD_LETTERED,
+            JobFailureCode.UNEXPECTED_WORKER_FAILURE,
+            "failed",
+            "internal_failure",
+            "dead_letters",
+            None,
+        ),
+    ],
+)
+def test_managed_worker_reports_non_success_results_truthfully(
+    iteration: WorkerIterationOutcome,
+    failure_code: JobFailureCode | None,
+    outcome: str,
+    error_code: str,
+    count_name: str | None,
+    source_outcome: str | None,
+) -> None:
+    stream = io.StringIO()
+    telemetry = RuntimeOperationalTelemetry(
+        service="worker",
+        environment="production",
+        stream=stream,
+    )
+
+    status = worker_main.run_worker(
+        _OneResultWorker(
+            WorkerIterationResult(
+                outcome=iteration,
+                job_id="job-synthetic",
+                failure_code=failure_code,
+            )
+        ),
+        poll_interval_seconds=0.05,
+        once=True,
+        telemetry=telemetry,
+    )
+
+    assert status == 0
+    events = [json.loads(line) for line in stream.getvalue().splitlines()]
+    event = next(item for item in events if item["event"] == "job.execution")
+    assert event["outcome"] == outcome
+    assert event["error_code"] == error_code
+    assert event["jobs_completed"] == 0
+    if count_name is not None:
+        assert event[count_name] == 1
+    metrics = telemetry.render_openmetrics()
+    assert (
+        'schemabridge_source_operations_total{capability="execution",outcome="success"}'
+        not in metrics
+    )
+    if source_outcome is None:
+        assert "schemabridge_source_operations_total{" not in metrics
+        assert len(events) == 1
+    else:
+        assert (
+            "schemabridge_source_operations_total"
+            f'{{capability="execution",outcome="{source_outcome}"}} 1.0' in metrics
+        )
+        assert {item["event"] for item in events} == {
+            "job.execution",
+            "source.operation",
+        }
+
+
+def test_managed_worker_reports_only_a_succeeded_job_as_source_success() -> None:
+    stream = io.StringIO()
+    telemetry = RuntimeOperationalTelemetry(
+        service="worker",
+        environment="production",
+        stream=stream,
+    )
+
+    status = worker_main.run_worker(
+        _OneResultWorker(
+            WorkerIterationResult(
+                outcome=WorkerIterationOutcome.SUCCEEDED,
+                job_id="job-synthetic",
+            )
+        ),
+        poll_interval_seconds=0.05,
+        once=True,
+        telemetry=telemetry,
+    )
+
+    assert status == 0
+    events = [json.loads(line) for line in stream.getvalue().splitlines()]
+    event = next(item for item in events if item["event"] == "job.execution")
+    assert event["outcome"] == "succeeded"
+    assert event["jobs_completed"] == 1
+    assert "error_code" not in event
+    assert {item["event"] for item in events} == {
+        "job.execution",
+        "source.operation",
+    }
+    assert (
+        'schemabridge_source_operations_total{capability="execution",outcome="success"} 1.0'
+        in telemetry.render_openmetrics()
+    )
 
 
 def test_worker_signal_handler_requests_graceful_stop_and_restores_previous(
@@ -422,11 +608,19 @@ def test_http_entrypoint_composes_one_bounded_app(
     app = FastAPI()
     settings = _api_settings()
     pool = _LifecyclePool()
+    metrics_exporter = _LifecyclePool()
     monkeypatch.setattr(bootstrap_module, "build_api_http_services", lambda **_kwargs: services)
     monkeypatch.setattr(
         bootstrap_module,
         "build_control_plane_pool",
         lambda **_kwargs: cast(PostgresControlPool, pool),
+    )
+    monkeypatch.setattr(
+        bootstrap_module,
+        "_build_process_metrics_exporter",
+        lambda _settings, *, telemetry: (
+            captured.update(exporter_telemetry=telemetry) or metrics_exporter
+        ),
     )
 
     def create(
@@ -437,6 +631,8 @@ def test_http_entrypoint_composes_one_bounded_app(
         allowed_hosts: tuple[str, ...],
         docs_enabled: bool,
         lifecycle_resources: tuple[object, ...],
+        metrics_exporter: object,
+        telemetry: object,
     ) -> FastAPI:
         captured.update(
             services=supplied,
@@ -445,6 +641,8 @@ def test_http_entrypoint_composes_one_bounded_app(
             allowed_hosts=allowed_hosts,
             docs_enabled=docs_enabled,
             lifecycle_resources=lifecycle_resources,
+            metrics_exporter=metrics_exporter,
+            telemetry=telemetry,
         )
         return app
 
@@ -459,6 +657,11 @@ def test_http_entrypoint_composes_one_bounded_app(
     assert runtime.bind_host == settings.api_bind_host
     assert runtime.port == settings.api_port
     assert runtime.graceful_shutdown_seconds == settings.api_graceful_shutdown_seconds
+    telemetry = cast(SimpleNamespace, captured.pop("telemetry"))
+    exporter_telemetry = captured.pop("exporter_telemetry")
+    assert callable(telemetry.emit)
+    assert callable(telemetry.render_openmetrics)
+    assert exporter_telemetry is telemetry
     assert captured == {
         "services": services,
         "max_body_bytes": settings.api_max_request_bytes,
@@ -466,6 +669,7 @@ def test_http_entrypoint_composes_one_bounded_app(
         "allowed_hosts": settings.api_allowed_hosts,
         "docs_enabled": False,
         "lifecycle_resources": (pool,),
+        "metrics_exporter": metrics_exporter,
     }
 
 
@@ -503,6 +707,7 @@ def test_http_main_configures_one_gracefully_stoppable_server(
                 "proxy_headers": False,
                 "server_header": False,
                 "date_header": False,
+                "log_config": None,
             },
         )
     ]
@@ -513,11 +718,13 @@ def test_worker_command_restores_signal_handlers(
 ) -> None:
     worker = _OneResultWorker(WorkerIterationResult(outcome=WorkerIterationOutcome.IDLE))
     pool = _LifecyclePool()
+    metrics_exporter = _LifecyclePool()
     runtime = WorkerProcessRuntime(
         worker=cast(RunOneJobWorker, worker),
         log_level="INFO",
         poll_interval_seconds=0.05,
         control_pool=cast(PostgresControlPool, pool),
+        metrics_exporter=cast(MetricsHttpExporter, metrics_exporter),
     )
     restored: list[dict[int, worker_main._SignalHandler]] = []
     monkeypatch.setattr(worker_main, "_install_signal_handlers", lambda _event: {})
@@ -533,6 +740,7 @@ def test_worker_command_restores_signal_handlers(
     assert worker.calls == 1
     assert restored == [{}]
     assert pool.events == ["opened", "closed"]
+    assert metrics_exporter.events == ["opened", "closed"]
 
 
 def test_worker_readiness_probe_checks_exact_schema_without_composing_worker(
@@ -565,6 +773,7 @@ def test_worker_readiness_probe_checks_exact_schema_without_composing_worker(
 
     assert status == 0
     assert runtime.worker is None
+    assert runtime.metrics_exporter is None
     assert pool.events == ["opened", "closed"]
     assert checks == [
         {
@@ -658,6 +867,17 @@ def _managed_worker_settings() -> Settings:
         SCHEMABRIDGE_ENVIRONMENT="production",
         SCHEMABRIDGE_COMPONENT="worker",
         SCHEMABRIDGE_CONTROL_WORKER_DATABASE_URL=(f"{WORKER_DSN}?sslmode=verify-full"),
-        SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY=ROOT / ".local/test-connectors",
+        SCHEMABRIDGE_CONNECTOR_SECRET_MODE="remote",
+        SCHEMABRIDGE_CONNECTOR_SECRET_PROVIDER_URL="https://secrets.example.test",
+        SCHEMABRIDGE_CONNECTOR_SECRET_ROLE="schemabridge-execution",
+        SCHEMABRIDGE_CONNECTOR_SECRET_KV_MOUNT="tenant-connectors",
+        SCHEMABRIDGE_CONNECTOR_SECRET_CAPABILITY="execution",
+        SCHEMABRIDGE_CONNECTOR_SECRET_CA_BUNDLE=("/var/run/secrets/schemabridge/trust/ca.crt"),
+        SCHEMABRIDGE_WORKLOAD_IDENTITY_TOKEN_FILE=("/var/run/secrets/schemabridge/identity/token"),
+        SCHEMABRIDGE_WORKLOAD_IDENTITY_ROOT=("/var/run/secrets/schemabridge/identity"),
+        SCHEMABRIDGE_WORKLOAD_IDENTITY_AUDIENCE="schemabridge-secret-manager",
+        SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_ROLE="schemabridge-registry-reader",
+        SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_BINDING_REF="registry.reader.primary",
+        SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_VERSION=17,
         SCHEMABRIDGE_WORKER_IDENTITY_LINEAGE_MODE="verified-oidc",
     )

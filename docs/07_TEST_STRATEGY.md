@@ -1024,3 +1024,41 @@ git diff --check
 Record exact counts, digests, migration checksums, activation generations/fingerprints, and any
 skips or unavailable services in the handoff. A dirty-worktree warning, missing live service, or
 unrun browser/restore drill remains open evidence and is never converted into a pass.
+
+## M29 operations and supply-chain gates
+
+M29 adds focused adversarial tests for remote exact-version secrets and workload identity,
+cross-capability denial, TLS/redirect/size/error sanitization, observer role and aggregate-only
+reads, atomic metric snapshots, bounded process exporters, fail-closed alerts, structured logs,
+SIEM loss, Kubernetes rendering, immutable workflows/images, vulnerability-report coverage,
+SBOM/provenance binding, signed retention, recovery, and rollback decisions.
+
+Run the local contract gates before any provider or cluster exercise:
+
+```bash
+make supply-chain-static
+make m29-recovery-policy-check
+kubectl kustomize deploy/kubernetes/m29/overlays/production > /tmp/rendered-m29.yaml
+python deploy/kubernetes/m29/validate_rendered.py /tmp/rendered-m29.yaml
+pytest -q tests/unit/test_connector_remote_secrets.py \
+  tests/unit/test_m29_deployment_manifest.py \
+  tests/unit/test_operational_metrics.py \
+  tests/unit/test_process_metrics_http_export.py \
+  tests/unit/test_backup_retention.py \
+  tests/unit/test_recovery_drill.py \
+  tests/unit/test_supply_chain.py
+```
+
+The unpatched production overlay must fail locally because its placeholder values are intentional.
+For acceptance, render a separately patched operator profile and require both the local validator
+and `kubectl apply --server-side --dry-run=server` against the target cluster. A missing cluster
+context is recorded as not run, never as a pass.
+
+The final M29 matrix also requires schema-v11 PostgreSQL integration, including the v10 observer
+and v11 provider-version migrations, plus full integration and
+acceptance suites, deterministic evaluation, runtime-wheel smoke, release audit, frozen-lock
+installation, vulnerability/SBOM/provenance validation, a complete fresh-target restore drill,
+`make check`, coverage at or above 80%, scale postflight, and `git diff --check`. The six-state
+operations view is tested last in the Codex internal browser at desktop and 390×844 mobile widths,
+with hostile text literal, clean console, no horizontal overflow, and exact cleanup. Exact counts,
+commands, failures/corrections, and unavailable external services belong in `tasks/M29_HANDOFF.md`.

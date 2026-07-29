@@ -98,6 +98,7 @@ CONTROL_ROLES = (
     "schemabridge_api",
     "schemabridge_worker",
     "schemabridge_catalog",
+    "schemabridge_observer",
 )
 WORKSPACE_ID = "workspace-m28-routing"
 CONNECTION_ID = "connection-m28-routing"
@@ -106,6 +107,11 @@ TYPE_CONTRACT_FINGERPRINT = postgres_type_contract_fingerprint()
 CONTRACT_FINGERPRINT = hashlib.sha256(b"m28-connector-contract").hexdigest()
 AUDIT_KEYS = {"v1": b"control-audit-key-0123456789-abcdef"}
 APPLY_ROUTE_SQL = (
+    "SELECT * FROM schemabridge_control.apply_connector_route_change_v2("
+    + ", ".join(["%s"] * 39)
+    + ")"
+)
+LEGACY_APPLY_ROUTE_SQL = (
     "SELECT * FROM schemabridge_control.apply_connector_route_change("
     + ", ".join(["%s"] * 35)
     + ")"
@@ -236,7 +242,7 @@ def _create_database(database: str) -> _DatabaseUrls:
             )
         }
         if available_roles != set(CONTROL_ROLES):
-            pytest.fail("the six control-plane roles must exist before the M28 test")
+            pytest.fail("the seven control-plane roles must exist before the connector test")
         connection.execute(
             sql.SQL("CREATE DATABASE {} OWNER schemabridge_migrator").format(
                 sql.Identifier(database)
@@ -285,8 +291,8 @@ def connector_database(
         assert v8.inspection.current_version == 8
 
         upgraded = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert upgraded.applied_versions == (9,)
-        assert upgraded.inspection.current_version == 9
+        assert upgraded.applied_versions == (9, 10, 11)
+        assert upgraded.inspection.current_version == 11
         yield urls
     finally:
         _drop_database(database)
@@ -343,6 +349,7 @@ def _route_change_args(
     bindings: tuple[str | None, str | None, str | None, str | None]
     if operation == "disable":
         bindings = (None, None, None, None)
+        provider_versions: tuple[int | None, ...] = (None, None, None, None)
     else:
         bindings = (
             f"vault:preflight:{label}",
@@ -350,6 +357,7 @@ def _route_change_args(
             f"vault:execution:{label}",
             f"vault:profile:{label}",
         )
+        provider_versions = (101, 202, 303, 404)
     confirmation = {
         "create": "CREATE CONNECTOR ROUTE",
         "rotate": "ROTATE CONNECTOR ROUTE",
@@ -385,6 +393,7 @@ def _route_change_args(
         contract_fingerprint,
         target.fingerprint,
         *bindings,
+        *provider_versions,
         _digest(f"proposal:{label}"),
         f"approval-{label}",
         _digest(f"approval:{label}"),
@@ -402,6 +411,11 @@ def _apply_route(dsn: str, arguments: tuple[object, ...]) -> tuple[object, ...]:
         result = connection.execute(APPLY_ROUTE_SQL, arguments).fetchone()
     assert result is not None
     return result
+
+
+def _without_provider_versions(arguments: tuple[object, ...]) -> tuple[object, ...]:
+    assert len(arguments) == 39
+    return (*arguments[:26], *arguments[30:])
 
 
 def _insert_capacity_policy(dsn: str, workspace_id: str) -> None:
@@ -653,7 +667,7 @@ def test_rotated_oidc_job_resolves_exact_historical_connector_workspace() -> Non
     urls = _create_database(database)
     try:
         migrated = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert migrated.inspection.current_version == 9
+        assert migrated.inspection.current_version == 11
 
         observed_at = datetime.now(UTC) - timedelta(minutes=2)
         pair = _oidc_pair(
@@ -817,6 +831,7 @@ def test_rotated_oidc_job_resolves_exact_historical_connector_workspace() -> Non
             target,
         )
         assert reference.value == f"vault:execution:{label}"
+        assert reference.provider_secret_version == 303
 
         substitute = target_ref.model_copy(update={"workspace_id": pair.current.workspace_id})
         with pytest.raises(ValueError, match="immutable workflow workspace"):
@@ -852,13 +867,13 @@ def test_rotated_oidc_job_resolves_exact_historical_connector_workspace() -> Non
         _drop_database(database)
 
 
-def test_pristine_schema_applies_versions_one_through_nine() -> None:
+def test_pristine_schema_applies_versions_one_through_eleven() -> None:
     database = f"schemabridge_connector_pristine_{uuid4().hex[:12]}"
     urls = _create_database(database)
     try:
         migrated = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert migrated.applied_versions == (1, 2, 3, 4, 5, 6, 7, 8, 9)
-        assert migrated.inspection.current_version == 9
+        assert migrated.applied_versions == tuple(range(1, 12))
+        assert migrated.inspection.current_version == 11
         with psycopg.connect(urls.migrator) as connection:
             tables = {
                 str(row[0])
@@ -874,10 +889,124 @@ def test_pristine_schema_applies_versions_one_through_nine() -> None:
         assert {
             "connector_contract_revisions",
             "connector_route_revisions",
+            "connector_private_route_secret_versions",
             "connector_private_route_revisions",
             "connector_route_heads",
             "connector_route_audit",
         } <= tables
+    finally:
+        _drop_database(database)
+
+
+def test_v11_keeps_unversioned_history_closed_and_blocks_new_legacy_writes(
+    tmp_path: Path,
+) -> None:
+    database = f"schemabridge_connector_v11_upgrade_{uuid4().hex[:12]}"
+    urls = _create_database(database)
+    workspace_id = "workspace-v11-version-upgrade"
+    connection_id = "connection-v11-version-upgrade"
+    first_target = _target(
+        1,
+        workspace_id=workspace_id,
+        connection_id=connection_id,
+    )
+    second_target = _target(
+        2,
+        workspace_id=workspace_id,
+        connection_id=connection_id,
+    )
+    try:
+        v10_migrations = _migration_subset(tmp_path / "control-v10", 10)
+        migrated_v10 = PostgresControlPlaneMigrator(urls.migrator, v10_migrations).migrate()
+        assert migrated_v10.inspection.current_version == 10
+        _insert_capacity_policy(urls.migrator, workspace_id)
+        _insert_catalog_connection(
+            urls.api,
+            workspace_id=workspace_id,
+            connection_id=connection_id,
+        )
+        legacy_create = _without_provider_versions(
+            _route_change_args(
+                operation="create",
+                expected_head_revision=0,
+                target=first_target,
+                label="legacy-v10-create",
+                workspace_id=workspace_id,
+                connection_id=connection_id,
+            )
+        )
+        with psycopg.connect(urls.migrator) as connection:
+            created = connection.execute(
+                LEGACY_APPLY_ROUTE_SQL,
+                legacy_create,
+            ).fetchone()
+        assert created is not None
+
+        upgraded = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
+        assert upgraded.applied_versions == (11,)
+        with psycopg.connect(urls.migrator) as connection:
+            legacy_visible = connection.execute(
+                """
+                SELECT credential_binding_ref
+                FROM schemabridge_control.load_current_preflight_connector_route(
+                    %s, %s, %s, %s
+                )
+                """,
+                (
+                    workspace_id,
+                    connection_id,
+                    first_target.route_revision,
+                    first_target.fingerprint,
+                ),
+            ).fetchone()
+            versioned_visible = connection.execute(
+                """
+                SELECT credential_binding_ref, provider_secret_version
+                FROM schemabridge_control.load_current_preflight_connector_route_v2(
+                    %s, %s, %s, %s
+                )
+                """,
+                (
+                    workspace_id,
+                    connection_id,
+                    first_target.route_revision,
+                    first_target.fingerprint,
+                ),
+            ).fetchone()
+        assert legacy_visible == ("vault:preflight:legacy-v10-create",)
+        assert versioned_visible is None
+
+        legacy_rotate = _without_provider_versions(
+            _route_change_args(
+                operation="rotate",
+                expected_head_revision=1,
+                target=second_target,
+                label="legacy-v11-rotate",
+                workspace_id=workspace_id,
+                connection_id=connection_id,
+            )
+        )
+        legacy_connection = psycopg.connect(urls.migrator)
+        try:
+            with pytest.raises(psycopg.Error) as blocked:
+                legacy_connection.execute(
+                    LEGACY_APPLY_ROUTE_SQL,
+                    legacy_rotate,
+                ).fetchone()
+                legacy_connection.commit()
+        finally:
+            legacy_connection.close()
+        assert blocked.value.sqlstate == "23514"
+        with psycopg.connect(urls.migrator) as connection:
+            head = connection.execute(
+                """
+                SELECT route_revision
+                FROM schemabridge_control.connector_route_heads
+                WHERE workspace_id = %s AND connection_id = %s
+                """,
+                (workspace_id, connection_id),
+            ).fetchone()
+        assert head == (1,)
     finally:
         _drop_database(database)
 
@@ -1131,8 +1260,9 @@ def test_create_replay_rotate_stale_cas_disable_and_public_disabled_state(
                 target_fingerprint,
                 sql_dialect,
                 expected_reader,
-                credential_binding_ref
-            FROM schemabridge_control.load_current_preflight_connector_route(
+                credential_binding_ref,
+                provider_secret_version
+            FROM schemabridge_control.load_current_preflight_connector_route_v2(
                 %s, %s, %s, %s
             )
             """,
@@ -1154,8 +1284,9 @@ def test_create_replay_rotate_stale_cas_disable_and_public_disabled_state(
                 target_fingerprint,
                 sql_dialect,
                 expected_reader,
-                credential_binding_ref
-            FROM schemabridge_control.load_current_preflight_connector_route(
+                credential_binding_ref,
+                provider_secret_version
+            FROM schemabridge_control.load_current_preflight_connector_route_v2(
                 %s, %s, %s, %s
             )
             """,
@@ -1174,6 +1305,7 @@ def test_create_replay_rotate_stale_cas_disable_and_public_disabled_state(
         "postgresql",
         EXPECTED_READER,
         "vault:preflight:create",
+        101,
     )
 
     catalog_capability = f"catalog-v9-route-capability-{uuid4().hex}"
@@ -1215,6 +1347,7 @@ def test_create_replay_rotate_stale_cas_disable_and_public_disabled_state(
     assert catalog_route.route.route_revision == first_target.route_revision
     assert catalog_route.route.target_fingerprint == first_target.fingerprint
     assert catalog_route.credential_binding_ref == "vault:catalog:create"
+    assert catalog_route.provider_secret_version == 202
     assert "vault:catalog:create" not in repr(catalog_route)
     assert catalog_capability not in repr(catalog_route)
     staged_refresh = catalog_refreshes.begin_staging(
@@ -1260,8 +1393,9 @@ def test_create_replay_rotate_stale_cas_disable_and_public_disabled_state(
                 target_fingerprint,
                 sql_dialect,
                 expected_reader,
-                credential_binding_ref
-            FROM schemabridge_control.load_current_preflight_connector_route(
+                credential_binding_ref,
+                provider_secret_version
+            FROM schemabridge_control.load_current_preflight_connector_route_v2(
                 %s, %s, %s, %s
             )
             """,
@@ -1281,7 +1415,7 @@ def test_create_replay_rotate_stale_cas_disable_and_public_disabled_state(
         connection.execute(
             """
             SELECT *
-            FROM schemabridge_control.load_current_preflight_connector_route(
+            FROM schemabridge_control.load_current_preflight_connector_route_v2(
                 %s, %s, %s, %s
             )
             """,
@@ -1837,7 +1971,7 @@ def test_catalog_promotion_and_route_rotation_serialize_without_crossing(
     )
 
 
-def test_six_role_acl_closes_tables_and_separates_connector_loaders(
+def test_seven_role_acl_closes_tables_and_separates_connector_loaders(
     connector_database: _DatabaseUrls,
 ) -> None:
     function_grants = {
@@ -1845,19 +1979,19 @@ def test_six_role_acl_closes_tables_and_separates_connector_loaders(
             "schemabridge_control.resolve_query_studio_physical_type(varchar,varchar)"
         ),
         "apply": (
-            "schemabridge_control.apply_connector_route_change("
+            "schemabridge_control.apply_connector_route_change_v2("
             "varchar,varchar,varchar,bigint,bigint,bigint,char,varchar,"
             "integer,char,char,char,integer,integer,numeric,bigint,integer,integer,"
-            "integer,char,char,char,varchar,varchar,varchar,varchar,char,varchar,"
-            "char,varchar,char,varchar,char,char,varchar)"
+            "integer,char,char,char,varchar,varchar,varchar,varchar,bigint,bigint,"
+            "bigint,bigint,char,varchar,char,varchar,char,varchar,char,char,varchar)"
         ),
         "public": ("schemabridge_control.load_current_connector_target(varchar,varchar)"),
         "preflight": (
-            "schemabridge_control.load_current_preflight_connector_route("
+            "schemabridge_control.load_current_preflight_connector_route_v2("
             "varchar,varchar,bigint,char)"
         ),
         "catalog": (
-            "schemabridge_control.load_owned_catalog_connector_route("
+            "schemabridge_control.load_owned_catalog_connector_route_v2("
             "varchar,varchar,varchar,varchar,varchar,bigint,bigint,bigint,char)"
         ),
         "catalog_activation": (
@@ -1870,11 +2004,11 @@ def test_six_role_acl_closes_tables_and_separates_connector_loaders(
             "varchar,varchar,varchar,bigint,bigint,bigint,char,char)"
         ),
         "execution": (
-            "schemabridge_control.load_owned_execution_connector_route("
+            "schemabridge_control.load_owned_execution_connector_route_v2("
             "varchar,varchar,varchar,varchar,varchar,bigint,varchar,bigint,bigint,char)"
         ),
         "profile": (
-            "schemabridge_control.load_owned_profile_connector_route("
+            "schemabridge_control.load_owned_profile_connector_route_v2("
             "varchar,varchar,varchar,varchar,bigint,varchar,bigint,bigint,char)"
         ),
     }
@@ -1936,19 +2070,18 @@ def test_six_role_acl_closes_tables_and_separates_connector_loaders(
                 if bool(privilege_row[0]):
                     granted_roles.add(role)
             observed_grants[label] = granted_roles
-        activation_owners = {
-            label: str(
-                connection.execute(
-                    """
-                    SELECT pg_catalog.pg_get_userbyid(procedure.proowner)
-                    FROM pg_catalog.pg_proc AS procedure
-                    WHERE procedure.oid = pg_catalog.to_regprocedure(%s)
-                    """,
-                    (function_grants[label],),
-                ).fetchone()[0]
-            )
-            for label in ("legacy_catalog_activation", "catalog_activation")
-        }
+        activation_owners: dict[str, str] = {}
+        for label in ("legacy_catalog_activation", "catalog_activation"):
+            owner_row = connection.execute(
+                """
+                SELECT pg_catalog.pg_get_userbyid(procedure.proowner)
+                FROM pg_catalog.pg_proc AS procedure
+                WHERE procedure.oid = pg_catalog.to_regprocedure(%s)
+                """,
+                (function_grants[label],),
+            ).fetchone()
+            assert owner_row is not None
+            activation_owners[label] = str(owner_row[0])
 
     assert private_table_acl == {role: role == "schemabridge_migrator" for role in CONTROL_ROLES}
     assert semantic_binding_acl == {role: role == "schemabridge_migrator" for role in CONTROL_ROLES}
@@ -2187,7 +2320,7 @@ def test_v9_preserves_terminal_legacy_job_without_inventing_a_target(
         _finish_legacy_job(urls.migrator)
 
         upgraded = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert upgraded.applied_versions == (9,)
+        assert upgraded.applied_versions == (9, 10, 11)
         with psycopg.connect(urls.migrator) as connection:
             legacy = connection.execute(
                 """
@@ -2311,7 +2444,7 @@ def test_v8_active_generation_stays_runtime_closed_until_v9_full_refresh(
         assert activated == (0, 0)
 
         upgraded = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert upgraded.applied_versions == (9,)
+        assert upgraded.applied_versions == (9, 10, 11)
         _apply_route(
             urls.migrator,
             _route_change_args(

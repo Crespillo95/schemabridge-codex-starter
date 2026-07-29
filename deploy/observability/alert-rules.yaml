@@ -1,0 +1,359 @@
+groups:
+  - name: schemabridge-m29-operations-v1
+    interval: 30s
+    rules:
+      - alert: SchemaBridgeApiAvailability
+        expr: >
+          (
+            sum(rate(schemabridge_http_requests_total{service="api",outcome="success"}[10m]))
+            /
+            clamp_min(sum(rate(schemabridge_http_requests_total{service="api"}[10m])), 0.001)
+            < 0.995
+          )
+          or on() (up{job="schemabridge-api"} == 0)
+          or on() absent_over_time(up{job="schemabridge-api"}[5m])
+        for: 10m
+        labels:
+          severity: page
+          owner: platform-operations
+          deduplication_key: api-availability
+        annotations:
+          summary: API availability is below the reviewed local threshold.
+          runbook_ref: runbooks/api-availability.md
+          safe_diagnostics: service,outcome,correlation_id,error_code
+          resolution_condition: The 10 minute success ratio remains at or above 0.995 for 10 minutes.
+
+      - alert: SchemaBridgeApiP95Latency
+        expr: >
+          histogram_quantile(
+            0.95,
+            sum by (le) (
+              rate(schemabridge_http_request_duration_seconds_bucket{service="api"}[10m])
+            )
+          ) > 0.75
+        for: 10m
+        labels:
+          severity: page
+          owner: platform-operations
+          deduplication_key: api-p95-latency # gitleaks:allow -- routing label, not a credential
+        annotations:
+          summary: API p95 latency is above the reviewed local threshold.
+          runbook_ref: runbooks/api-availability.md
+          safe_diagnostics: service,outcome,correlation_id,error_code
+          resolution_condition: The 10 minute p95 remains at or below 0.75 seconds for 10 minutes.
+
+      - alert: SchemaBridgeAuthorizationDenials
+        expr: >
+          sum(increase(schemabridge_http_authorization_denials_total{service="api"}[10m]))
+          > 25
+        for: 5m
+        labels:
+          severity: ticket
+          owner: security-operations
+          deduplication_key: authorization-denial-rate
+        annotations:
+          summary: Authorization denials exceed the reviewed local investigation threshold.
+          runbook_ref: runbooks/security-control-failure.md
+          safe_diagnostics: service,outcome,correlation_id,error_code
+          resolution_condition: Denials remain at or below 25 per 10 minute window for 15 minutes.
+
+      - alert: SchemaBridgeQueueBacklog
+        expr: >
+          (
+            max by (queue) (schemabridge_queue_depth) > 1000
+            or
+            max by (queue) (schemabridge_queue_oldest_age_seconds) > 300
+          )
+          or on(queue)
+          absent_over_time(schemabridge_queue_depth{queue="execution"}[5m])
+          or on(queue)
+          absent_over_time(schemabridge_queue_depth{queue="catalog"}[5m])
+          or on(queue)
+          absent_over_time(schemabridge_queue_depth{queue="profile"}[5m])
+          or on(queue)
+          absent_over_time(schemabridge_queue_depth{queue="reconciliation"}[5m])
+          or on(queue)
+          absent_over_time(
+            schemabridge_queue_oldest_age_seconds{queue="execution"}[5m]
+          )
+          or on(queue)
+          absent_over_time(
+            schemabridge_queue_oldest_age_seconds{queue="catalog"}[5m]
+          )
+          or on(queue)
+          absent_over_time(
+            schemabridge_queue_oldest_age_seconds{queue="profile"}[5m]
+          )
+          or on(queue)
+          absent_over_time(
+            schemabridge_queue_oldest_age_seconds{queue="reconciliation"}[5m]
+          )
+          or on() (up{job="schemabridge-observer"} == 0)
+          or on() absent_over_time(up{job="schemabridge-observer"}[5m])
+        for: 10m
+        labels:
+          severity: page
+          owner: data-platform-operations
+          deduplication_key: queue-backlog
+        annotations:
+          summary: A governed queue is too deep or its oldest due item is stale.
+          runbook_ref: runbooks/queue-backlog.md
+          safe_diagnostics: queue,outcome,error_code
+          resolution_condition: Every queue remains at or below 1000 items and 300 seconds oldest age for 15 minutes.
+
+      - alert: SchemaBridgeUnsafeJobTransitions
+        expr: >
+          sum by (queue) (
+            increase(
+              schemabridge_job_transitions_total{
+                transition=~"lease_reclaimed|dead_lettered|authorization_stale"
+              }[15m]
+            )
+          ) > 0
+        for: 5m
+        labels:
+          severity: page
+          owner: data-platform-operations
+          deduplication_key: unsafe-job-transition
+        annotations:
+          summary: A lease, dead-letter, or stale-authorization transition requires review.
+          runbook_ref: runbooks/queue-backlog.md
+          safe_diagnostics: queue,outcome,error_code,correlation_id
+          resolution_condition: No unsafe transition is observed during a complete 15 minute window.
+
+      - alert: SchemaBridgeCancellationLatency
+        expr: >
+          histogram_quantile(
+            0.95,
+            sum by (queue, le) (
+              rate(schemabridge_job_cancellation_latency_seconds_bucket[15m])
+            )
+          ) > 10
+        for: 10m
+        labels:
+          severity: ticket
+          owner: data-platform-operations
+          deduplication_key: cancellation-latency
+        annotations:
+          summary: Cooperative cancellation latency exceeds the reviewed local threshold.
+          runbook_ref: runbooks/queue-backlog.md
+          safe_diagnostics: queue,outcome,error_code
+          resolution_condition: The 15 minute p95 cancellation latency remains at or below 10 seconds for 15 minutes.
+
+      - alert: SchemaBridgeSourceFailureRate
+        expr: >
+          sum by (capability) (
+            rate(schemabridge_source_operations_total{outcome=~"timeout|error"}[10m])
+          )
+          /
+          clamp_min(
+            sum by (capability) (rate(schemabridge_source_operations_total[10m])),
+            0.001
+          ) > 0.05
+        for: 10m
+        labels:
+          severity: page
+          owner: data-platform-operations
+          deduplication_key: source-failure-rate
+        annotations:
+          summary: Bounded source operations exceed the reviewed timeout/error ratio.
+          runbook_ref: runbooks/source-outage.md
+          safe_diagnostics: service,outcome,error_code,correlation_id
+          resolution_condition: Every capability remains at or below a 0.05 failure ratio for 15 minutes.
+
+      - alert: SchemaBridgeRuntimeSecurityControlFailure
+        expr: >
+          sum by (control) (
+            increase(schemabridge_runtime_control_failures_total[5m])
+          ) > 0
+        for: 1m
+        labels:
+          severity: page
+          owner: security-operations
+          deduplication_key: runtime-security-control
+        annotations:
+          summary: A route, secret, TLS, identity, or capability control failed closed.
+          runbook_ref: runbooks/security-control-failure.md
+          safe_diagnostics: control,outcome,error_code,correlation_id
+          resolution_condition: No runtime control failure is observed during a complete 15 minute window.
+
+      - alert: SchemaBridgeBackupStale
+        expr: >
+          schemabridge_backup_age_seconds > 3600
+          or on()
+          absent_over_time(schemabridge_backup_age_seconds[5m])
+        for: 15m
+        labels:
+          severity: page
+          owner: recovery-operations
+          deduplication_key: backup-freshness
+        annotations:
+          summary: The newest verified control-plane backup is older than the RPO.
+          runbook_ref: runbooks/backup-recovery.md
+          safe_diagnostics: service,outcome,error_code
+          resolution_condition: A newly verified backup remains younger than 3600 seconds for 15 minutes.
+
+      - alert: SchemaBridgeRestoreDrillStale
+        expr: >
+          schemabridge_restore_drill_age_seconds > 2592000
+          or on()
+          absent_over_time(schemabridge_restore_drill_age_seconds[5m])
+        for: 1h
+        labels:
+          severity: ticket
+          owner: recovery-operations
+          deduplication_key: restore-drill-freshness
+        annotations:
+          summary: No successful fresh-target restore drill was recorded in 30 days.
+          runbook_ref: runbooks/backup-recovery.md
+          safe_diagnostics: service,outcome,error_code
+          resolution_condition: A complete verified fresh-target drill is recorded within the last 30 days.
+
+      - alert: SchemaBridgeIntegrityFailure
+        expr: >
+          increase(schemabridge_integrity_failures_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: page
+          owner: security-operations
+          deduplication_key: integrity-failure
+        annotations:
+          summary: An audit-chain, backup, or release integrity check failed.
+          runbook_ref: runbooks/integrity-release.md
+          safe_diagnostics: control,outcome,error_code,correlation_id
+          resolution_condition: The failing artifact remains quarantined and a new verified check succeeds.
+
+      - alert: SchemaBridgeReleasePolicyFailure
+        expr: >
+          increase(
+            schemabridge_release_policy_checks_total{outcome="error"}[15m]
+          ) > 0
+        for: 1m
+        labels:
+          severity: page
+          owner: release-engineering
+          deduplication_key: release-policy-failure
+        annotations:
+          summary: The immutable release policy rejected a candidate artifact.
+          runbook_ref: runbooks/integrity-release.md
+          safe_diagnostics: service,outcome,error_code,correlation_id
+          resolution_condition: The rejected candidate remains unpublished and a new clean candidate passes policy.
+
+      - alert: SchemaBridgeCapacitySaturation
+        expr: >
+          max by (resource) (schemabridge_capacity_utilization_ratio) > 0.85
+          or on(resource)
+          absent_over_time(
+            schemabridge_capacity_utilization_ratio{resource="worker"}[5m]
+          )
+          or on(resource)
+          absent_over_time(
+            schemabridge_capacity_utilization_ratio{
+              resource="database_pool"
+            }[5m]
+          )
+          or on(resource)
+          absent_over_time(
+            schemabridge_capacity_utilization_ratio{resource="queue"}[5m]
+          )
+          or on(resource)
+          absent_over_time(
+            schemabridge_capacity_utilization_ratio{
+              resource="telemetry_buffer"
+            }[5m]
+          )
+        for: 15m
+        labels:
+          severity: page
+          owner: platform-operations
+          deduplication_key: capacity-saturation
+        annotations:
+          summary: A closed runtime resource class is persistently saturated.
+          runbook_ref: runbooks/capacity-readiness.md
+          safe_diagnostics: resource,service,outcome,error_code
+          resolution_condition: Every resource remains at or below 0.85 utilization for 15 minutes.
+
+      - alert: SchemaBridgeProcessNotReady
+        expr: >
+          min by (service) (schemabridge_process_ready) < 1
+          or on()
+          absent_over_time(schemabridge_process_ready{service="api"}[5m])
+          or on()
+          absent_over_time(schemabridge_process_ready{service="worker"}[5m])
+          or on()
+          absent_over_time(schemabridge_process_ready{service="catalog"}[5m])
+          or on()
+          absent_over_time(schemabridge_process_ready{service="profile"}[5m])
+          or on()
+          absent_over_time(schemabridge_process_ready{service="reconciler"}[5m])
+          or on()
+          absent_over_time(schemabridge_process_ready{service="observer"}[5m])
+          or on() (up{job="schemabridge-api"} == 0)
+          or on() absent_over_time(up{job="schemabridge-api"}[5m])
+          or on() (up{job="schemabridge-worker"} == 0)
+          or on() absent_over_time(up{job="schemabridge-worker"}[5m])
+          or on() (up{job="schemabridge-catalog"} == 0)
+          or on() absent_over_time(up{job="schemabridge-catalog"}[5m])
+          or on() (up{job="schemabridge-profile"} == 0)
+          or on() absent_over_time(up{job="schemabridge-profile"}[5m])
+          or on() (up{job="schemabridge-reconciler"} == 0)
+          or on() absent_over_time(up{job="schemabridge-reconciler"}[5m])
+          or on() (up{job="schemabridge-observer"} == 0)
+          or on() absent_over_time(up{job="schemabridge-observer"}[5m])
+        for: 10m
+        labels:
+          severity: page
+          owner: platform-operations
+          deduplication_key: process-readiness
+        annotations:
+          summary: A SchemaBridge service is not ready without source probing.
+          runbook_ref: runbooks/capacity-readiness.md
+          safe_diagnostics: service,outcome,error_code,correlation_id
+          resolution_condition: Every required service reports ready for 10 consecutive minutes.
+
+      - alert: SchemaBridgeProcessRestartLoop
+        expr: >
+          increase(schemabridge_process_restarts_total[15m]) > 3
+        for: 5m
+        labels:
+          severity: page
+          owner: platform-operations
+          deduplication_key: process-restart-loop
+        annotations:
+          summary: A SchemaBridge service restarted more than three times in 15 minutes.
+          runbook_ref: runbooks/capacity-readiness.md
+          safe_diagnostics: service,outcome,error_code
+          resolution_condition: No service exceeds three restarts in a complete 15 minute window.
+
+      - alert: SchemaBridgeTelemetryLoss
+        expr: >
+          increase(schemabridge_telemetry_exports_total{outcome=~"error|dropped"}[5m]) > 0
+          or on() absent_over_time(schemabridge_telemetry_exports_total[5m])
+          or on() (up{job="schemabridge-observer"} == 0)
+          or on() absent_over_time(up{job="schemabridge-observer"}[5m])
+        for: 1m
+        labels:
+          severity: page
+          owner: security-operations
+          deduplication_key: telemetry-loss
+        annotations:
+          summary: Sanitized telemetry export failed or dropped a bounded batch.
+          runbook_ref: runbooks/telemetry-loss.md
+          safe_diagnostics: service,outcome,error_code
+          resolution_condition: Export succeeds with no dropped or failed batch during a complete 15 minute window.
+
+      - alert: SchemaBridgeReconciliationStale
+        expr: >
+          schemabridge_reconciliation_age_seconds > 86400
+          or on()
+          absent_over_time(schemabridge_reconciliation_age_seconds[5m])
+        for: 1h
+        labels:
+          severity: ticket
+          owner: data-governance-operations
+          deduplication_key: reconciliation-freshness
+        annotations:
+          summary: No complete governed semantic reconciliation was recorded in 24 hours.
+          runbook_ref: runbooks/queue-backlog.md
+          safe_diagnostics: service,outcome,error_code
+          resolution_condition: A complete reconciliation is recorded within the last 24 hours.

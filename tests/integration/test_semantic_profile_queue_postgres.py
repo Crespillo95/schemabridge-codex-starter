@@ -71,8 +71,8 @@ CAPABILITY = "semantic-profile-capability-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 OTHER_CAPABILITY = "other-profile-capability-9876543210-zyxwvutsrqponmlkjihgfedcba"
 EXPECTED_READER = "schemabridge_reader"
 APPLY_ROUTE_SQL = (
-    "SELECT * FROM schemabridge_control.apply_connector_route_change("
-    + ", ".join(["%s"] * 35)
+    "SELECT * FROM schemabridge_control.apply_connector_route_change_v2("
+    + ", ".join(["%s"] * 39)
     + ")"
 )
 
@@ -86,6 +86,7 @@ class _DatabaseUrls:
     runtime: str
     api: str
     catalog: str
+    observer: str
 
 
 def _role_dsn(role: str, database: str) -> str:
@@ -107,6 +108,7 @@ def profile_database() -> Iterator[_DatabaseUrls]:
         runtime=_role_dsn("schemabridge_runtime", database),
         api=_role_dsn("schemabridge_api", database),
         catalog=_role_dsn("schemabridge_catalog", database),
+        observer=_role_dsn("schemabridge_observer", database),
     )
     with psycopg.connect(admin_dsn, autocommit=True) as connection:
         connection.execute(
@@ -126,13 +128,14 @@ def profile_database() -> Iterator[_DatabaseUrls]:
                     schemabridge_worker,
                     schemabridge_runtime,
                     schemabridge_api,
-                    schemabridge_catalog
+                    schemabridge_catalog,
+                    schemabridge_observer
                 """
             ).format(sql.Identifier(database))
         )
     try:
         migrated = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert migrated.inspection.current_version == 9
+        assert migrated.inspection.current_version == 11
         yield urls
     finally:
         with psycopg.connect(admin_dsn, autocommit=True) as connection:
@@ -304,6 +307,10 @@ def _seed_connector_target(
                 f"profile.catalog.{label}",
                 f"profile.execution.{label}",
                 f"profile.profile.{label}",
+                101,
+                202,
+                303,
+                404,
                 _digest(f"profile-proposal:{workspace_id}:{connection_id}"),
                 f"approval-profile-{label}",
                 _digest(f"profile-approval:{workspace_id}:{connection_id}"),
@@ -462,6 +469,7 @@ def test_profile_queue_replays_exactly_fences_and_exposes_only_aggregates(
     assert route.dialect is SourceDialect.POSTGRESQL
     assert route.expected_reader == EXPECTED_READER
     assert route.secret_reference.value.startswith("profile.profile.")
+    assert route.secret_reference.provider_secret_version == 404
 
     with pytest.raises(SemanticJoinProfileQueueError) as stale_capability:
         worker_queue.heartbeat(
@@ -838,7 +846,7 @@ def test_profile_claim_skips_a_locked_earlier_job(
     )
 
 
-def test_profile_failure_retry_and_six_role_grants_are_minimal(
+def test_profile_failure_retry_and_seven_role_grants_are_minimal(
     profile_database: _DatabaseUrls,
 ) -> None:
     workspace_id = f"workspace-retry-{uuid4().hex[:12]}"
@@ -896,6 +904,7 @@ def test_profile_failure_retry_and_six_role_grants_are_minimal(
         "runtime": profile_database.runtime,
         "api": profile_database.api,
         "catalog": profile_database.catalog,
+        "observer": profile_database.observer,
     }
     expected = {
         "migrator": (True, True, True, True, True),
@@ -904,6 +913,7 @@ def test_profile_failure_retry_and_six_role_grants_are_minimal(
         "runtime": (False, False, False, False, False),
         "api": (False, False, False, False, False),
         "catalog": (False, False, False, False, False),
+        "observer": (False, False, False, False, False),
     }
     for role, dsn in role_dsns.items():
         with psycopg.connect(dsn) as connection:

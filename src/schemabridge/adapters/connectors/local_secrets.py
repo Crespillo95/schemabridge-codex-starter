@@ -3,19 +3,24 @@
 from __future__ import annotations
 
 import errno
-import hashlib
 import json
 import os
 import re
 import stat
 from dataclasses import dataclass, field
-from enum import StrEnum
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
 from psycopg import ProgrammingError
 from psycopg.conninfo import conninfo_to_dict
 
+from schemabridge.application.ports.connector_secrets import (
+    ConnectorSecretErrorCode,
+    ConnectorSecretResolutionError,
+    OpaqueConnectorSecretRef,
+    ResolvedPostgresSecret,
+    connector_secret_error,
+)
 from schemabridge.domain.connectors import (
     GovernedExecutionTarget,
     SourceConnectorKind,
@@ -25,7 +30,6 @@ from schemabridge.domain.connectors import (
 MAX_CONNECTOR_SECRET_BYTES = 16 * 1_024
 MAX_CONNECTOR_DSN_BYTES = 8 * 1_024
 
-_BINDING_REF = re.compile(r"^[a-z][a-z0-9._:-]{2,199}$")
 _NO_RAW_WHITESPACE_OR_CONTROL = re.compile(r"^[^\x00-\x20\x7f]+$")
 _DOCUMENT_KEYS = frozenset({"format_version", "dialect", "expected_reader", "dsn"})
 _FORBIDDEN_QUERY_IDENTITY_KEYS = frozenset(
@@ -40,55 +44,6 @@ _FORBIDDEN_QUERY_IDENTITY_KEYS = frozenset(
         "user",
     }
 )
-
-
-class ConnectorSecretErrorCode(StrEnum):
-    """Sanitized private-adapter failures with no filesystem or DSN details."""
-
-    UNAVAILABLE = "connector_secret_unavailable"
-    UNSAFE = "connector_secret_unsafe"
-    INVALID = "connector_secret_invalid"
-    TARGET_MISMATCH = "connector_secret_target_mismatch"
-
-
-class ConnectorSecretResolutionError(RuntimeError):
-    """A safe failure from the private local secret boundary."""
-
-    def __init__(self, code: ConnectorSecretErrorCode, message: str) -> None:
-        self.code = code
-        super().__init__(message)
-
-
-@dataclass(frozen=True, slots=True)
-class OpaqueConnectorSecretRef:
-    """Private route handle whose value is never represented or used as a path."""
-
-    value: str = field(repr=False)
-
-    def __post_init__(self) -> None:
-        if (
-            not isinstance(self.value, str)
-            or _BINDING_REF.fullmatch(self.value) is None
-            or "://" in self.value
-            or "@" in self.value
-        ):
-            raise _secret_error(ConnectorSecretErrorCode.UNAVAILABLE)
-
-    @property
-    def filename(self) -> str:
-        """Return only the one-way content-addressed filename."""
-
-        digest = hashlib.sha256(self.value.encode("utf-8")).hexdigest()
-        return f"{digest}.json"
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedPostgresSecret:
-    """Adapter-private PostgreSQL material consumed immediately by a connector."""
-
-    dsn: str = field(repr=False)
-    expected_reader: str = field(repr=False)
-    dialect: SourceDialect
 
 
 @dataclass(frozen=True, slots=True)
@@ -288,7 +243,12 @@ def _parse_document(raw: bytes) -> dict[str, object]:
     return document
 
 
-def _validate_postgres_dsn(dsn: str, *, expected_reader: str) -> None:
+def _validate_postgres_dsn(
+    dsn: str,
+    *,
+    expected_reader: str,
+    require_tls: bool = False,
+) -> None:
     try:
         if (
             not dsn
@@ -329,6 +289,14 @@ def _validate_postgres_dsn(dsn: str, *, expected_reader: str) -> None:
             or not conninfo.get("dbname")
         ):
             raise ValueError
+        if require_tls:
+            ssl_root_certificate = conninfo.get("sslrootcert")
+            if (
+                conninfo.get("sslmode") != "verify-full"
+                or not isinstance(ssl_root_certificate, str)
+                or not Path(ssl_root_certificate).is_absolute()
+            ):
+                raise ValueError
     except (ProgrammingError, UnicodeError, ValueError):
         raise _secret_error(ConnectorSecretErrorCode.INVALID) from None
 
@@ -376,12 +344,15 @@ def _directory_identity(metadata: os.stat_result) -> tuple[int, ...]:
 
 
 def _secret_error(code: ConnectorSecretErrorCode) -> ConnectorSecretResolutionError:
-    messages = {
-        ConnectorSecretErrorCode.UNAVAILABLE: "connector secret is unavailable",
-        ConnectorSecretErrorCode.UNSAFE: "connector secret file is unsafe",
-        ConnectorSecretErrorCode.INVALID: "connector secret payload is invalid",
-        ConnectorSecretErrorCode.TARGET_MISMATCH: (
-            "connector secret does not match the governed target"
-        ),
-    }
-    return ConnectorSecretResolutionError(code, messages[code])
+    return connector_secret_error(code)
+
+
+__all__ = [
+    "MAX_CONNECTOR_DSN_BYTES",
+    "MAX_CONNECTOR_SECRET_BYTES",
+    "ConnectorSecretErrorCode",
+    "ConnectorSecretResolutionError",
+    "OpaqueConnectorSecretRef",
+    "OwnerOnlyConnectorSecretResolver",
+    "ResolvedPostgresSecret",
+]

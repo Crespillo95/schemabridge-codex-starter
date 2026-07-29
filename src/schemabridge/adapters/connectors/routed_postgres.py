@@ -5,13 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from schemabridge.adapters.connectors.local_secrets import (
-    ConnectorSecretErrorCode,
-    ConnectorSecretResolutionError,
-    OpaqueConnectorSecretRef,
-    OwnerOnlyConnectorSecretResolver,
-    ResolvedPostgresSecret,
-)
 from schemabridge.adapters.connectors.source_identity import (
     PostgresSourceIdentityMismatchError,
 )
@@ -21,6 +14,13 @@ from schemabridge.adapters.postgres.rejections import PsycopgRejectedSourceRepor
 from schemabridge.application.connectors import (
     ConnectorTargetError,
     ConnectorTargetErrorCode,
+)
+from schemabridge.application.ports.connector_secrets import (
+    ConnectorSecretErrorCode,
+    ConnectorSecretResolutionError,
+    ConnectorSecretResolver,
+    OpaqueConnectorSecretRef,
+    ResolvedPostgresSecret,
 )
 from schemabridge.application.ports.planning import (
     PlanningPortError,
@@ -54,7 +54,7 @@ class RoutedPostgresQueryConnector:
     """Reload a private route and secret immediately before each source operation."""
 
     reference_loader: ConnectorSecretReferenceLoader = field(repr=False)
-    secret_resolver: OwnerOnlyConnectorSecretResolver = field(repr=False)
+    secret_resolver: ConnectorSecretResolver = field(repr=False)
     allowed_fields: frozenset[str]
     connect_timeout_seconds: int = 3
     max_rows_limit: int = 500

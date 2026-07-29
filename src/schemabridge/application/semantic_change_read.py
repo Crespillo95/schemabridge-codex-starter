@@ -9,6 +9,9 @@ from datetime import datetime
 from enum import StrEnum
 from typing import TypeVar
 
+from schemabridge.application.ports.operational_telemetry import (
+    OperationalResourceAccessCause,
+)
 from schemabridge.application.ports.semantic_change_read import (
     MAX_SEMANTIC_CHANGE_CURSOR_BYTES,
     MAX_SEMANTIC_CHANGE_PAGE_SIZE,
@@ -57,8 +60,17 @@ class SemanticChangeReadErrorCode(StrEnum):
 class SemanticChangeReadError(RuntimeError):
     """Stable, non-disclosing failure for the authenticated HTTP boundary."""
 
-    def __init__(self, code: SemanticChangeReadErrorCode, message: str) -> None:
+    def __init__(
+        self,
+        code: SemanticChangeReadErrorCode,
+        message: str,
+        *,
+        resource_access_cause: OperationalResourceAccessCause | None = None,
+    ) -> None:
+        if (code is SemanticChangeReadErrorCode.UNAVAILABLE) != (resource_access_cause is not None):
+            raise ValueError("invalid internal resource access cause")
         self.code = code
+        self.resource_access_cause = resource_access_cause
         super().__init__(message)
 
 
@@ -230,7 +242,7 @@ def _authorize_reader(
         if now.tzinfo is None or now.utcoffset() is None:
             raise ValueError("semantic change clock returned a naive instant")
         if not principal.is_current(now) or not principal.roles:
-            raise _unavailable()
+            raise _denied()
     except SemanticChangeReadError:
         raise
     except (TypeError, ValueError) as error:
@@ -275,7 +287,7 @@ def _load_report(
 ) -> SemanticChangeReportPublic:
     value = _call_store(lambda: store.load_report(workspace_id, report_id))
     if value is None:
-        raise _unavailable()
+        raise _not_found()
     _validate_report(value, workspace_id=workspace_id, report_id=report_id)
     return value
 
@@ -452,7 +464,7 @@ def _public_page(
             ):
                 raise ValueError("invalid cursor response")
         except (SemanticChangeCursorError, TypeError, ValueError) as error:
-            raise _unavailable() from error
+            raise _not_found() from error
     return SemanticChangePage(items=page.items, next_cursor=next_cursor, as_of=at)
 
 
@@ -485,7 +497,7 @@ def _decode(
             raise ValueError("invalid cursor position")
         return position
     except (SemanticChangeCursorError, TypeError, ValueError) as error:
-        raise _unavailable() from error
+        raise _not_found() from error
 
 
 def _call_store(operation: Callable[[], _ReadableT]) -> _ReadableT:
@@ -499,10 +511,19 @@ def _call_store(operation: Callable[[], _ReadableT]) -> _ReadableT:
         raise _service_unavailable() from error
 
 
-def _unavailable() -> SemanticChangeReadError:
+def _denied() -> SemanticChangeReadError:
     return SemanticChangeReadError(
         SemanticChangeReadErrorCode.UNAVAILABLE,
         "semantic change resource is unavailable",
+        resource_access_cause=OperationalResourceAccessCause.DENIED,
+    )
+
+
+def _not_found() -> SemanticChangeReadError:
+    return SemanticChangeReadError(
+        SemanticChangeReadErrorCode.UNAVAILABLE,
+        "semantic change resource is unavailable",
+        resource_access_cause=OperationalResourceAccessCause.NOT_FOUND,
     )
 
 

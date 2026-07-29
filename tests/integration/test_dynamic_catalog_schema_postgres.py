@@ -1,4 +1,4 @@
-"""PostgreSQL catalog schema, CAS, admission, and six-role privilege proof."""
+"""PostgreSQL catalog schema, CAS, admission, and seven-role privilege proof."""
 
 from __future__ import annotations
 
@@ -67,6 +67,7 @@ class _DatabaseUrls:
     api: str
     worker: str
     catalog: str
+    observer: str
 
 
 def _role_dsn(role: str, database: str) -> str:
@@ -82,6 +83,7 @@ def _database_urls(database: str) -> _DatabaseUrls:
         api=_role_dsn("schemabridge_api", database),
         worker=_role_dsn("schemabridge_worker", database),
         catalog=_role_dsn("schemabridge_catalog", database),
+        observer=_role_dsn("schemabridge_observer", database),
     )
 
 
@@ -102,6 +104,13 @@ def _create_database(database: str) -> _DatabaseUrls:
             pytest.fail(
                 "schemabridge_catalog role is missing; recreate the M25 control-plane service"
             )
+        observer_role = connection.execute(
+            "SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'schemabridge_observer'"
+        ).fetchone()
+        if observer_role is None:
+            pytest.fail(
+                "schemabridge_observer role is missing; recreate the M29 control-plane service"
+            )
         connection.execute(
             sql.SQL("CREATE DATABASE {} OWNER schemabridge_migrator").format(
                 sql.Identifier(database)
@@ -119,7 +128,8 @@ def _create_database(database: str) -> _DatabaseUrls:
                     schemabridge_reconciler,
                     schemabridge_api,
                     schemabridge_worker,
-                    schemabridge_catalog
+                    schemabridge_catalog,
+                    schemabridge_observer
                 """
             ).format(sql.Identifier(database))
         )
@@ -148,8 +158,8 @@ def catalog_database(tmp_path_factory: pytest.TempPathFactory) -> Iterator[_Data
             PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).require_current()
         assert stale.value.code is ControlPlaneMigrationErrorCode.SCHEMA_NOT_CURRENT
         upgraded = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert upgraded.applied_versions == (4, 5, 6, 7, 8, 9)
-        assert upgraded.inspection.current_version == 9
+        assert upgraded.applied_versions == (4, 5, 6, 7, 8, 9, 10, 11)
+        assert upgraded.inspection.current_version == 11
         yield urls
     finally:
         _drop_database(database)
@@ -241,8 +251,8 @@ def test_pristine_schema_reaches_exact_current_version() -> None:
     urls = _create_database(database)
     try:
         migrated = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert migrated.applied_versions == (1, 2, 3, 4, 5, 6, 7, 8, 9)
-        assert migrated.inspection.current_version == 9
+        assert migrated.applied_versions == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+        assert migrated.inspection.current_version == 11
         with psycopg.connect(urls.migrator) as connection:
             tables = {
                 row[0]
@@ -277,12 +287,13 @@ def test_pristine_schema_reaches_exact_current_version() -> None:
             "semantic_dependency_index_states",
             "semantic_change_heads",
             "semantic_change_scan_requests",
+            "connector_private_route_secret_versions",
         } <= tables
     finally:
         _drop_database(database)
 
 
-def test_six_role_matrix_is_closed_and_catalog_cannot_activate_directly(
+def test_seven_role_matrix_is_closed_and_catalog_cannot_activate_directly(
     catalog_database: _DatabaseUrls,
 ) -> None:
     roles = {
@@ -292,6 +303,7 @@ def test_six_role_matrix_is_closed_and_catalog_cannot_activate_directly(
         "api": catalog_database.api,
         "worker": catalog_database.worker,
         "catalog": catalog_database.catalog,
+        "observer": catalog_database.observer,
     }
     expected = {
         "migrator": (True, True, True, True, True, True, True, True),
@@ -300,6 +312,7 @@ def test_six_role_matrix_is_closed_and_catalog_cannot_activate_directly(
         "api": (True, False, True, True, False, True, True, False),
         "worker": (True, False, False, False, False, False, True, True),
         "catalog": (True, False, True, False, True, True, False, False),
+        "observer": (False, False, False, False, False, False, False, False),
     }
     query = """
         SELECT
@@ -360,12 +373,13 @@ def test_six_role_matrix_is_closed_and_catalog_cannot_activate_directly(
         assert properties == (False, False, False, False)
 
     function_expected = {
-        "migrator": (True, True, True, True, True, True, True, True),
-        "runtime": (False, False, False, False, False, False, False, False),
-        "reconciler": (False, False, False, False, False, False, False, False),
-        "api": (True, True, True, True, False, False, False, False),
-        "worker": (False, False, False, False, False, False, False, False),
-        "catalog": (False, False, False, False, True, True, True, True),
+        "migrator": (True, True, True, True, True, True, True, True, True),
+        "runtime": (False, False, False, False, False, False, False, False, False),
+        "reconciler": (False, False, False, False, False, False, False, False, False),
+        "api": (True, True, True, True, False, False, False, False, False),
+        "worker": (False, False, False, False, False, False, False, False, False),
+        "catalog": (False, False, False, False, False, True, True, True, True),
+        "observer": (False, False, False, False, False, False, False, False, False),
     }
     for role, dsn in roles.items():
         with psycopg.connect(dsn) as connection:
@@ -396,6 +410,13 @@ def test_six_role_matrix_is_closed_and_catalog_cannot_activate_directly(
                     has_function_privilege(
                         current_user,
                         'schemabridge_control.load_owned_catalog_connector_route('
+                        'varchar,varchar,varchar,varchar,varchar,bigint,'
+                        'bigint,bigint,char)',
+                        'EXECUTE'
+                    ),
+                    has_function_privilege(
+                        current_user,
+                        'schemabridge_control.load_owned_catalog_connector_route_v2('
                         'varchar,varchar,varchar,varchar,varchar,bigint,'
                         'bigint,bigint,char)',
                         'EXECUTE'
@@ -480,6 +501,10 @@ def test_six_role_matrix_is_closed_and_catalog_cannot_activate_directly(
         "api": api_allowed,
         "worker": worker_allowed,
         "catalog": catalog_allowed,
+        "observer": set(),
+    }
+    expected_memberships = {
+        role: {"schemabridge_observer"} if role == "migrator" else set() for role in roles
     }
     for role, dsn in roles.items():
         with psycopg.connect(dsn) as connection:
@@ -517,11 +542,14 @@ def test_six_role_matrix_is_closed_and_catalog_cannot_activate_directly(
                         "schemabridge_api",
                         "schemabridge_worker",
                         "schemabridge_catalog",
+                        "schemabridge_observer",
                     ],
                 ),
             ).fetchall()
         assert observed == expected_allowed[role]
-        assert all(not is_member for _, is_member in memberships)
+        assert {
+            target_role for target_role, is_member in memberships if is_member
+        } == expected_memberships[role]
 
     with (
         psycopg.connect(catalog_database.catalog) as connection,
@@ -536,7 +564,7 @@ def test_six_role_matrix_is_closed_and_catalog_cannot_activate_directly(
         )
 
 
-def test_v5_semantic_change_privileges_keep_the_six_role_boundary(
+def test_v5_semantic_change_privileges_keep_the_seven_role_boundary(
     catalog_database: _DatabaseUrls,
 ) -> None:
     roles = {
@@ -546,6 +574,7 @@ def test_v5_semantic_change_privileges_keep_the_six_role_boundary(
         "api": catalog_database.api,
         "worker": catalog_database.worker,
         "catalog": catalog_database.catalog,
+        "observer": catalog_database.observer,
     }
     tables = (
         "catalog_generation_changes",
@@ -580,6 +609,7 @@ def test_v5_semantic_change_privileges_keep_the_six_role_boundary(
         "api": set(),
         "worker": set(),
         "catalog": set(),
+        "observer": set(),
     }
     view_names = (
         "semantic_catalog_evidence_projection",
@@ -603,6 +633,7 @@ def test_v5_semantic_change_privileges_keep_the_six_role_boundary(
         },
         "worker": {"semantic_context_gate_projection"},
         "catalog": set(),
+        "observer": set(),
     }
     for role, dsn in roles.items():
         with psycopg.connect(dsn) as connection:
@@ -1757,7 +1788,7 @@ def test_catalog_generation_activation_is_fenced_atomic_and_public_route_is_hidd
         unavailable_route = connection.execute(
             """
             SELECT *
-            FROM schemabridge_control.load_owned_catalog_connector_route(
+            FROM schemabridge_control.load_owned_catalog_connector_route_v2(
                 %s, %s, %s, 'catalog-indexer-a', %s, 1, %s, %s, %s
             )
             """,
@@ -1796,7 +1827,7 @@ def test_catalog_generation_activation_is_fenced_atomic_and_public_route_is_hidd
         wrong_route = connection.execute(
             """
             SELECT *
-            FROM schemabridge_control.load_owned_catalog_connector_route(
+            FROM schemabridge_control.load_owned_catalog_connector_route_v2(
                 %s, %s, %s, 'catalog-indexer-a', %s, 1, %s, %s, %s
             )
             """,
@@ -1813,7 +1844,7 @@ def test_catalog_generation_activation_is_fenced_atomic_and_public_route_is_hidd
         other_replica_route = connection.execute(
             """
             SELECT *
-            FROM schemabridge_control.load_owned_catalog_connector_route(
+            FROM schemabridge_control.load_owned_catalog_connector_route_v2(
                 %s, %s, %s, 'catalog-indexer-b', %s, 1, %s, %s, %s
             )
             """,
@@ -1830,7 +1861,7 @@ def test_catalog_generation_activation_is_fenced_atomic_and_public_route_is_hidd
         exact_route = connection.execute(
             """
             SELECT *
-            FROM schemabridge_control.load_owned_catalog_connector_route(
+            FROM schemabridge_control.load_owned_catalog_connector_route_v2(
                 %s, %s, %s, 'catalog-indexer-a', %s, 1, %s, %s, %s
             )
             """,
@@ -1860,6 +1891,7 @@ def test_catalog_generation_activation_is_fenced_atomic_and_public_route_is_hidd
         target_facts.target_fingerprint,
     )
     assert str(exact_route[10]).startswith("test.catalog.")
+    assert exact_route[11] == 202
 
     with psycopg.connect(catalog_database.catalog) as connection:
         connection.execute(
@@ -3025,7 +3057,7 @@ def test_catalog_generation_activation_is_fenced_atomic_and_public_route_is_hidd
         second_route = connection.execute(
             """
             SELECT *
-            FROM schemabridge_control.load_owned_catalog_connector_route(
+            FROM schemabridge_control.load_owned_catalog_connector_route_v2(
                 %s, %s, %s, 'catalog-indexer-b', %s, 1, %s, %s, %s
             )
             """,

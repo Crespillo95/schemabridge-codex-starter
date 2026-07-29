@@ -1,6 +1,29 @@
+FROM python:3.13.13-slim-bookworm@sha256:355bfa66770995d7e9a0da4b3473b44d0cb451f6b56f5615ad9c39e3c4eca03f AS builder
+
+ARG SCHEMABRIDGE_RELEASE_REF=release-ref-not-supplied
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /opt/schemabridge
+
+COPY requirements/build.txt ./requirements/build.txt
+RUN python -m pip install --no-cache-dir --no-deps --require-hashes \
+    -r requirements/build.txt
+
+COPY pyproject.toml README.md LICENSE ./
+COPY src ./src
+COPY migrations ./migrations
+RUN python -m pip wheel --no-cache-dir --no-deps --no-build-isolation \
+    --wheel-dir /tmp/dist .
+
 FROM python:3.13.13-slim-bookworm@sha256:355bfa66770995d7e9a0da4b3473b44d0cb451f6b56f5615ad9c39e3c4eca03f
 
 ARG SCHEMABRIDGE_RELEASE_REF=release-ref-not-supplied
+
+LABEL org.opencontainers.image.source="https://github.com/Crespillo95/schemabridge-codex-starter" \
+      org.opencontainers.image.revision="${SCHEMABRIDGE_RELEASE_REF}"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -10,14 +33,20 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN useradd --create-home --uid 10001 schemabridge
 WORKDIR /opt/schemabridge
 
-COPY pyproject.toml README.md LICENSE ./
-COPY src ./src
-COPY migrations ./migrations
-RUN python -m pip install --no-cache-dir '.[api,postgres,sql]'
+COPY requirements/runtime.txt ./requirements/runtime.txt
+# requirements/runtime.txt is the frozen, hashed export of the API, worker, SQL, and UI runtime.
+RUN python -m pip install --no-cache-dir --no-deps --require-hashes \
+    -r requirements/runtime.txt
+
+COPY --from=builder /tmp/dist/schemabridge-0.1.0-py3-none-any.whl /tmp/schemabridge-0.1.0-py3-none-any.whl
+COPY --from=builder /opt/schemabridge/src/schemabridge/entrypoints/streamlit/app.py ./streamlit_app.py
+RUN python -m pip install --no-cache-dir --no-deps \
+    /tmp/schemabridge-0.1.0-py3-none-any.whl \
+    && rm /tmp/schemabridge-0.1.0-py3-none-any.whl
 
 RUN chown -R schemabridge:schemabridge /opt/schemabridge
 USER 10001:10001
 
-EXPOSE 8520
+EXPOSE 7860 8520
 
 CMD ["schemabridge-api"]

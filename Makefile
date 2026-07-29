@@ -2,6 +2,7 @@ SHELL := /bin/bash
 PYTHON ?= $(shell command -v python3.13 2>/dev/null || command -v python3.12 2>/dev/null || command -v python3.11 2>/dev/null || command -v python3 2>/dev/null || command -v python 2>/dev/null)
 VENV ?= .venv
 BIN := $(VENV)/bin
+UV ?= $(shell command -v uv 2>/dev/null || { test -x '$(BIN)/uv' && printf '%s' '$(BIN)/uv'; })
 DEMO_DATABASE_URL ?= postgresql://schemabridge_reader:schemabridge_reader@127.0.0.1:55433/schemabridge
 CONTROL_DATABASE_URL ?= postgresql://schemabridge_runtime:schemabridge_runtime@127.0.0.1:55434/schemabridge_control
 CONTROL_RECONCILER_DATABASE_URL ?= postgresql://schemabridge_reconciler:schemabridge_reconciler@127.0.0.1:55434/schemabridge_control
@@ -9,19 +10,77 @@ CONTROL_MIGRATOR_DATABASE_URL ?= postgresql://schemabridge_migrator:schemabridge
 CONTROL_API_DATABASE_URL ?= postgresql://schemabridge_api:schemabridge_api@127.0.0.1:55434/schemabridge_control
 CONTROL_WORKER_DATABASE_URL ?= postgresql://schemabridge_worker:schemabridge_worker@127.0.0.1:55434/schemabridge_control
 CONTROL_CATALOG_DATABASE_URL ?= postgresql://schemabridge_catalog:schemabridge_catalog@127.0.0.1:55434/schemabridge_control
+CONTROL_OBSERVER_DATABASE_URL ?= postgresql://schemabridge_observer:schemabridge_observer@127.0.0.1:55434/schemabridge_control
 EXECUTION_CONNECTOR_SECRET_DIRECTORY ?= $(abspath .local/connector-secrets/execution)
 PROFILE_CONNECTOR_SECRET_DIRECTORY ?= $(abspath .local/connector-secrets/profile)
 CATALOG_CONNECTOR_SECRET_DIRECTORY ?= $(abspath .local/connector-secrets/catalog)
+OPERATOR_CLEAN_ENV := env \
+	-u DATABASE_URL \
+	-u OPENAI_API_KEY \
+	-u DATAHUB_GMS_TOKEN \
+	-u SCHEMABRIDGE_CONTROL_DATABASE_URL \
+	-u SCHEMABRIDGE_CONTROL_RECONCILER_DATABASE_URL \
+	-u SCHEMABRIDGE_CONTROL_MIGRATOR_DATABASE_URL \
+	-u SCHEMABRIDGE_CONTROL_API_DATABASE_URL \
+	-u SCHEMABRIDGE_CONTROL_WORKER_DATABASE_URL \
+	-u SCHEMABRIDGE_CONTROL_CATALOG_DATABASE_URL \
+	-u SCHEMABRIDGE_CONTROL_OBSERVER_DATABASE_URL \
+	-u SCHEMABRIDGE_CONTROL_RESTORE_DATABASE_URL \
+	-u SCHEMABRIDGE_CONTROL_AUDIT_SIGNING_KEY \
+	-u SCHEMABRIDGE_IDENTITY_MIGRATION_KEY \
+	-u SCHEMABRIDGE_CONTROL_OPERATOR_ACTOR_ID \
+	-u SCHEMABRIDGE_CONTROL_OPERATOR_ROLES \
+	-u SCHEMABRIDGE_AUTH_MODE \
+	-u SCHEMABRIDGE_QUERY_STUDIO_AI_MODE \
+	-u SCHEMABRIDGE_QUERY_STUDIO_SIGNING_KEY \
+	-u SCHEMABRIDGE_PSEUDONYMIZATION_KEY \
+	-u SCHEMABRIDGE_API_LOCAL_BEARER_TOKEN \
+	-u SCHEMABRIDGE_API_OIDC_JWKS_URL \
+	-u SCHEMABRIDGE_INVENTORY_CURSOR_SIGNING_KEY \
+	-u SCHEMABRIDGE_OIDC_ISSUER \
+	-u SCHEMABRIDGE_OIDC_AUDIENCE \
+	-u SCHEMABRIDGE_OIDC_PROVIDER \
+	-u SCHEMABRIDGE_OIDC_ALLOWED_GROUPS \
+	-u SCHEMABRIDGE_OIDC_ALLOWED_TENANTS \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_MODE \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_PROVIDER_URL \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_ROLE \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_KV_MOUNT \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_CAPABILITY \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_CA_BUNDLE \
+	-u SCHEMABRIDGE_WORKLOAD_IDENTITY_TOKEN_FILE \
+	-u SCHEMABRIDGE_WORKLOAD_IDENTITY_ROOT \
+	-u SCHEMABRIDGE_WORKLOAD_IDENTITY_AUDIENCE \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_ROLE \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_BINDING_REF \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_VERSION \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_READER_ENV_PATH
 API_CLEAN_ENV := env \
 	-u DATABASE_URL \
 	-u OPENAI_API_KEY \
 	-u DATAHUB_GMS_TOKEN \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_MODE \
 	-u SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_PROVIDER_URL \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_ROLE \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_ROLE \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_BINDING_REF \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_VERSION \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_READER_ENV_PATH \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_KV_MOUNT \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_CAPABILITY \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_CA_BUNDLE \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_TIMEOUT_SECONDS \
+	-u SCHEMABRIDGE_WORKLOAD_IDENTITY_TOKEN_FILE \
+	-u SCHEMABRIDGE_WORKLOAD_IDENTITY_ROOT \
+	-u SCHEMABRIDGE_WORKLOAD_IDENTITY_AUDIENCE \
 	-u SCHEMABRIDGE_CONTROL_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_RECONCILER_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_MIGRATOR_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_WORKER_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_CATALOG_DATABASE_URL \
+	-u SCHEMABRIDGE_CONTROL_OBSERVER_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_RESTORE_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_AUDIT_SIGNING_KEY \
 	-u SCHEMABRIDGE_CONTROL_OPERATOR_ACTOR_ID \
@@ -31,12 +90,27 @@ WORKER_CLEAN_ENV := env \
 	-u DATABASE_URL \
 	-u OPENAI_API_KEY \
 	-u DATAHUB_GMS_TOKEN \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_MODE \
 	-u SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_PROVIDER_URL \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_ROLE \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_ROLE \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_BINDING_REF \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_VERSION \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_READER_ENV_PATH \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_KV_MOUNT \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_CAPABILITY \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_CA_BUNDLE \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_TIMEOUT_SECONDS \
+	-u SCHEMABRIDGE_WORKLOAD_IDENTITY_TOKEN_FILE \
+	-u SCHEMABRIDGE_WORKLOAD_IDENTITY_ROOT \
+	-u SCHEMABRIDGE_WORKLOAD_IDENTITY_AUDIENCE \
 	-u SCHEMABRIDGE_CONTROL_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_RECONCILER_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_MIGRATOR_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_API_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_CATALOG_DATABASE_URL \
+	-u SCHEMABRIDGE_CONTROL_OBSERVER_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_RESTORE_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_AUDIT_SIGNING_KEY \
 	-u SCHEMABRIDGE_CONTROL_OPERATOR_ACTOR_ID \
@@ -58,12 +132,27 @@ CATALOG_CLEAN_ENV := env \
 	-u DATAHUB_GMS_URL \
 	-u DATAHUB_GMS_TOKEN \
 	-u SCHEMABRIDGE_LLM_MODEL \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_MODE \
 	-u SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_PROVIDER_URL \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_ROLE \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_ROLE \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_BINDING_REF \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_VERSION \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_READER_ENV_PATH \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_KV_MOUNT \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_CAPABILITY \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_CA_BUNDLE \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_TIMEOUT_SECONDS \
+	-u SCHEMABRIDGE_WORKLOAD_IDENTITY_TOKEN_FILE \
+	-u SCHEMABRIDGE_WORKLOAD_IDENTITY_ROOT \
+	-u SCHEMABRIDGE_WORKLOAD_IDENTITY_AUDIENCE \
 	-u SCHEMABRIDGE_CONTROL_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_RECONCILER_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_MIGRATOR_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_API_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_WORKER_DATABASE_URL \
+	-u SCHEMABRIDGE_CONTROL_OBSERVER_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_RESTORE_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_AUDIT_SIGNING_KEY \
 	-u SCHEMABRIDGE_CONTROL_OPERATOR_ACTOR_ID \
@@ -83,14 +172,32 @@ RECONCILER_CLEAN_ENV := env \
 	-u POSTGRES_READER_USER \
 	-u OPENAI_API_KEY \
 	-u SCHEMABRIDGE_LLM_MODEL \
+	-u SCHEMABRIDGE_QUERY_STUDIO_AI_MODE \
+	-u SCHEMABRIDGE_QUERY_STUDIO_AI_MODEL \
+	-u SCHEMABRIDGE_QUERY_STUDIO_AI_REGION \
 	-u DATAHUB_GMS_URL \
 	-u DATAHUB_GMS_TOKEN \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_MODE \
 	-u SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_PROVIDER_URL \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_ROLE \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_ROLE \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_BINDING_REF \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_VERSION \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_READER_ENV_PATH \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_KV_MOUNT \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_CAPABILITY \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_CA_BUNDLE \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_TIMEOUT_SECONDS \
+	-u SCHEMABRIDGE_WORKLOAD_IDENTITY_TOKEN_FILE \
+	-u SCHEMABRIDGE_WORKLOAD_IDENTITY_ROOT \
+	-u SCHEMABRIDGE_WORKLOAD_IDENTITY_AUDIENCE \
 	-u SCHEMABRIDGE_CONTROL_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_MIGRATOR_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_API_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_WORKER_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_CATALOG_DATABASE_URL \
+	-u SCHEMABRIDGE_CONTROL_OBSERVER_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_RESTORE_DATABASE_URL \
 	-u SCHEMABRIDGE_IDENTITY_MIGRATION_KEY \
 	-u SCHEMABRIDGE_OIDC_ISSUER \
@@ -109,12 +216,26 @@ PROFILE_WORKER_CLEAN_ENV := env \
 	-u SCHEMABRIDGE_LLM_MODEL \
 	-u DATAHUB_GMS_URL \
 	-u DATAHUB_GMS_TOKEN \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_MODE \
 	-u SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_PROVIDER_URL \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_ROLE \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_ROLE \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_BINDING_REF \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_VERSION \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_KV_MOUNT \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_CAPABILITY \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_CA_BUNDLE \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_TIMEOUT_SECONDS \
+	-u SCHEMABRIDGE_WORKLOAD_IDENTITY_TOKEN_FILE \
+	-u SCHEMABRIDGE_WORKLOAD_IDENTITY_ROOT \
+	-u SCHEMABRIDGE_WORKLOAD_IDENTITY_AUDIENCE \
 	-u SCHEMABRIDGE_CONTROL_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_RECONCILER_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_MIGRATOR_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_API_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_CATALOG_DATABASE_URL \
+	-u SCHEMABRIDGE_CONTROL_OBSERVER_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_RESTORE_DATABASE_URL \
 	-u SCHEMABRIDGE_CONTROL_AUDIT_SIGNING_KEY \
 	-u SCHEMABRIDGE_CONTROL_OPERATOR_ACTOR_ID \
@@ -133,6 +254,53 @@ PROFILE_WORKER_CLEAN_ENV := env \
 	-u SCHEMABRIDGE_SEMANTIC_PROFILE_SOURCE_WORKSPACE_ID \
 	-u SCHEMABRIDGE_SEMANTIC_PROFILE_SOURCE_CONNECTION_ID \
 	-u SCHEMABRIDGE_CATALOG_DATAHUB_CREDENTIAL_BINDING_REF
+OBSERVER_CLEAN_ENV := env \
+	-u DATABASE_URL \
+	-u POSTGRES_READER_USER \
+	-u OPENAI_API_KEY \
+	-u SCHEMABRIDGE_LLM_MODEL \
+	-u SCHEMABRIDGE_QUERY_STUDIO_AI_MODE \
+	-u SCHEMABRIDGE_QUERY_STUDIO_AI_MODEL \
+	-u SCHEMABRIDGE_QUERY_STUDIO_AI_REGION \
+	-u DATAHUB_GMS_URL \
+	-u DATAHUB_GMS_TOKEN \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_MODE \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_PROVIDER_URL \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_ROLE \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_ROLE \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_BINDING_REF \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_VERSION \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_READER_ENV_PATH \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_KV_MOUNT \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_CAPABILITY \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_CA_BUNDLE \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_TIMEOUT_SECONDS \
+	-u SCHEMABRIDGE_WORKLOAD_IDENTITY_TOKEN_FILE \
+	-u SCHEMABRIDGE_WORKLOAD_IDENTITY_ROOT \
+	-u SCHEMABRIDGE_WORKLOAD_IDENTITY_AUDIENCE \
+	-u SCHEMABRIDGE_CONTROL_DATABASE_URL \
+	-u SCHEMABRIDGE_CONTROL_RECONCILER_DATABASE_URL \
+	-u SCHEMABRIDGE_CONTROL_MIGRATOR_DATABASE_URL \
+	-u SCHEMABRIDGE_CONTROL_API_DATABASE_URL \
+	-u SCHEMABRIDGE_CONTROL_WORKER_DATABASE_URL \
+	-u SCHEMABRIDGE_CONTROL_CATALOG_DATABASE_URL \
+	-u SCHEMABRIDGE_CONTROL_RESTORE_DATABASE_URL \
+	-u SCHEMABRIDGE_CONTROL_AUDIT_SIGNING_KEY \
+	-u SCHEMABRIDGE_CONTROL_OPERATOR_ACTOR_ID \
+	-u SCHEMABRIDGE_CONTROL_OPERATOR_ROLES \
+	-u SCHEMABRIDGE_IDENTITY_MIGRATION_KEY \
+	-u SCHEMABRIDGE_OIDC_ISSUER \
+	-u SCHEMABRIDGE_OIDC_AUDIENCE \
+	-u SCHEMABRIDGE_OIDC_PROVIDER \
+	-u SCHEMABRIDGE_OIDC_ALLOWED_GROUPS \
+	-u SCHEMABRIDGE_OIDC_ALLOWED_TENANTS \
+	-u SCHEMABRIDGE_PSEUDONYMIZATION_KEY \
+	-u SCHEMABRIDGE_API_LOCAL_BEARER_TOKEN \
+	-u SCHEMABRIDGE_API_OIDC_JWKS_URL \
+	-u SCHEMABRIDGE_INVENTORY_CURSOR_SIGNING_KEY \
+	-u SCHEMABRIDGE_QUERY_STUDIO_SIGNING_KEY \
+	-u SCHEMABRIDGE_CATALOG_DATAHUB_CREDENTIAL_BINDING_REF
 
 JUDGE_IMAGE ?= schemabridge-judge:local
 JUDGE_PLATFORM ?= linux/amd64
@@ -143,13 +311,18 @@ SCALE_PREFLIGHT_REPORT_MARKDOWN ?= reports/m25-scale-preflight.md
 SCALE_REPORT_JSON ?= reports/m25-scale-report.json
 SCALE_REPORT_MARKDOWN ?= reports/m25-scale-report.md
 
-.PHONY: help bootstrap install check runtime-wheel-smoke format lint type test coverage coverage-unit doctor evaluate submission-package submission-package-dev release-audit release-clean judge-build judge-smoke demo-up demo-down demo-reset demo-seed-check demo-reset-proof demo-health demo-query demo-compile demo-preview demo-guard demo-governed-plan demo-governed-preview demo-intent control-plane-up control-plane-down control-plane-reset control-plane-migrate control-plane-check api worker worker-once catalog catalog-once semantic-reconciler semantic-reconciler-once semantic-reconciler-probe semantic-profile-worker semantic-profile-worker-once semantic-profile-worker-probe test-api-integration test-worker-integration test-intent test-scale-correctness benchmark-scale-preflight benchmark-scale test-integration test-acceptance datahub-version datahub-start datahub-health datahub-init-admin datahub-ingest datahub-provision-mcp datahub-provision-writer datahub-catalog-check datahub-registry-check datahub-restart datahub-reset datahub-stop datahub-mcp-check ui clean
+.PHONY: help bootstrap install check runtime-wheel-smoke supply-chain-lock supply-chain-static supply-chain-licenses m29-recovery-help m29-recovery-policy-check format lint type test coverage coverage-unit doctor evaluate submission-package submission-package-dev release-audit release-clean judge-build judge-smoke demo-up demo-down demo-reset demo-seed-check demo-reset-proof demo-health demo-query demo-compile demo-preview demo-guard demo-governed-plan demo-governed-preview demo-intent control-plane-up control-plane-down control-plane-reset control-plane-migrate control-plane-check api observer worker worker-once catalog catalog-once semantic-reconciler semantic-reconciler-once semantic-reconciler-probe semantic-profile-worker semantic-profile-worker-once semantic-profile-worker-probe test-api-integration test-worker-integration test-intent test-scale-correctness benchmark-scale-preflight benchmark-scale test-integration test-acceptance datahub-version datahub-start datahub-health datahub-init-admin datahub-ingest datahub-provision-mcp datahub-provision-writer datahub-catalog-check datahub-registry-check datahub-restart datahub-reset datahub-stop datahub-mcp-check ui clean
 
 help:
 	@printf '%s\n' \
 	  'make bootstrap   Create .venv and install development dependencies' \
 	  'make check       Format check, lint, types, and unit tests' \
 	  'make runtime-wheel-smoke Build/install the wheel and validate packaged migrations' \
+	  'make supply-chain-static Verify lock, hashes, immutable actions/images, and policy' \
+	  'make supply-chain-licenses Write the reviewed direct-license inventory' \
+	  'make supply-chain-lock Refresh the complete lock and exact hashed exports' \
+	  'make m29-recovery-help Show the safe M29 recovery operator commands' \
+	  'make m29-recovery-policy-check Validate the exact M29 recovery policy' \
 	  'make coverage    Run the >=80% full-suite coverage gate (services required)' \
 	  'make coverage-unit Report service-free unit coverage without release gating' \
 	  'make doctor      Verify the local starter environment' \
@@ -178,6 +351,7 @@ help:
 	  'make control-plane-migrate Apply reviewed checksum-pinned control migrations' \
 	  'make control-plane-check Verify schema version, roles, and source separation' \
 	  'make api         Start only the authenticated API process' \
+	  'make observer    Start only the aggregate read-only metrics observer' \
 	  'make worker      Start only the durable execution worker' \
 	  'make worker-once Process at most one durable worker poll' \
 	  'make catalog     Start only the DataHub-reading catalog indexer' \
@@ -212,14 +386,17 @@ help:
 bootstrap:
 	@test -n "$(PYTHON)" || { printf '%s\n' 'Python >=3.11,<3.14 was not found on PATH.' >&2; exit 1; }
 	@$(PYTHON) -c 'import sys; sys.exit(0 if (3, 11) <= sys.version_info[:2] < (3, 14) else "SchemaBridge requires Python >=3.11,<3.14")'
-	$(PYTHON) -m venv --clear $(VENV)
-	$(BIN)/python -m pip install --upgrade pip
-	$(BIN)/python -m pip install -e '.[dev,postgres,sql,ui,api,datahub,llm]'
+	@test -n "$(UV)" || { printf '%s\n' 'uv 0.11.30 is required for a frozen bootstrap.' >&2; exit 1; }
+	@test "$$($(UV) --version | awk '{print $$2}')" = '0.11.30' || { printf '%s\n' 'uv must be exactly 0.11.30.' >&2; exit 1; }
+	$(UV) lock --check --no-python-downloads
+	$(UV) sync --frozen --all-extras --all-groups --python '$(PYTHON)' --no-python-downloads
 	$(BIN)/schemabridge version
 	$(BIN)/schemabridge doctor
 
 install:
-	$(BIN)/python -m pip install -e '.[dev,postgres,sql,ui,api,datahub,llm]'
+	@test -n "$(UV)" || { printf '%s\n' 'uv 0.11.30 is required for a frozen install.' >&2; exit 1; }
+	$(UV) lock --check --no-python-downloads
+	$(UV) sync --frozen --all-extras --all-groups --python '$(PYTHON)' --no-python-downloads
 
 format:
 	$(BIN)/ruff format src tests scripts
@@ -241,10 +418,30 @@ coverage:
 coverage-unit:
 	$(BIN)/pytest --cov=schemabridge --cov-report=term-missing --cov-fail-under=0 -m 'not integration and not acceptance and not performance'
 
-check: lint type test
+check: supply-chain-static lint type test
 
 runtime-wheel-smoke:
 	$(BIN)/python scripts/smoke_runtime_wheel.py
+
+supply-chain-lock:
+	@test -n "$(UV)" || { printf '%s\n' 'uv 0.11.30 is required to refresh the lock.' >&2; exit 1; }
+	$(UV) lock --python '$(PYTHON)' --no-python-downloads
+	$(UV) export --frozen --no-dev --extra api --extra postgres --extra sql --extra ui --no-emit-project --no-annotate --no-header --output-file requirements/runtime.txt
+	$(UV) export --frozen --only-group build --no-emit-project --no-annotate --no-header --output-file requirements/build.txt
+
+supply-chain-static:
+	$(BIN)/python scripts/verify_supply_chain.py static
+	$(BIN)/python scripts/release_audit.py
+
+supply-chain-licenses:
+	@mkdir -p .local/supply-chain
+	$(BIN)/python scripts/verify_supply_chain.py licenses --output .local/supply-chain/direct-licenses.json
+
+m29-recovery-help:
+	@$(BIN)/python scripts/m29_recovery.py --help
+
+m29-recovery-policy-check:
+	@$(BIN)/python scripts/m29_recovery.py policy-check
 
 doctor:
 	$(BIN)/schemabridge doctor
@@ -329,17 +526,26 @@ control-plane-reset:
 	docker compose -f docker-compose.control.yml up -d --wait
 
 control-plane-migrate:
-	@SCHEMABRIDGE_CONTROL_MIGRATOR_DATABASE_URL='$(CONTROL_MIGRATOR_DATABASE_URL)' \
+	@$(OPERATOR_CLEAN_ENV) SCHEMABRIDGE_COMPONENT=operator \
+	  SCHEMABRIDGE_ENVIRONMENT=development \
+	  SCHEMABRIDGE_AUTH_MODE=local-demo \
+	  SCHEMABRIDGE_CONTROL_PLANE_MODE=postgres \
+	  SCHEMABRIDGE_CONTROL_MIGRATOR_DATABASE_URL='$(CONTROL_MIGRATOR_DATABASE_URL)' \
 	  $(BIN)/schemabridge control-plane migrate
 
 control-plane-check:
-	@DATABASE_URL='$(DEMO_DATABASE_URL)' \
+	@$(OPERATOR_CLEAN_ENV) SCHEMABRIDGE_COMPONENT=operator \
+	  SCHEMABRIDGE_ENVIRONMENT=development \
+	  SCHEMABRIDGE_AUTH_MODE=local-demo \
+	  SCHEMABRIDGE_CONTROL_PLANE_MODE=postgres \
+	  DATABASE_URL='$(DEMO_DATABASE_URL)' \
 	  SCHEMABRIDGE_CONTROL_DATABASE_URL='$(CONTROL_DATABASE_URL)' \
 	  SCHEMABRIDGE_CONTROL_RECONCILER_DATABASE_URL='$(CONTROL_RECONCILER_DATABASE_URL)' \
 	  SCHEMABRIDGE_CONTROL_MIGRATOR_DATABASE_URL='$(CONTROL_MIGRATOR_DATABASE_URL)' \
 	  SCHEMABRIDGE_CONTROL_API_DATABASE_URL='$(CONTROL_API_DATABASE_URL)' \
 	  SCHEMABRIDGE_CONTROL_WORKER_DATABASE_URL='$(CONTROL_WORKER_DATABASE_URL)' \
 	  SCHEMABRIDGE_CONTROL_CATALOG_DATABASE_URL='$(CONTROL_CATALOG_DATABASE_URL)' \
+	  SCHEMABRIDGE_CONTROL_OBSERVER_DATABASE_URL='$(CONTROL_OBSERVER_DATABASE_URL)' \
 	  $(BIN)/schemabridge control-plane check
 
 api:
@@ -347,6 +553,14 @@ api:
 	  SCHEMABRIDGE_CONTROL_PLANE_MODE=postgres \
 	  SCHEMABRIDGE_CONTROL_API_DATABASE_URL='$(CONTROL_API_DATABASE_URL)' \
 	  $(BIN)/schemabridge-api
+
+observer:
+	@$(OBSERVER_CLEAN_ENV) SCHEMABRIDGE_ENVIRONMENT=development \
+	  SCHEMABRIDGE_COMPONENT=observer \
+	  SCHEMABRIDGE_AUTH_MODE=local-demo \
+	  SCHEMABRIDGE_CONTROL_PLANE_MODE=postgres \
+	  SCHEMABRIDGE_CONTROL_OBSERVER_DATABASE_URL='$(CONTROL_OBSERVER_DATABASE_URL)' \
+	  $(BIN)/schemabridge-observer
 
 worker:
 	@$(WORKER_CLEAN_ENV) SCHEMABRIDGE_COMPONENT=worker \

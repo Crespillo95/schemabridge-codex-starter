@@ -126,6 +126,10 @@ from schemabridge.application.ports.reviews import (
     CatalogWritePort,
     ReviewStorePort,
 )
+from schemabridge.application.ports.runtime_logging import (
+    RuntimeLoggingService,
+    RuntimeLoggingSessionPort,
+)
 from schemabridge.application.ports.workflow_access import WorkflowAccessStorePort
 from schemabridge.application.ports.workflows import (
     WorkflowDraftStorePort,
@@ -195,8 +199,12 @@ QueryStudioRuntimeSettings = Settings
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
-    from schemabridge.adapters.connectors.local_secrets import (
-        OwnerOnlyConnectorSecretResolver,
+    from schemabridge.adapters.catalog.datahub_secrets import (
+        DataHubCatalogSecretResolverPort,
+    )
+    from schemabridge.adapters.connectors.remote_secrets import (
+        ConnectorSecretCapability,
+        VaultKvV2ConnectorSecretResolver,
     )
     from schemabridge.adapters.control_plane.identity_evidence import (
         IdentityEvidenceFileReader,
@@ -208,6 +216,10 @@ if TYPE_CHECKING:
         PostgresIdentityRotationStore,
     )
     from schemabridge.adapters.control_plane.postgres_pool import PostgresControlPool
+    from schemabridge.adapters.observability.http_export import MetricsHttpExporter
+    from schemabridge.adapters.semantic_registry.remote_secrets import (
+        DataHubRegistryCredentialResolver,
+    )
     from schemabridge.adapters.storage.postgres import (
         ControlConnectionProvider,
         PostgresWorkflowAccessStore,
@@ -219,9 +231,18 @@ if TYPE_CHECKING:
     from schemabridge.application.database_separation import (
         VerifySourceControlDatabaseSeparation,
     )
+    from schemabridge.application.ports.connector_secrets import (
+        ConnectorSecretResolver,
+    )
+    from schemabridge.application.ports.operational_telemetry import (
+        OperationalTelemetryPort,
+    )
     from schemabridge.application.ports.query_studio import (
         DescriptionExpansionPort,
         PhysicalFieldDiscoveryPort,
+    )
+    from schemabridge.application.ports.semantic_dependency_sources import (
+        QueryRecipeDependencySourcePort,
     )
     from schemabridge.application.query_studio import (
         BrowseGuidedGovernedFields,
@@ -268,6 +289,7 @@ ControlPlaneCredential = Literal[
     "api",
     "worker",
     "catalog",
+    "observer",
 ]
 
 
@@ -290,8 +312,8 @@ class StreamlitRuntimeOptions:
     auth_mode: Literal["local-demo", "oidc"]
     catalog_kind: Literal["live", "recorded"]
     registry_kind: Literal["live", "recorded"]
-    publication_kind: Literal["live", "fake"]
-    execution_kind: Literal["live", "recorded"]
+    publication_kind: Literal["live", "fake", "disabled"]
+    execution_kind: Literal["live", "recorded", "disabled"]
     oidc_provider: str | None
     oidc_audience: str | None
     oidc_issuer: str | None
@@ -338,6 +360,18 @@ class ApiProcessRuntime:
 
 
 @dataclass(frozen=True, slots=True)
+class ObserverProcessRuntime:
+    """Fully composed observer with no source, DataHub, OIDC, or LLM capability."""
+
+    application: "FastAPI" = field(repr=False)
+    log_level: str
+    bind_host: str
+    port: int
+    limit_concurrency: int
+    graceful_shutdown_seconds: int
+
+
+@dataclass(frozen=True, slots=True)
 class WorkerProcessRuntime:
     """Fully composed worker process or a completed readiness-only preflight."""
 
@@ -345,6 +379,8 @@ class WorkerProcessRuntime:
     log_level: str
     poll_interval_seconds: float
     control_pool: "PostgresControlPool | None" = field(default=None, repr=False)
+    telemetry: "OperationalTelemetryPort | None" = field(default=None, repr=False)
+    metrics_exporter: "MetricsHttpExporter | None" = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -375,6 +411,64 @@ class _ControlPlaneReadiness:
 
     def require_ready(self) -> None:
         self.check()
+
+
+def _build_operational_telemetry(
+    settings: Settings,
+    *,
+    service: str,
+) -> "OperationalTelemetryPort":
+    """Compose one process-local, source-independent telemetry sink."""
+
+    from schemabridge.adapters.observability.runtime import RuntimeOperationalTelemetry
+
+    return RuntimeOperationalTelemetry(
+        service=service,
+        environment=settings.environment,
+    )
+
+
+def _build_process_metrics_exporter(
+    settings: Settings,
+    *,
+    telemetry: "OperationalTelemetryPort",
+) -> "MetricsHttpExporter":
+    """Bind one bounded internal exporter to the process-local registry."""
+
+    from schemabridge.adapters.observability.http_export import MetricsHttpExporter
+
+    return MetricsHttpExporter(
+        bind_host=settings.process_metrics_bind_host,
+        port=settings.process_metrics_port,
+        renderer=telemetry,
+        max_response_bytes=settings.process_metrics_max_response_bytes,
+    )
+
+
+def configure_runtime_logging(
+    *,
+    service: RuntimeLoggingService,
+) -> RuntimeLoggingSessionPort:
+    """Compose one process-owned structured logging session before runtime startup."""
+
+    from schemabridge.adapters.observability.structured_logging import (
+        configure_structured_logging,
+    )
+
+    return configure_structured_logging(service=service)
+
+
+def ensure_runtime_logging(
+    *,
+    service: RuntimeLoggingService,
+) -> RuntimeLoggingSessionPort:
+    """Compose or reuse the structured session required by a rerun-based entrypoint."""
+
+    from schemabridge.adapters.observability.structured_logging import (
+        ensure_structured_logging,
+    )
+
+    return ensure_structured_logging(service=service)
 
 
 def build_container(settings: Settings | None = None) -> ApplicationContainer:
@@ -660,6 +754,7 @@ def require_current_control_plane_schema(
         "api",
         "worker",
         "catalog",
+        "observer",
     ] = "runtime",
     repository_root: Path | None = None,
     settings: Settings | None = None,
@@ -677,7 +772,7 @@ def require_current_control_plane_schema(
 
 def build_control_plane_pool(
     *,
-    credential_kind: Literal["api", "worker", "catalog", "reconciler"],
+    credential_kind: Literal["api", "worker", "catalog", "reconciler", "observer"],
     settings: Settings | None = None,
 ) -> "PostgresControlPool":
     """Build one closed, bounded pool for an isolated long-running process."""
@@ -895,9 +990,16 @@ def build_registry_version_reader(
     from schemabridge.adapters.semantic_registry.datahub_control import (
         DataHubRegistryVersionReader,
     )
+    from schemabridge.adapters.semantic_registry.remote_secrets import (
+        RemoteDataHubRegistryVersionReader,
+    )
 
     root = (repository_root or Path.cwd()).resolve()
     resolved = settings or get_settings()
+    if resolved.connector_secret_mode == "remote":
+        return RemoteDataHubRegistryVersionReader(
+            credentials=_build_registry_credential_resolver(resolved)
+        )
     reader_env_path = resolved.semantic_registry_reader_env_path
     if not reader_env_path.is_absolute():
         reader_env_path = root / reader_env_path
@@ -1124,6 +1226,7 @@ def _control_plane_dsn(settings: Settings, credential_kind: ControlPlaneCredenti
         "api": settings.control_api_database_url,
         "worker": settings.control_worker_database_url,
         "catalog": settings.control_catalog_database_url,
+        "observer": settings.control_observer_database_url,
     }[credential_kind]
     if configured is None:
         variable = {
@@ -1133,6 +1236,7 @@ def _control_plane_dsn(settings: Settings, credential_kind: ControlPlaneCredenti
             "api": "SCHEMABRIDGE_CONTROL_API_DATABASE_URL",
             "worker": "SCHEMABRIDGE_CONTROL_WORKER_DATABASE_URL",
             "catalog": "SCHEMABRIDGE_CONTROL_CATALOG_DATABASE_URL",
+            "observer": "SCHEMABRIDGE_CONTROL_OBSERVER_DATABASE_URL",
         }[credential_kind]
         raise DatabaseConfigurationError(f"{variable} is required")
     return configured.get_secret_value()
@@ -1162,6 +1266,7 @@ def _reject_operator_credentials_in_managed_web(settings: Settings) -> None:
         or settings.control_api_database_url is not None
         or settings.control_worker_database_url is not None
         or settings.control_catalog_database_url is not None
+        or settings.control_observer_database_url is not None
         or settings.control_restore_database_url is not None
         or settings.control_operator_actor_id is not None
         or settings.control_operator_roles
@@ -2115,6 +2220,16 @@ def build_semantic_registry(
             DataHubRegistryReadConfig,
         )
 
+        if resolved.connector_secret_mode == "remote":
+            from schemabridge.adapters.semantic_registry.remote_secrets import (
+                RemoteDataHubGovernedSemanticRegistry,
+            )
+
+            return RemoteDataHubGovernedSemanticRegistry(
+                credentials=_build_registry_credential_resolver(resolved),
+                _scope=scope,
+                version=resolved.semantic_registry_version,
+            )
         reader_env_path = resolved.semantic_registry_reader_env_path
         if not reader_env_path.is_absolute():
             reader_env_path = root / reader_env_path
@@ -2314,14 +2429,142 @@ def _build_connector_secret_resolver(
     settings: Settings,
     *,
     repository_root: Path,
-) -> "OwnerOnlyConnectorSecretResolver":
-    from schemabridge.adapters.connectors.local_secrets import (
-        OwnerOnlyConnectorSecretResolver,
+) -> "ConnectorSecretResolver":
+    if settings.connector_secret_mode == "local":
+        from schemabridge.adapters.connectors.local_secrets import (
+            OwnerOnlyConnectorSecretResolver,
+        )
+
+        return OwnerOnlyConnectorSecretResolver(
+            _connector_secret_directory(settings, repository_root=repository_root)
+        )
+    role = settings.connector_secret_role
+    capability = settings.connector_secret_capability
+    if role is None or capability is None:
+        raise DatabaseConfigurationError("remote connector secret configuration is incomplete")
+    from schemabridge.adapters.connectors.remote_secrets import ConnectorSecretCapability
+
+    return _build_remote_secret_backend(
+        settings,
+        role=role,
+        capability=ConnectorSecretCapability(capability),
     )
 
-    return OwnerOnlyConnectorSecretResolver(
-        _connector_secret_directory(settings, repository_root=repository_root)
+
+def _build_remote_secret_backend(
+    settings: Settings,
+    *,
+    role: str,
+    capability: "ConnectorSecretCapability",
+) -> "VaultKvV2ConnectorSecretResolver":
+    from schemabridge.adapters.connectors.remote_secrets import (
+        ProjectedServiceAccountIdentity,
+        VaultKvV2ConnectorSecretResolver,
     )
+
+    provider = settings.connector_secret_provider_url
+    mount = settings.connector_secret_kv_mount
+    ca_bundle = settings.connector_secret_ca_bundle
+    token_file = settings.workload_identity_token_file
+    identity_root = settings.workload_identity_root
+    audience = settings.workload_identity_audience
+    if any(
+        value is None
+        for value in (
+            provider,
+            mount,
+            ca_bundle,
+            token_file,
+            identity_root,
+            audience,
+        )
+    ):
+        raise DatabaseConfigurationError("remote connector secret configuration is incomplete")
+    assert provider is not None
+    assert mount is not None
+    assert ca_bundle is not None
+    assert token_file is not None
+    assert identity_root is not None
+    assert audience is not None
+    try:
+        return VaultKvV2ConnectorSecretResolver(
+            server=provider,
+            role=role,
+            kv_mount=mount,
+            capability=capability,
+            identity=ProjectedServiceAccountIdentity(
+                token_file=token_file,
+                mount_root=identity_root,
+                audience=audience,
+            ),
+            ca_bundle=ca_bundle,
+            timeout_seconds=settings.connector_secret_timeout_seconds,
+        )
+    except (OSError, TypeError, ValueError) as error:
+        raise DatabaseConfigurationError(
+            "remote connector secret configuration is invalid"
+        ) from error
+
+
+def _build_registry_credential_resolver(
+    settings: Settings,
+) -> "DataHubRegistryCredentialResolver":
+    from schemabridge.adapters.connectors.remote_secrets import ConnectorSecretCapability
+    from schemabridge.adapters.semantic_registry.remote_secrets import (
+        VaultKvV2DataHubRegistryCredentialResolver,
+    )
+    from schemabridge.application.ports.connector_secrets import OpaqueConnectorSecretRef
+
+    role = settings.semantic_registry_secret_role
+    binding_ref = settings.semantic_registry_secret_binding_ref
+    version = settings.semantic_registry_secret_version
+    if role is None or binding_ref is None or version is None:
+        raise DatabaseConfigurationError(
+            "remote semantic registry secret configuration is incomplete"
+        )
+    try:
+        return VaultKvV2DataHubRegistryCredentialResolver(
+            backend=_build_remote_secret_backend(
+                settings,
+                role=role,
+                capability=ConnectorSecretCapability.REGISTRY,
+            ),
+            reference=OpaqueConnectorSecretRef(binding_ref),
+            version=version,
+        )
+    except (OSError, TypeError, ValueError) as error:
+        raise DatabaseConfigurationError(
+            "remote semantic registry secret configuration is invalid"
+        ) from error
+
+
+def _build_datahub_catalog_secret_resolver(
+    settings: Settings,
+    *,
+    repository_root: Path,
+) -> "DataHubCatalogSecretResolverPort":
+    if settings.connector_secret_mode == "local":
+        from schemabridge.adapters.catalog.datahub_secrets import (
+            OwnerOnlyDataHubCatalogSecretResolver,
+        )
+
+        return OwnerOnlyDataHubCatalogSecretResolver(
+            _connector_secret_directory(settings, repository_root=repository_root)
+        )
+    from schemabridge.adapters.catalog.remote_datahub_secrets import (
+        VaultKvV2DataHubCatalogSecretResolver,
+    )
+    from schemabridge.adapters.connectors.remote_secrets import (
+        VaultKvV2ConnectorSecretResolver,
+    )
+
+    backend = _build_connector_secret_resolver(
+        settings,
+        repository_root=repository_root,
+    )
+    if not isinstance(backend, VaultKvV2ConnectorSecretResolver):
+        raise DatabaseConfigurationError("remote catalog connector secret configuration is invalid")
+    return VaultKvV2DataHubCatalogSecretResolver(backend)
 
 
 def _build_runtime_connector_preflight(
@@ -2494,7 +2737,7 @@ def build_semantic_request_planner(
 
 def build_governed_request_executor(
     *,
-    execution_kind: Literal["live", "recorded"] = "live",
+    execution_kind: Literal["live", "recorded", "disabled"] = "live",
     repository_root: Path | None = None,
     settings: Settings | None = None,
     prepare: PrepareGovernedRequest | None = None,
@@ -2503,6 +2746,14 @@ def build_governed_request_executor(
 
     resolved = settings or get_settings()
     root = (repository_root or Path.cwd()).resolve()
+    if (
+        resolved.runtime_profile in {"staging", "production"}
+        and resolved.runtime_component == "web"
+        and execution_kind != "disabled"
+    ):
+        raise DatabaseConfigurationError(
+            "managed web governed execution composition requires disabled mode"
+        )
     if execution_kind == "recorded":
         from schemabridge.adapters.demo.recorded_execution import RecordedDemoExecutionAdapter
 
@@ -2520,7 +2771,7 @@ def build_governed_request_executor(
         repository_root=repository_root,
         settings=resolved,
     )
-    if active_prepare.target_resolver is not None:
+    if execution_kind == "disabled" or active_prepare.target_resolver is not None:
         from schemabridge.adapters.connectors.routed_postgres import (
             WorkerOnlyManagedQueryConnector,
         )
@@ -2707,8 +2958,8 @@ def build_workflow_draft_store(
 def build_agent_workflow_orchestrator(
     catalog_kind: Literal["live", "recorded"] = "recorded",
     *,
-    publication_kind: Literal["live", "fake"] = "fake",
-    execution_kind: Literal["live", "recorded"] = "live",
+    publication_kind: Literal["live", "fake", "disabled"] = "fake",
+    execution_kind: Literal["live", "recorded", "disabled"] = "live",
     workflow_workspace_id: str | None = None,
     workflow_owner_actor_id: str | None = None,
     repository_root: Path | None = None,
@@ -2721,6 +2972,14 @@ def build_agent_workflow_orchestrator(
 
     root = (repository_root or Path.cwd()).resolve()
     resolved = settings or get_settings()
+    if (
+        resolved.runtime_profile in {"staging", "production"}
+        and resolved.runtime_component == "web"
+        and (publication_kind != "disabled" or execution_kind != "disabled")
+    ):
+        raise DatabaseConfigurationError(
+            "managed web workflow composition requires disabled execution and publication"
+        )
     registry = build_semantic_registry(
         repository_root=root,
         settings=resolved,
@@ -2746,16 +3005,24 @@ def build_agent_workflow_orchestrator(
         publisher = DataHubWorkflowPublicationAdapter.from_env_file(
             root / ".local/datahub/writer.env"
         )
-    else:
+    elif publication_kind == "fake":
         if resolved.runtime_profile in {"staging", "production"}:
             raise DatabaseConfigurationError(
                 "fake workflow publication is available only with the local control plane"
             )
         publisher = SqliteFakeWorkflowPublisher(resolved.draft_store_path.resolve())
-    recipes = build_query_recipe_repository(
-        publication_kind,
-        repository_root=root,
-        settings=resolved,
+    else:
+        from schemabridge.adapters.workflows.read_only import DisabledWorkflowPublisher
+
+        publisher = DisabledWorkflowPublisher()
+    recipes = (
+        None
+        if publication_kind == "disabled"
+        else build_query_recipe_repository(
+            publication_kind,
+            repository_root=root,
+            settings=resolved,
+        )
     )
     return AgentWorkflowOrchestrator(
         store=store,
@@ -2779,10 +3046,14 @@ def build_agent_workflow_orchestrator(
             resolved,
             workspace_id=workflow_workspace_id,
         ),
-        recipe_assessor=AssessQueryRecipeReuse(
-            recipes,
-            semantic_gate=prepare.semantic_gate,
-            semantic_scope=prepare.semantic_scope,
+        recipe_assessor=(
+            None
+            if recipes is None
+            else AssessQueryRecipeReuse(
+                recipes,
+                semantic_gate=prepare.semantic_gate,
+                semantic_scope=prepare.semantic_scope,
+            )
         ),
     )
 
@@ -3168,6 +3439,74 @@ def build_api_http_services(
     )
 
 
+def build_observer_process_runtime(
+    *,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+) -> ObserverProcessRuntime:
+    """Compose the isolated observer from its read-only control credential."""
+
+    from schemabridge.adapters.observability.metrics import OpenMetricsRegistry
+    from schemabridge.adapters.observability.postgres_snapshot import (
+        PostgresOperationalSnapshotReader,
+    )
+    from schemabridge.adapters.observability.runtime import RuntimeOperationalTelemetry
+    from schemabridge.application.operational_snapshot import RefreshOperationalSnapshot
+    from schemabridge.entrypoints.observer.main import (
+        ObserverServices,
+        create_observer_app,
+    )
+
+    resolved = settings or Settings(_env_file=None)
+    if resolved.runtime_component != "observer":
+        raise DatabaseConfigurationError(
+            "observer composition requires SCHEMABRIDGE_COMPONENT=observer"
+        )
+    control_pool = build_control_plane_pool(
+        credential_kind="observer",
+        settings=resolved,
+    )
+    registry = OpenMetricsRegistry()
+    telemetry = RuntimeOperationalTelemetry(
+        service="observer",
+        environment=resolved.environment,
+        registry=registry,
+    )
+    readiness = _ControlPlaneReadiness(
+        lambda: require_current_control_plane_schema(
+            credential_kind="observer",
+            repository_root=repository_root,
+            settings=resolved,
+            connection_provider=control_pool,
+        )
+    )
+    refresh_snapshot = RefreshOperationalSnapshot(
+        reader=PostgresOperationalSnapshotReader(
+            pool=control_pool,
+            statement_timeout_ms=resolved.observer_snapshot_timeout_ms,
+        ),
+        metrics=registry,
+    )
+    application = create_observer_app(
+        ObserverServices(
+            readiness=readiness,
+            refresh_snapshot=refresh_snapshot,
+            metrics=registry,
+        ),
+        lifecycle_resources=(control_pool,),
+        max_metrics_response_bytes=resolved.observer_max_metrics_response_bytes,
+        telemetry=telemetry,
+    )
+    return ObserverProcessRuntime(
+        application=application,
+        log_level=resolved.log_level,
+        bind_host=resolved.observer_bind_host,
+        port=resolved.observer_port,
+        limit_concurrency=resolved.observer_limit_concurrency,
+        graceful_shutdown_seconds=resolved.observer_graceful_shutdown_seconds,
+    )
+
+
 def build_api_process_runtime(
     *,
     repository_root: Path | None = None,
@@ -3182,6 +3521,11 @@ def build_api_process_runtime(
         credential_kind="api",
         settings=resolved,
     )
+    telemetry = _build_operational_telemetry(resolved, service="api")
+    metrics_exporter = _build_process_metrics_exporter(
+        resolved,
+        telemetry=telemetry,
+    )
     application = create_http_app(
         build_api_http_services(
             repository_root=repository_root,
@@ -3193,6 +3537,8 @@ def build_api_process_runtime(
         allowed_hosts=resolved.api_allowed_hosts,
         docs_enabled=resolved.api_docs_enabled,
         lifecycle_resources=(control_pool,),
+        metrics_exporter=metrics_exporter,
+        telemetry=telemetry,
     )
     return ApiProcessRuntime(
         application=application,
@@ -3466,11 +3812,18 @@ def build_worker_process_runtime(
             settings=resolved,
             control_connection_provider=control_pool,
         )
+    telemetry = _build_operational_telemetry(resolved, service="worker")
     return WorkerProcessRuntime(
         worker=worker,
         log_level=resolved.log_level,
         poll_interval_seconds=resolved.worker_poll_interval_ms / 1_000,
         control_pool=control_pool,
+        telemetry=telemetry,
+        metrics_exporter=(
+            None
+            if readiness_probe
+            else _build_process_metrics_exporter(resolved, telemetry=telemetry)
+        ),
     )
 
 
@@ -3572,12 +3925,19 @@ def build_semantic_profile_worker_process_runtime(
             control_connection_provider=control_pool,
             stop_requested=stop_event.is_set,
         )
+    telemetry = _build_operational_telemetry(resolved, service="profile")
     return SemanticProfileWorkerProcessRuntime(
         worker=worker,
         log_level=resolved.log_level,
         poll_interval_seconds=resolved.worker_poll_interval_ms / 1_000,
         control_resource=control_pool,
         stop_event=stop_event,
+        telemetry=telemetry,
+        metrics_exporter=(
+            None
+            if readiness_probe
+            else _build_process_metrics_exporter(resolved, telemetry=telemetry)
+        ),
     )
 
 
@@ -3600,7 +3960,6 @@ def build_semantic_dependency_reconciler(
         PostgresManagedWorkflowDependencySource,
         PostgresSemanticDependencyIndexSink,
     )
-    from schemabridge.adapters.semantic_registry.datahub import DataHubRegistryReadConfig
     from schemabridge.application.semantic_dependency_reconciler import (
         ReconcileSemanticDependencies,
     )
@@ -3616,10 +3975,35 @@ def build_semantic_dependency_reconciler(
         repository_root=root,
         settings=resolved,
     )
-    reader_env_path = resolved.semantic_registry_reader_env_path
-    if not reader_env_path.is_absolute():
-        reader_env_path = root / reader_env_path
-    reader_config = DataHubRegistryReadConfig.from_env_file(reader_env_path.resolve())
+    recipe_inventory: QueryRecipeDependencySourcePort
+    if resolved.connector_secret_mode == "remote":
+        from schemabridge.adapters.semantic_registry.remote_secrets import (
+            RemoteDataHubQueryRecipeInventory,
+        )
+
+        recipe_inventory = RemoteDataHubQueryRecipeInventory(
+            credentials=_build_registry_credential_resolver(resolved),
+            timeout_seconds=resolved.catalog_source_timeout_seconds,
+            max_response_bytes=min(resolved.catalog_max_response_bytes, 4 * 1024 * 1024),
+        )
+    else:
+        from schemabridge.adapters.semantic_registry.datahub import DataHubRegistryReadConfig
+
+        reader_env_path = resolved.semantic_registry_reader_env_path
+        if not reader_env_path.is_absolute():
+            reader_env_path = root / reader_env_path
+        reader_config = DataHubRegistryReadConfig.from_env_file(reader_env_path.resolve())
+        recipe_inventory = DataHubQueryRecipeInventory(
+            DataHubQueryRecipeInventoryConfig(
+                server=reader_config.server,
+                token=reader_config.token,
+                timeout_seconds=resolved.catalog_source_timeout_seconds,
+                max_response_bytes=min(
+                    resolved.catalog_max_response_bytes,
+                    4 * 1024 * 1024,
+                ),
+            )
+        )
     control_dsn = _control_plane_dsn(resolved, "reconciler")
     dependency_index = PostgresSemanticChangeDependencyIndex(
         control_dsn,
@@ -3641,14 +4025,7 @@ def build_semantic_dependency_reconciler(
             schema=resolved.control_plane_schema,
             connection_provider=control_connection_provider,
         ),
-        recipes=DataHubQueryRecipeInventory(
-            DataHubQueryRecipeInventoryConfig(
-                server=reader_config.server,
-                token=reader_config.token,
-                timeout_seconds=resolved.catalog_source_timeout_seconds,
-                max_response_bytes=min(resolved.catalog_max_response_bytes, 4 * 1024 * 1024),
-            )
-        ),
+        recipes=recipe_inventory,
         index=PostgresSemanticDependencyIndexSink(dependency_index),
         page_size=50,
     )
@@ -3860,12 +4237,19 @@ def build_semantic_reconciler_process_runtime(
             stop_requested=stop_event.is_set,
         )
     )
+    telemetry = _build_operational_telemetry(resolved, service="reconciler")
     return SemanticReconcilerProcessRuntime(
         reconciler=reconciler,
         log_level=resolved.log_level,
         poll_interval_seconds=resolved.semantic_reconciler_poll_interval_ms / 1_000,
         control_resource=control_pool,
         stop_event=stop_event,
+        telemetry=telemetry,
+        metrics_exporter=(
+            None
+            if readiness_probe
+            else _build_process_metrics_exporter(resolved, telemetry=telemetry)
+        ),
     )
 
 
@@ -4028,9 +4412,6 @@ def build_catalog_indexer(
 ) -> "RunOneCatalogRefresh":
     """Compose one metadata-only catalog iteration through the catalog role."""
 
-    from schemabridge.adapters.catalog.datahub_secrets import (
-        OwnerOnlyDataHubCatalogSecretResolver,
-    )
     from schemabridge.adapters.catalog.postgres_connector_routing import (
         PostgresCatalogConnectorRouteReader,
     )
@@ -4076,8 +4457,9 @@ def build_catalog_indexer(
         connection_provider=control_connection_provider,
     )
     datahub = RoutedDataHubGraphQLCatalogSource(
-        secrets=OwnerOnlyDataHubCatalogSecretResolver(
-            _connector_secret_directory(resolved, repository_root=root)
+        secrets=_build_datahub_catalog_secret_resolver(
+            resolved,
+            repository_root=root,
         ),
         timeout_seconds=resolved.catalog_source_timeout_seconds,
         max_response_bytes=resolved.catalog_max_response_bytes,
@@ -4148,12 +4530,19 @@ def build_catalog_process_runtime(
             control_connection_provider=control_pool,
             stop_requested=stop_event.is_set,
         )
+    telemetry = _build_operational_telemetry(resolved, service="catalog")
     return CatalogProcessRuntime(
         indexer=indexer,
         log_level=resolved.log_level,
         poll_interval_seconds=resolved.catalog_poll_interval_ms / 1_000,
         control_pool=control_pool,
         stop_event=stop_event,
+        telemetry=telemetry,
+        metrics_exporter=(
+            None
+            if readiness_probe
+            else _build_process_metrics_exporter(resolved, telemetry=telemetry)
+        ),
     )
 
 
@@ -4167,6 +4556,13 @@ def build_query_recipe_repository(
 
     root = (repository_root or Path.cwd()).resolve()
     resolved = settings or get_settings()
+    if (
+        resolved.runtime_profile in {"staging", "production"}
+        and resolved.runtime_component == "web"
+    ):
+        raise DatabaseConfigurationError(
+            "managed web cannot compose a mutation-capable query recipe repository"
+        )
     if adapter_kind == "live":
         from schemabridge.adapters.datahub.query_recipes import DataHubQueryRecipeAdapter
 
@@ -4288,8 +4684,8 @@ def build_query_recipe_migration_publisher(
 def build_streamlit_ui_service(
     catalog_kind: Literal["live", "recorded"] | None = None,
     *,
-    publication_kind: Literal["live", "fake"] | None = None,
-    execution_kind: Literal["live", "recorded"] | None = None,
+    publication_kind: Literal["live", "fake", "disabled"] | None = None,
+    execution_kind: Literal["live", "recorded", "disabled"] | None = None,
     repository_root: Path | None = None,
     settings: Settings | None = None,
     principal: AuthenticatedPrincipal | None = None,
@@ -4424,14 +4820,23 @@ def build_streamlit_ui_service(
             (
                 "Live read-only PostgreSQL"
                 if selected_execution == "live"
-                else "Recorded synthetic PostgreSQL observation"
+                else (
+                    "Recorded synthetic PostgreSQL observation"
+                    if selected_execution == "recorded"
+                    else "Worker submission unavailable"
+                )
             ),
             selected_execution,
             (
                 "Execution is guarded, bounded, and uses schemabridge_reader."
                 if selected_execution == "live"
-                else "SQL is compiled and guarded live; result/rejection evidence is replayed "
-                "only for the exact versioned north-star query."
+                else (
+                    "SQL is compiled and guarded live; result/rejection evidence is replayed "
+                    "only for the exact versioned north-star query."
+                    if selected_execution == "recorded"
+                    else "Planning and remote preflight remain available, but this web runtime "
+                    "cannot execute source queries or submit them to a worker."
+                )
             ),
         ),
         UiMode(
@@ -4442,9 +4847,22 @@ def build_streamlit_ui_service(
         ),
         UiMode(
             "Publication",
-            "Live DataHub" if selected_publication == "live" else "Fake local publication",
+            (
+                "Live DataHub"
+                if selected_publication == "live"
+                else (
+                    "Fake local publication"
+                    if selected_publication == "fake"
+                    else "Publisher submission unavailable"
+                )
+            ),
             selected_publication,
-            "Writes still require the exact typed publication approval.",
+            (
+                "Writes still require the exact typed publication approval."
+                if selected_publication != "disabled"
+                else "This web runtime cannot write to DataHub or submit publication work; "
+                "the publisher queue is not implemented."
+            ),
         ),
     )
     views = JudgeUiViewFactory(
@@ -4484,6 +4902,8 @@ def build_streamlit_ui_service(
         access_store=access_store,
         authorization=authorization,
         clock=clock,
+        execution_actions_enabled=selected_execution != "disabled",
+        publication_actions_enabled=selected_publication != "disabled",
         require_separate_publisher=selected_publication == "live",
         max_live_publication_identity_age=timedelta(
             seconds=resolved.oidc_live_publication_max_identity_age_seconds

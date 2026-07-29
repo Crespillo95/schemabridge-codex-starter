@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import logging
-
 from fastapi import FastAPI
 
-from schemabridge.bootstrap import ApiProcessRuntime, build_api_process_runtime
-
-logger = logging.getLogger(__name__)
-_LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
+from schemabridge.bootstrap import (
+    ApiProcessRuntime,
+    build_api_process_runtime,
+    configure_runtime_logging,
+)
 
 
 def build_http_application(runtime: ApiProcessRuntime | None = None) -> FastAPI:
@@ -21,14 +20,17 @@ def build_http_application(runtime: ApiProcessRuntime | None = None) -> FastAPI:
 def main() -> None:
     """Serve one API process; Uvicorn owns signal-driven graceful shutdown."""
 
-    import uvicorn
-
+    logging_session = configure_runtime_logging(service="api")
     try:
-        runtime = build_api_process_runtime()
-        logging.basicConfig(
-            level=runtime.log_level.upper(),
-            format=_LOG_FORMAT,
+        import uvicorn
+
+        logging_session.emit(
+            event="service.health",
+            outcome="started",
+            duration_ms=0,
         )
+        runtime = build_api_process_runtime()
+        logging_session.set_level(runtime.log_level)
         uvicorn.run(
             build_http_application(runtime),
             host=runtime.bind_host,
@@ -39,11 +41,19 @@ def main() -> None:
             proxy_headers=False,
             server_header=False,
             date_header=False,
+            log_config=None,
         )
-    except Exception as error:
-        logging.basicConfig(level=logging.ERROR, format=_LOG_FORMAT)
-        logger.error("api_startup_failed error_type=%s", type(error).__name__)
+    except Exception:
+        logging_session.set_level("ERROR")
+        logging_session.emit(
+            event="service.health",
+            outcome="failed",
+            duration_ms=0,
+            error_code="internal_failure",
+        )
         raise SystemExit(1) from None
+    finally:
+        logging_session.close()
 
 
 if __name__ == "__main__":

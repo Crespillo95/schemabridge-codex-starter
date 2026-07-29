@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -113,6 +114,14 @@ class _FakeConnection:
             if self.ddl_failure is not None:
                 raise self.ddl_failure
             return _Cursor([])
+        if "operational observer role must exist before schema v10" in query:
+            if self.ddl_failure is not None:
+                raise self.ddl_failure
+            return _Cursor([])
+        if "CREATE TABLE schemabridge_control.connector_private_route_secret_versions" in query:
+            if self.ddl_failure is not None:
+                raise self.ddl_failure
+            return _Cursor([])
         raise AssertionError(f"unexpected statement in fake connection: {normalized[:80]}")
 
     @contextmanager
@@ -186,6 +195,8 @@ def _known_identity(version: int = 1) -> tuple[str, str]:
         7: _MIGRATIONS / "0007_harden_ai_usage_settlement.sql",
         8: _MIGRATIONS / "0008_serialize_ai_provider_accounting.sql",
         9: _MIGRATIONS / "0009_tenant_connector_routing.sql",
+        10: _MIGRATIONS / "0010_operational_observer.sql",
+        11: _MIGRATIONS / "0011_connector_secret_versions.sql",
     }[version]
     return (
         migration_path.stem.split("_", maxsplit=1)[1],
@@ -208,6 +219,8 @@ def _current_database() -> _FakeDatabase:
             (7, *_known_identity(7)),
             (8, *_known_identity(8)),
             (9, *_known_identity(9)),
+            (10, *_known_identity(10)),
+            (11, *_known_identity(11)),
         ],
     )
 
@@ -233,6 +246,8 @@ def test_known_migrations_are_ordered_and_checksum_exact_file_bytes() -> None:
         (7, "harden_ai_usage_settlement"),
         (8, "serialize_ai_provider_accounting"),
         (9, "tenant_connector_routing"),
+        (10, "operational_observer"),
+        (11, "connector_secret_versions"),
     ]
     assert known[0].checksum == _known_identity()[1]
     assert known[1].checksum == _known_identity(2)[1]
@@ -243,6 +258,8 @@ def test_known_migrations_are_ordered_and_checksum_exact_file_bytes() -> None:
     assert known[6].checksum == _known_identity(7)[1]
     assert known[7].checksum == _known_identity(8)[1]
     assert known[8].checksum == _known_identity(9)[1]
+    assert known[9].checksum == _known_identity(10)[1]
+    assert known[10].checksum == _known_identity(11)[1]
     assert factory.calls == []
     assert connection.statements == []
 
@@ -253,8 +270,20 @@ def test_inspect_pristine_database_reports_pending_without_ddl() -> None:
     inspection = migrator.inspect()
 
     assert inspection.current_version == 0
-    assert inspection.expected_version == 9
-    assert tuple(item.version for item in inspection.pending) == (1, 2, 3, 4, 5, 6, 7, 8, 9)
+    assert inspection.expected_version == 11
+    assert tuple(item.version for item in inspection.pending) == (
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+    )
     assert not inspection.is_current
     assert factory.calls == [("postgresql://not-logged.invalid/control", 4)]
     _assert_no_ddl(connection)
@@ -267,7 +296,7 @@ def test_require_current_only_reads_and_rejects_database_behind() -> None:
         migrator.require_current()
 
     assert raised.value.code is ControlPlaneMigrationErrorCode.SCHEMA_NOT_CURRENT
-    assert "current=0, expected=9" in str(raised.value)
+    assert "current=0, expected=11" in str(raised.value)
     _assert_no_ddl(connection)
 
 
@@ -277,7 +306,7 @@ def test_explicit_migrate_applies_all_pending_work_in_one_transaction() -> None:
 
     result = migrator.migrate()
 
-    assert result.applied_versions == (1, 2, 3, 4, 5, 6, 7, 8, 9)
+    assert result.applied_versions == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
     assert not result.already_current
     assert result.inspection.is_current
     assert connection.transaction_count == 1
@@ -293,13 +322,15 @@ def test_explicit_migrate_applies_all_pending_work_in_one_transaction() -> None:
         (7, "harden_ai_usage_settlement", _known_identity(7)[1]),
         (8, "serialize_ai_provider_accounting", _known_identity(8)[1]),
         (9, "tenant_connector_routing", _known_identity(9)[1]),
+        (10, "operational_observer", _known_identity(10)[1]),
+        (11, "connector_secret_versions", _known_identity(11)[1]),
     ]
     statements = [query for query, _ in connection.statements]
     assert "pg_try_advisory_xact_lock" in statements[0]
     assert sum("CREATE SCHEMA schemabridge_control" in query for query in statements) == 1
     assert (
         sum("INSERT INTO schemabridge_control.schema_migrations" in query for query in statements)
-        == 9
+        == 11
     )
 
 
@@ -353,7 +384,9 @@ def test_concurrent_migrator_fails_without_schema_mutation() -> None:
                 (7, *_known_identity(7)),
                 (8, *_known_identity(8)),
                 (9, *_known_identity(9)),
-                (10, "future_release", "a" * 64),
+                (10, *_known_identity(10)),
+                (11, *_known_identity(11)),
+                (12, "future_release", "a" * 64),
             ],
             ControlPlaneMigrationErrorCode.SCHEMA_AHEAD,
         ),
@@ -497,6 +530,140 @@ def test_initial_sql_contains_governed_state_and_existing_role_grants_only() -> 
         "        key_version\n"
         "    )"
     ) in identity_bindings_sql
+
+
+def test_demo_control_plane_defines_non_inheriting_observer_login() -> None:
+    sql = (_REPOSITORY_ROOT / "demo/control_plane/init/001_roles.sql").read_text(encoding="utf-8")
+    definition = sql.split(
+        "CREATE ROLE schemabridge_observer",
+        maxsplit=1,
+    )[1].split(";", maxsplit=1)[0]
+
+    assert "LOGIN" in definition
+    assert "NOSUPERUSER" in definition
+    assert "NOCREATEDB" in definition
+    assert "NOCREATEROLE" in definition
+    assert "NOINHERIT" in definition
+    assert (
+        "GRANT schemabridge_observer TO schemabridge_migrator\n"
+        "  WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;"
+    ) in sql
+    connect_grant = sql.split(
+        "GRANT CONNECT ON DATABASE schemabridge_control",
+        maxsplit=1,
+    )[1]
+    assert "schemabridge_observer;" in connect_grant
+
+
+def test_observer_migration_is_fail_closed_and_exactly_read_allowlisted() -> None:
+    sql = (_MIGRATIONS / "0010_operational_observer.sql").read_text(encoding="utf-8")
+
+    assert "FROM pg_catalog.pg_roles" in sql
+    assert "WHERE rolname = 'schemabridge_observer'" in sql
+    assert "operational observer role must exist before schema v10" in sql
+    assert "SET LOCAL ROLE schemabridge_observer;" in sql
+    assert ("ALTER ROLE schemabridge_observer\n    SET default_transaction_read_only = on;") in sql
+    assert "ALTER ROLE schemabridge_observer\n    SET statement_timeout = '5s';" in sql
+    assert "RESET ROLE;" in sql
+
+    view_header = (
+        "CREATE VIEW schemabridge_control.operational_queue_snapshot (\n"
+        "    queue,\n"
+        "    depth,\n"
+        "    oldest_due_age_seconds\n"
+        ")\n"
+        "WITH (\n"
+        "    security_barrier = true,\n"
+        "    security_invoker = false\n"
+        ")"
+    )
+    assert view_header in sql
+    view_definition = sql.split(view_header, maxsplit=1)[1].split(
+        "ALTER VIEW schemabridge_control.operational_queue_snapshot",
+        maxsplit=1,
+    )[0]
+    assert view_definition.count("UNION ALL") == 3
+    assert set(
+        re.findall(
+            r"'([a-z]+)'::text AS queue",
+            view_definition,
+        )
+    ) == {"execution", "catalog", "profile", "reconciliation"}
+    assert set(
+        re.findall(
+            r"FROM schemabridge_control\.([a-z_]+)",
+            view_definition,
+        )
+    ) == {
+        "execution_jobs",
+        "catalog_refresh_runs",
+        "semantic_join_profile_jobs",
+        "semantic_change_scan_requests",
+    }
+    assert (
+        "FROM schemabridge_control.execution_jobs\nWHERE status IN ('queued', 'retry_wait')"
+    ) in view_definition
+    assert (
+        "FROM schemabridge_control.catalog_refresh_runs\nWHERE status = 'requested'"
+    ) in view_definition
+    assert (
+        "FROM schemabridge_control.semantic_join_profile_jobs\n"
+        "WHERE status IN ('requested', 'retry_wait')"
+    ) in view_definition
+    assert (
+        "FROM schemabridge_control.semantic_change_scan_requests\n"
+        "WHERE status IN ('requested', 'retry_wait')"
+    ) in view_definition
+    assert view_definition.count(" FILTER (") == 4
+    assert view_definition.count("<= pg_catalog.statement_timestamp()") == 4
+    assert view_definition.count("0::bigint") == 4
+    assert "leased" not in view_definition
+    assert "lease_expires_at" not in view_definition
+    assert (
+        "ALTER VIEW schemabridge_control.operational_queue_snapshot\n"
+        "    OWNER TO schemabridge_migrator;"
+    ) in sql
+    assert (
+        "REVOKE ALL PRIVILEGES\n"
+        "    ON schemabridge_control.operational_queue_snapshot\n"
+        "    FROM PUBLIC;"
+    ) in sql
+
+    expected_revocations = (
+        "REVOKE CREATE ON SCHEMA schemabridge_control",
+        "REVOKE ALL PRIVILEGES ON SCHEMA schemabridge_control",
+        "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA schemabridge_control",
+        "REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA schemabridge_control",
+        "REVOKE ALL PRIVILEGES ON ALL ROUTINES IN SCHEMA schemabridge_control",
+    )
+    for statement in expected_revocations:
+        assert statement in sql
+    assert sql.index(view_header) < sql.index(
+        "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA schemabridge_control"
+    )
+    assert max(sql.index(statement) for statement in expected_revocations) < sql.index(
+        "GRANT USAGE ON SCHEMA"
+    )
+
+    select_grant = sql.split("GRANT SELECT ON", maxsplit=1)[1].split(
+        "TO schemabridge_observer;",
+        maxsplit=1,
+    )[0]
+    assert set(re.findall(r"schemabridge_control\.([a-z_]+)", select_grant)) == {
+        "schema_migrations",
+        "operational_queue_snapshot",
+    }
+    assert sql.count("GRANT ") == 2
+    assert "GRANT EXECUTE" not in sql
+    assert not re.search(r"GRANT\s+(INSERT|UPDATE|DELETE|TRUNCATE)", sql)
+    assert "schemabridge_control.control_audit_events" not in select_grant
+    for raw_queue_table in (
+        "execution_jobs",
+        "catalog_refresh_runs",
+        "semantic_join_profile_jobs",
+        "semantic_change_scan_requests",
+    ):
+        assert f"schemabridge_control.{raw_queue_table}" not in select_grant
 
 
 def test_initial_sql_hardens_legacy_import_and_quarantine_lifecycles() -> None:

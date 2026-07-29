@@ -17,6 +17,7 @@ from schemabridge.application.connector_route_operator import (
     PreparedConnectorRouteChange,
 )
 from schemabridge.application.ports.connector_route_operator import (
+    ConnectorPrivateBinding,
     ConnectorPrivateBindings,
 )
 from schemabridge.application.ports.control_plane_migrations import (
@@ -367,7 +368,7 @@ def _read_private_bindings(path: Path) -> ConnectorPrivateBindings:
     document = _read_owner_only_json(path)
     if set(document) != {"format_version", "private_bindings"}:
         raise ValueError("connector private binding document shape is invalid")
-    if document["format_version"] != 1 or not isinstance(
+    if document["format_version"] != 2 or not isinstance(
         document["private_bindings"],
         dict,
     ):
@@ -412,13 +413,28 @@ def _bindings_from_payload(payload: dict[str, object]) -> ConnectorPrivateBindin
         raise ValueError("connector private binding document shape is invalid")
     try:
         return ConnectorPrivateBindings(
-            preflight=_strict_string(payload["preflight"]),
-            catalog=_strict_string(payload["catalog"]),
-            execution=_strict_string(payload["execution"]),
-            profile=_strict_string(payload["profile"]),
+            preflight=_binding_from_payload(payload["preflight"]),
+            catalog=_binding_from_payload(payload["catalog"]),
+            execution=_binding_from_payload(payload["execution"]),
+            profile=_binding_from_payload(payload["profile"]),
         )
     except (TypeError, ValueError, KeyError) as error:
         raise ValueError("connector private bindings are invalid") from error
+
+
+def _binding_from_payload(payload: object) -> ConnectorPrivateBinding:
+    if not isinstance(payload, dict) or set(payload) != {
+        "provider_secret_version",
+        "reference",
+    }:
+        raise ValueError("connector private binding document shape is invalid")
+    version = payload["provider_secret_version"]
+    if type(version) is not int:
+        raise ValueError("connector private binding version is invalid")
+    return ConnectorPrivateBinding(
+        reference=_strict_string(payload["reference"]),
+        provider_secret_version=version,
+    )
 
 
 def _snapshot_payload(snapshot: ConnectorRouteSnapshot) -> dict[str, object]:

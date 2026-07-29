@@ -402,7 +402,7 @@ def test_v4_disable_persists_one_terminal_idempotency_digest() -> None:
     ) in sql
 
 
-def test_six_control_roles_are_non_privileged_non_inheriting_and_connected() -> None:
+def test_seven_control_roles_are_non_privileged_non_inheriting_and_connected() -> None:
     roles = ROLES.read_text(encoding="utf-8")
     expected_roles = (
         "schemabridge_migrator",
@@ -411,13 +411,14 @@ def test_six_control_roles_are_non_privileged_non_inheriting_and_connected() -> 
         "schemabridge_api",
         "schemabridge_worker",
         "schemabridge_catalog",
+        "schemabridge_observer",
     )
 
-    assert roles.count("CREATE ROLE schemabridge_") == 6
-    assert roles.count("NOSUPERUSER") == 6
-    assert roles.count("NOCREATEDB") == 6
-    assert roles.count("NOCREATEROLE") == 6
-    assert roles.count("NOINHERIT") == 6
+    assert roles.count("CREATE ROLE schemabridge_") == 7
+    assert roles.count("NOSUPERUSER") == 7
+    assert roles.count("NOCREATEDB") == 7
+    assert roles.count("NOCREATEROLE") == 7
+    assert roles.count("NOINHERIT") == 7
     for role in expected_roles:
         assert f"CREATE ROLE {role}" in roles
         assert role in roles.split("GRANT CONNECT ON DATABASE schemabridge_control", maxsplit=1)[1]

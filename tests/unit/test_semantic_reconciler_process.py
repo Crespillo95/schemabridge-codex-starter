@@ -81,31 +81,38 @@ def _completed() -> SemanticChangeReconcilerIterationResult:
 
 def test_probe_ready_opens_schema_check_only_and_closes_resource() -> None:
     lifecycle = TrackingLifecycle()
+    metrics_exporter = TrackingLifecycle()
     runtime = SemanticReconcilerProcessRuntime(
         reconciler=None,
         log_level="INFO",
         poll_interval_seconds=1,
         control_resource=lifecycle,
+        metrics_exporter=metrics_exporter,
     )
 
     assert command(["--probe-ready"], runtime=runtime) == 0
     assert lifecycle.opened == 1
     assert lifecycle.closed == 1
+    assert metrics_exporter.opened == 0
+    assert metrics_exporter.closed == 0
 
 
 def test_once_processes_one_iteration_and_closes_resource() -> None:
     lifecycle = TrackingLifecycle()
+    metrics_exporter = TrackingLifecycle()
     reconciler = FakeIteration(_completed())
     runtime = SemanticReconcilerProcessRuntime(
         reconciler=reconciler,
         log_level="INFO",
         poll_interval_seconds=1,
         control_resource=lifecycle,
+        metrics_exporter=metrics_exporter,
     )
 
     assert command(["--once"], runtime=runtime) == 0
     assert reconciler.calls == 1
     assert lifecycle.opened == lifecycle.closed == 1
+    assert metrics_exporter.opened == metrics_exporter.closed == 1
 
 
 def test_graceful_stop_does_not_claim_another_scan() -> None:
@@ -159,7 +166,7 @@ def test_iteration_errors_log_only_closed_code_or_exception_type(
             )
             == 1
         )
-    assert "semantic_reconciler_store_unavailable" in caplog.text
+    assert "reconciliation.run outcome=failed error_code=queue_unavailable" in caplog.text
     assert "secret-dsn-and-capability" not in caplog.text
 
     caplog.clear()
@@ -173,7 +180,8 @@ def test_iteration_errors_log_only_closed_code_or_exception_type(
             )
             == 1
         )
-    assert "RuntimeError" in caplog.text
+    assert "reconciliation.run outcome=failed error_code=internal_failure" in caplog.text
+    assert "RuntimeError" not in caplog.text
     assert "protected-source-value" not in caplog.text
 
 
@@ -206,4 +214,5 @@ def test_entrypoint_has_no_migration_datahub_source_or_llm_composition() -> None
     assert "datahub" not in lowered
     assert "openai" not in lowered
     assert "psycopg" not in lowered
-    assert "schemabridge.adapters" not in source
+    assert source.count("from schemabridge.adapters.") == 0
+    assert "from schemabridge.bootstrap import configure_runtime_logging" in source

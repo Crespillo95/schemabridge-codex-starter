@@ -1,0 +1,10 @@
+# Reviewed synthetic/non-secret findings in the immutable pre-M29 history.
+# Each exception is bound to one commit, path, rule, and line; no rule or path is allowlisted.
+b6bd9baec4493f95dca77c09abc416e77139fa57:docs/14_DEPLOYMENT.md:generic-api-key:580
+b6bd9baec4493f95dca77c09abc416e77139fa57:tests/acceptance/test_streamlit_acceptance.py:generic-api-key:220
+b6bd9baec4493f95dca77c09abc416e77139fa57:tests/acceptance/test_streamlit_acceptance.py:generic-api-key:224
+b6bd9baec4493f95dca77c09abc416e77139fa57:tests/integration/test_m24_identity_lineage_postgres.py:generic-api-key:683
+b6bd9baec4493f95dca77c09abc416e77139fa57:tests/integration/test_m24_identity_lineage_postgres.py:generic-api-key:716
+b6bd9baec4493f95dca77c09abc416e77139fa57:tests/integration/test_m24_process_lifecycle.py:generic-api-key:338
+b6bd9baec4493f95dca77c09abc416e77139fa57:tests/unit/test_api_config.py:generic-api-key:53
+b6bd9baec4493f95dca77c09abc416e77139fa57:tests/unit/test_runtime_entrypoints.py:generic-api-key:84

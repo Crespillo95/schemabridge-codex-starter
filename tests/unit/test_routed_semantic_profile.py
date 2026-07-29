@@ -59,6 +59,7 @@ TARGET_FINGERPRINT = "c" * 64
 SOURCE_IDENTITY_FINGERPRINT = "d" * 64
 EXPECTED_READER = "schemabridge_reader"
 PRIVATE_REFERENCE = "profile.route.private-v3"
+PROVIDER_SECRET_VERSION = 83
 PRIVATE_DSN = (
     "postgresql://schemabridge_reader:synthetic-password@source.example.test:5432/analytics"
 )
@@ -120,7 +121,10 @@ def _route() -> ProfilePostgresConnectorRoute:
         dialect=SourceDialect.POSTGRESQL,
         expected_reader=EXPECTED_READER,
         source_identity_fingerprint=SOURCE_IDENTITY_FINGERPRINT,
-        secret_reference=OpaqueConnectorSecretRef(PRIVATE_REFERENCE),
+        secret_reference=OpaqueConnectorSecretRef(
+            PRIVATE_REFERENCE,
+            provider_secret_version=PROVIDER_SECRET_VERSION,
+        ),
     )
 
 
@@ -154,6 +158,7 @@ class _SecretResolver:
         dialect: SourceDialect,
         expected_reader: str,
     ) -> ResolvedPostgresSecret:
+        assert reference.provider_secret_version == PROVIDER_SECRET_VERSION
         self.calls.append((reference, dialect, expected_reader))
         if self.error is not None:
             raise self.error
@@ -454,6 +459,7 @@ def _route_row() -> tuple[object, ...]:
         EXPECTED_READER,
         SOURCE_IDENTITY_FINGERPRINT,
         PRIVATE_REFERENCE,
+        PROVIDER_SECRET_VERSION,
     )
 
 
@@ -471,10 +477,11 @@ def test_postgres_profile_route_reader_uses_exact_lease_capability_read_only() -
     assert route.expected_reader == EXPECTED_READER
     assert route.source_identity_fingerprint == SOURCE_IDENTITY_FINGERPRINT
     assert route.secret_reference.value == PRIVATE_REFERENCE
+    assert route.secret_reference.provider_secret_version == PROVIDER_SECRET_VERSION
     assert connection.transaction_count == 1
     assert connection.statements[0] == ("SET TRANSACTION READ ONLY", None)
     query, params = connection.statements[1]
-    assert "load_owned_profile_connector_route" in query
+    assert "load_owned_profile_connector_route_v2" in query
     assert params == (
         context.workspace_id,
         context.job_id,

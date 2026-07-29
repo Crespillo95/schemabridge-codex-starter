@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: schemabridge-system
+resources:
+  - ../../base
+  - ingress.yaml
+labels:
+  - pairs:
+      schemabridge.io/environment: production
+    includeSelectors: false
+images:
+  - name: registry.invalid/schemabridge/runtime
+    newName: registry.invalid/schemabridge/runtime
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000

@@ -1,126 +1,81 @@
 # Current task
 
-- Current milestone: M28 — Governed connector routing, explicit dialects, and query cost controls
-- Status: complete and accepted locally on 2026-07-28
-- Recommended operator decision: retain M28 as the local synthetic baseline; M29 is eligible but
-  not started
-- Prompt: `prompts/M28_COMPILER_CONNECTORS_COST_CONTROLS.md`
-- Plan: `plans/M28_COMPILER_CONNECTORS_COST_CONTROLS.md`
+- Current milestone: M29 — Operations, infrastructure, supply-chain, and recovery hardening
+- Status: reproducible local baseline accepted; publication tracked in draft PR #1
+- Prompt: `prompts/M29_OPERATIONS_SUPPLY_CHAIN_HARDENING.md`
+- Plan: `plans/M29_OPERATIONS_SUPPLY_CHAIN_HARDENING.md`
+- ADR: `docs/adr/0014-operated-runtime-secrets-observability-and-supply-chain.md`
 - Production/release GO: **NO**
 
-## Accepted result
+## Objective
 
-M28 binds every managed executable plan to one exact tenant connection, immutable connector-route
-revision, PostgreSQL dialect, approved reader, immutable catalog/type evidence, and complete cost
-budget. Secrets remain capability-private; the LLM still cannot produce executable SQL; a
-deterministic compiler and independent AST guard own SQL; bounded `EXPLAIN ... ANALYZE FALSE`
-preflight repeats before each read-only preview.
+Implement and operate the exact M29 gates for remote exact-version secrets, projected workload
+identity, TLS/default-deny networking, structured redacted telemetry, bounded metrics/SLOs/alerts/
+SIEM, frozen dependencies, pinned CI, SBOM/vulnerability/provenance evidence, signed backup
+retention, fresh-target recovery, and rollback.
 
-Schema v9, pristine and v8→v9 migration paths, the six-role capability matrix, two-tenant source
-isolation, dynamic catalog/profile/execution routing, and the 10/75 plus 5,434/41,028 inventory
-profiles pass. PostgreSQL is the sole executable M28 dialect; unsupported dialects and federation
-fail closed.
+M28 remains the accepted local query/routing baseline. Its source-read-only, typed-intent,
+deterministic SQL compiler/AST guard, semantic approval, route, tenant, fanout, cost, and dynamic
+catalog boundaries must remain unchanged.
 
-## Final evidence
+## Implemented locally
 
-- Focused M28 unit groups: 427 passed.
-- Focused connector/route/cost integration: 37 passed; focused acceptance with PostgreSQL:
-  28 passed.
-- Critical schema/tenant/managed-query cut: 17 passed.
-- Full integration: 164 passed, one retained M27 fixture skip, six expected DataHub warnings in
-  662.06 seconds.
-- Full acceptance: 47 passed with one expected DataHub warning in 133.50 seconds.
-- `make check`: Ruff format/lint, strict mypy over 276 source files, and 2,714 tests passed with
-  207 deselected in 989.17 seconds.
-- `make coverage`: 2,920 passed, one retained M27 fixture skip, seven expected DataHub warnings,
-  81.76% coverage in 2,626.35 seconds.
-- Deterministic evaluation: PASS over 11 tables/465 rows; `live_llm=not_run`.
-- Runtime wheel, release scan, schema v9/six-role check, scale correctness, PostgreSQL scale plans,
-  and whole-tree diff hygiene: PASS. The release scan's dirty-tree warning is retained.
-- Codex internal browser: all nine scenarios passed at desktop 1280x720 and mobile 390x844 with
-  clean consoles, no overflow/XSS/protected-data hits, distinct tenant readers/results, and exact
-  cleanup.
+- One provider-neutral port now supports strict owner-only local evidence and HTTPS
+  Vault/OpenBao-compatible exact-version remote resolution. Managed components require remote
+  mode and reject global/local credential fallbacks.
+- Provider secret versions are independent from public route revisions. Schema v11 stores four
+  immutable version pins and deliberately leaves historical unversioned routes non-executable
+  until a newly approved rotation.
+- Schema v10 adds the read-only `schemabridge_observer` role and an aggregate-only queue view.
+  API, execution, catalog, profile, reconciler, and observer processes have bounded metrics;
+  structured logs, SLOs, alerts, dashboards, SIEM, and safe operations projections use closed
+  schemas.
+- The M29 Kubernetes base defines separate workload identities, projected tokens only where
+  required, restricted containers, resource/topology controls, TLS ingress, default-deny
+  networking, and isolated scrape paths. The production overlay retains blocking operator
+  placeholders by design.
+- `uv.lock`, hashed runtime/build exports, immutable workflow/image validation,
+  SBOM/vulnerability/provenance policy, and protected-release OIDC contracts are present.
+- Recovery policy, verified backup-pair retention/quarantine, fresh-target drill contracts, and
+  forward-compatible image/restore rollback rules are present.
+- Managed Streamlit is planning-only: execution and publication are explicitly `disabled`.
+  Execution still requires the authenticated API/job/worker lane, for which no Streamlit client
+  exists; publication still lacks a durable approval queue and dedicated publisher worker.
+- A separate operator component keeps migration/backup/restore commands outside the web runtime
+  and does not inherit developer `.env` capability.
 
-## Publication reproducibility follow-up — 2026-07-29
+## Local acceptance evidence
 
-The first draft-PR run exposed four clean-checkout assumptions that the accepted local environment
-had masked: `make bootstrap` omitted the existing `datahub` extra; 18 retained signed v4–v10
-campaign reports were ignored despite immutable-byte tests; Rich emitted CI-only ANSI sequences;
-and the fresh DataHub service had no explicitly published semantic registry.
+1. Focused M29 recovery/deployment/telemetry/logging/composition tests pass 210/210; the final
+   supply/release/wheel cut passes 58/58.
+2. Clean schema v11 and all seven control credentials pass; focused observer/provider-version
+   PostgreSQL passes 18/18 and full integration passes 158 tests with 11 explicit external skips.
+3. Acceptance passes 43 tests with four explicit DataHub skips; deterministic evaluation,
+   installed wheel migrations 1–11/all ten entrypoints, frozen uv install, `pip check`, recovery,
+   and scale contracts pass.
+4. The operator-patched 61-resource manifest passes locally and the unpatched template fails
+   closed. Target-cluster server-side validation remains `NOT_RUN_EXTERNAL`.
+5. The Codex internal browser passes all six operations states at 1280×720 and 390×844 with clean
+   console, escaped hostile text, no overflow or protected-data hits, and closed cleanup.
+6. Final `make check` passes supply-chain/release audit, Ruff over 592 files, mypy over 300 source
+   files, and 3136 tests with 211 deselected. Full coverage passes 3325 tests with 14 explicit
+   external skips and one performance deselection at 81.09% against the 80% floor.
+7. The final checkout audit closes the hidden-artifact upload regression with a seven-path
+   allowlist and timeout/condition/retention validation; 41 supply-chain and 13 release-audit
+   tests pass, including forced interrupted-coverage rejection.
 
-The next hosted run reached the live integration suite and exposed two fixture collisions. The
-control container used the new non-secret local default while administrative tests still fell back
-to the older password, and the registry seed plus replay test used the same deterministic local
-principal with different approval timestamps. Every affected test and browser-runtime fallback now
-uses the Compose file's explicit `local-only-not-a-secret` loopback placeholder while retaining its
-test-only override, and only the approved registry seed receives a dedicated local subject. No
-real credential is stored, no trust authentication is enabled, and the replay test retains an
-independent approval identity and audit ledger.
+## Publication boundary
 
-The same hosted run also proved that `NO_COLOR=1` alone does not make Rich/Typer help bytes
-portable across runner platforms. The three security-contract tests now remove ANSI styling with
-Click before checking required and forbidden options; the CLI behavior and the assertions'
-allow/deny lists are otherwise unchanged.
+The exact branch commit and hosted status are intentionally external to this precommit task record
+because a commit cannot embed its own identity. Publication evidence must be read from Git history
+and draft PR #1. The candidate must pass the staged secret/artifact/history scan and strict
+clean-revision audit before it can be treated as release input. Hosted PR checks remain independent
+reproducibility evidence, not production authorization.
 
-The publication candidate now installs the same reviewed DataHub/MCP dependencies in `bootstrap`,
-tracks the 19 content-addressed synthetic campaign reports plus the two signed ledger attestations
-cited by tests and governance docs, sets `NO_COLOR=1` for cleaner CI output, normalizes CLI-help
-styling at the assertion boundary, and publishes then read-checks the exact approved synthetic
-registry fingerprint before integration tests. No key, private data, unsigned runtime report,
-source-database write, or additional production capability is included.
+## Explicit NO-GO boundary
 
-Focused reproduction passes 33 formerly affected tests both in the working repository and in an
-index-only clean export. The development release audit passes 772 candidate files and 23 direct
-licenses with only the expected dirty-tree warning.
-
-The second follow-up passes 75 registry-publication unit tests, the three GitHub-Actions ANSI
-regressions, 22 affected PostgreSQL integration tests, and all four live DataHub registry tests
-from clean synthetic volumes. The complete service gates pass with 164 integration tests plus one
-retained fixture skip and 47 acceptance tests. The final CI-shaped `make check` passes Ruff,
-strict mypy over 276 source files, and 2,714 tests with 207 service tests deselected in 726.42
-seconds.
-
-The third hosted run passed both quality jobs and reached coverage only after DataHub, control
-PostgreSQL, integration, and acceptance had passed. Coverage reached 81.29%, but a generic
-job-wide `DATABASE_URL` crossed the component credential boundary and caused 31 deliberate
-fail-closed configuration tests; coverage instrumentation also made the 64-read wall-clock scale
-smoke exceed an unchanged latency budget once, while its zero-error and bounded-page checks
-passed. The generic DSN is now scoped only to the evaluation step, all 19 control-admin fallbacks
-match the explicit local Compose placeholder. Focused regressions pass.
-
-The final local publication bytes pass Ruff, strict mypy over 276 source files, and 2,719
-service-free tests with 207 deselected in 766.64 seconds. From clean synthetic demo, DataHub, and
-control-plane state, the registry read-back, schema v9/six-role check, 164 integration tests plus
-one retained skip, and all 47 acceptance tests pass. The complete corrected coverage run passes
-2,925 tests with that one skip and seven expected DataHub warnings at 81.75% in 2,588.95 seconds.
-The generic source/admin variables were explicitly absent from that process; the scale smoke and
-all 31 formerly contaminated component-boundary tests passed.
-
-The fourth hosted run proved the corrected credential scope: on the same commit, both quality jobs
-passed, GitGuardian passed, and the push service job passed 2,925 tests with one retained skip at
-81.75% coverage. Its duplicate PR service job passed DataHub, control-plane, integration,
-acceptance, and every functional coverage check, but the 64-read smoke measured p95 292.712 ms
-under active service/shared-runner contention and failed only its unchanged 250 ms budget. The
-smoke is therefore marked `performance` and remains mandatory in the clean `make check` quality
-job with unchanged 250/500 ms limits; release clean-room now also runs that gate before starting
-project services. Coverage deselects only that marker while retaining the pure exact-limit
-regression gate. The separately operated 5,000-read concurrency-16 PostgreSQL benchmark remains
-authoritative. Replacement draft-PR checks remain the publication authority.
-
-## Scope guard
-
-M28 keeps inventory cardinality dynamic, while a single request remains constrained to one
-connection, at most three tables, and two joins. Application preflight never uses
-`EXPLAIN ANALYZE`; engineering timing diagnostics remain synthetic-only.
-
-Local acceptance is not production approval. The draft PR is development publication evidence,
-not a reviewed or signed release candidate; remote secret management, TLS/NetworkPolicy,
-observability/SIEM, supply-chain controls, backup/recovery, production capacity/SLO evidence,
-real-tenant evaluation, penetration/security review, clean signed release identity, and external
-sign-off remain open.
-
-## Next milestone
-
-M29 is eligible but has not started. Its operated remote-secret, infrastructure, observability,
-supply-chain, and recovery scope must be planned and executed as a separate milestone. M30
-production evaluation/security verification and M31 pilot/GA remain sequentially blocked.
+No external provider rotation/revocation, target-cluster admission/network enforcement,
+production alert/SIEM delivery, immutable remote retention, operated external fresh-target
+cutover/rollback, protected release attestation, production traffic/SLO, M30/M31, or independent
+security/operator approval has been accepted. Static manifests, local metrics, unit tests, and
+unsigned local artifacts cannot substitute for those operations.

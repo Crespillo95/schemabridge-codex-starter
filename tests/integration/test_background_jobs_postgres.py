@@ -100,6 +100,7 @@ class _DatabaseUrls:
     runtime: str
     reconciler: str
     catalog: str
+    observer: str
 
 
 @pytest.fixture
@@ -124,7 +125,8 @@ def job_database() -> Iterator[_DatabaseUrls]:
                     schemabridge_reconciler,
                     schemabridge_api,
                     schemabridge_worker,
-                    schemabridge_catalog
+                    schemabridge_catalog,
+                    schemabridge_observer
                 """
             ).format(sql.Identifier(database))
         )
@@ -137,6 +139,7 @@ def job_database() -> Iterator[_DatabaseUrls]:
         runtime=_role_dsn("schemabridge_runtime", database),
         reconciler=_role_dsn("schemabridge_reconciler", database),
         catalog=_role_dsn("schemabridge_catalog", database),
+        observer=_role_dsn("schemabridge_observer", database),
     )
     try:
         with tempfile.TemporaryDirectory(prefix="schemabridge-m24-v1-") as directory:
@@ -154,8 +157,8 @@ def job_database() -> Iterator[_DatabaseUrls]:
             PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).require_current()
         assert stale_schema.value.code is ControlPlaneMigrationErrorCode.SCHEMA_NOT_CURRENT
         upgraded = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert upgraded.applied_versions == (2, 3, 4, 5, 6, 7, 8, 9)
-        assert upgraded.inspection.current_version == 9
+        assert upgraded.applied_versions == (2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+        assert upgraded.inspection.current_version == 11
         yield urls
     finally:
         with psycopg.connect(admin_dsn, autocommit=True) as connection:
@@ -1389,6 +1392,13 @@ def test_api_worker_and_existing_roles_have_exact_negative_privileges(
             "cancel_update": False,
             "pointer_select": True,
         },
+        job_database.observer: {
+            "job_select": False,
+            "job_insert_column": False,
+            "lease_update": False,
+            "cancel_update": False,
+            "pointer_select": False,
+        },
     }
     for dsn, expected in privilege_expectations.items():
         with psycopg.connect(dsn) as connection:
@@ -1478,11 +1488,19 @@ def test_api_worker_and_existing_roles_have_exact_negative_privileges(
             "SELECT * FROM schemabridge_control.execution_jobs LIMIT 1",
         ),
         (
+            job_database.observer,
+            "SELECT * FROM schemabridge_control.execution_jobs LIMIT 1",
+        ),
+        (
             job_database.api,
             "SET ROLE schemabridge_migrator",
         ),
         (
             job_database.worker,
+            "SET ROLE schemabridge_migrator",
+        ),
+        (
+            job_database.observer,
             "SET ROLE schemabridge_migrator",
         ),
         (

@@ -119,12 +119,18 @@ def _write_bindings(path: Path, *, mode: int = 0o600) -> None:
     path.write_text(
         json.dumps(
             {
-                "format_version": 1,
+                "format_version": 2,
                 "private_bindings": {
-                    "catalog": PRIVATE_VALUES[1],
-                    "execution": PRIVATE_VALUES[2],
-                    "preflight": PRIVATE_VALUES[0],
-                    "profile": PRIVATE_VALUES[3],
+                    capability: {
+                        "provider_secret_version": version,
+                        "reference": reference,
+                    }
+                    for capability, reference, version in (
+                        ("catalog", PRIVATE_VALUES[1], 22),
+                        ("execution", PRIVATE_VALUES[2], 33),
+                        ("preflight", PRIVATE_VALUES[0], 11),
+                        ("profile", PRIVATE_VALUES[3], 44),
+                    )
                 },
             }
         ),

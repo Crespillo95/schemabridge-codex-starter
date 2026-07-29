@@ -9,6 +9,7 @@ import streamlit as st
 from pydantic_settings import SettingsError
 
 from schemabridge.application.authentication import AuthenticationBoundaryError
+from schemabridge.application.ports.runtime_logging import RuntimeLoggingSessionPort
 from schemabridge.application.ui_view_models import JudgeUiView, UiResult
 from schemabridge.application.ui_workflow import (
     JudgeUiService,
@@ -20,6 +21,7 @@ from schemabridge.bootstrap import (
     build_streamlit_principal,
     build_streamlit_runtime_options,
     build_streamlit_ui_service,
+    ensure_runtime_logging,
 )
 from schemabridge.domain.identity import AuthenticatedPrincipal
 from schemabridge.domain.intents import IntentAlternativeId
@@ -40,6 +42,9 @@ from schemabridge.entrypoints.streamlit.components import (
     render_relationships,
     render_semantic_models,
 )
+from schemabridge.entrypoints.streamlit.m29_operations_scenario import (
+    render_m29_operations_scenario,
+)
 from schemabridge.entrypoints.streamlit.query_studio import (
     clear_query_studio_state,
     render_dynamic_query_studio,
@@ -54,6 +59,7 @@ _PAGES = (
     "Relationships",
     "Query Studio",
     "Decisions",
+    "Operations",
 )
 _TRANSIENT_EXECUTION_RESULT_KEY = "_transient_execution_result"
 
@@ -61,6 +67,12 @@ _TRANSIENT_EXECUTION_RESULT_KEY = "_transient_execution_result"
 def main() -> None:
     """Render the application and translate UI events into typed use-case calls."""
 
+    logging_session = ensure_runtime_logging(service="web")
+    logging_session.emit(
+        event="service.health",
+        outcome="started",
+        duration_ms=0,
+    )
     st.set_page_config(
         page_title="SchemaBridge · Governed semantic query agent",
         page_icon="🌉",
@@ -71,15 +83,26 @@ def main() -> None:
     try:
         runtime = build_streamlit_runtime_options()
     except (OSError, RuntimeError, SettingsError, ValueError):
-        _stop_for_runtime_configuration("before loading governed data")
+        _stop_for_runtime_configuration(
+            "before loading governed data",
+            logging_session,
+        )
     if runtime.auth_mode == "oidc":
-        _preflight_oidc(runtime)
-    principal = _authenticate(runtime)
+        _preflight_oidc(runtime, logging_session)
+    principal = _authenticate(runtime, logging_session)
     _reset_session_for_principal(principal)
     try:
         service = build_streamlit_ui_service(principal=principal)
     except (OSError, RuntimeError, SettingsError, ValueError):
-        _stop_for_runtime_configuration("before composing an external adapter")
+        _stop_for_runtime_configuration(
+            "before composing an external adapter",
+            logging_session,
+        )
+    logging_session.emit(
+        event="service.health",
+        outcome="succeeded",
+        duration_ms=0,
+    )
     capabilities = service.capabilities()
     if not capabilities.can_view:
         with st.sidebar:
@@ -232,20 +255,28 @@ def main() -> None:
             st.rerun()
         st.divider()
         pending_action = pending_action or render_query_studio(view, capabilities)
-    else:
+    elif page == "Decisions":
         render_decisions(view)
+    else:
+        render_m29_operations_scenario()
 
     if pending_action is not None:
         _perform_action(service, view, pending_action)
 
 
-def _authenticate(runtime: StreamlitRuntimeOptions) -> AuthenticatedPrincipal:
+def _authenticate(
+    runtime: StreamlitRuntimeOptions,
+    logging_session: RuntimeLoggingSessionPort,
+) -> AuthenticatedPrincipal:
     if runtime.auth_mode == "local-demo":
         return build_streamlit_principal()
     try:
         logged_in = st.user.is_logged_in
     except Exception:
-        _stop_for_runtime_configuration("before reading the authenticated session")
+        _stop_for_runtime_configuration(
+            "before reading the authenticated session",
+            logging_session,
+        )
     if not logged_in:
         st.markdown("## Sign in to SchemaBridge")
         st.caption("OIDC authentication is required before governed data is loaded.")
@@ -275,12 +306,18 @@ def _authenticate(runtime: StreamlitRuntimeOptions) -> AuthenticatedPrincipal:
     raise RuntimeError("unreachable authentication boundary")
 
 
-def _preflight_oidc(runtime: StreamlitRuntimeOptions) -> None:
+def _preflight_oidc(
+    runtime: StreamlitRuntimeOptions,
+    logging_session: RuntimeLoggingSessionPort,
+) -> None:
     try:
         raw_secrets = st.secrets.to_dict()
         validate_streamlit_auth_configuration(raw_secrets, runtime)
     except Exception:
-        _stop_for_runtime_configuration("before reading the authenticated session")
+        _stop_for_runtime_configuration(
+            "before reading the authenticated session",
+            logging_session,
+        )
 
 
 def _render_principal_summary(
@@ -306,7 +343,16 @@ def _logout_or_stop() -> None:
         st.stop()
 
 
-def _stop_for_runtime_configuration(stage: str) -> None:
+def _stop_for_runtime_configuration(
+    stage: str,
+    logging_session: RuntimeLoggingSessionPort,
+) -> None:
+    logging_session.emit(
+        event="service.health",
+        outcome="failed",
+        duration_ms=0,
+        error_code="internal_failure",
+    )
     st.error("runtime_configuration_invalid: The deployment configuration was rejected.")
     st.caption(f"The application failed closed {stage}.")
     st.stop()

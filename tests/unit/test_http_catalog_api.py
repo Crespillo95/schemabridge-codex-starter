@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+import json
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import cast
@@ -8,6 +10,7 @@ from urllib.parse import quote
 import pytest
 from fastapi.testclient import TestClient
 
+from schemabridge.adapters.observability.runtime import RuntimeOperationalTelemetry
 from schemabridge.application.authentication import AuthenticationBoundaryError
 from schemabridge.application.catalog_inventory import (
     CatalogUseCaseError,
@@ -25,6 +28,10 @@ from schemabridge.application.ports.catalog_inventory import (
     CatalogInventoryReadPort,
     CatalogRefreshStorePort,
     InventoryCursorPort,
+)
+from schemabridge.application.ports.operational_telemetry import (
+    OperationalResourceAccessCause,
+    OperationalTelemetryPort,
 )
 from schemabridge.domain.catalog_inventory import (
     CatalogAssetFilter,
@@ -420,6 +427,7 @@ def _client(
     fixture: _Fixture | None = None,
     *,
     catalog: CatalogHttpServices | None = None,
+    telemetry: OperationalTelemetryPort | None = None,
 ) -> TestClient:
     selected_catalog = fixture.services() if fixture is not None else catalog
     unused = _UnusedJobPort()
@@ -433,7 +441,8 @@ def _client(
                 cancel=unused,  # type: ignore[arg-type]
                 readiness=_Readiness(),
                 catalog=selected_catalog,
-            )
+            ),
+            telemetry=telemetry,
         ),
         raise_server_exceptions=False,
     )
@@ -688,6 +697,36 @@ def test_registration_is_admin_only_strict_and_exactly_replayable() -> None:
         assert "idempotency" not in response.text.casefold()
 
 
+def test_catalog_404_denial_emits_only_the_safe_internal_authorization_signal() -> None:
+    fixture = _Fixture.create()
+    stream = io.StringIO()
+    telemetry = RuntimeOperationalTelemetry(
+        service="api",
+        environment="staging",
+        stream=stream,
+    )
+
+    with _client(fixture, telemetry=telemetry) as client:
+        denied = client.post(
+            "/v1/catalog/connections",
+            headers=_headers("analyst-token", idempotency=True),
+            json=_registration_body(),
+        )
+
+    assert denied.status_code == 404
+    assert denied.json()["code"] == "catalog_resource_unavailable"
+    assert "denied" not in denied.text.casefold()
+    event = next(
+        json.loads(line)
+        for line in stream.getvalue().splitlines()
+        if '"event":"http.request"' in line
+    )
+    assert event["outcome"] == "denied"
+    assert event["error_code"] == "unauthorized"
+    assert event["authorization_denials"] == 1
+    assert set(event).isdisjoint({"tenant", "workspace", "actor", "resource"})
+
+
 def test_disable_requires_admin_confirmation_and_never_deletes_inventory() -> None:
     fixture = _Fixture.create()
     with _client(fixture) as client:
@@ -802,7 +841,15 @@ def test_catalog_failures_are_sanitized(
             page: object,
         ) -> object:
             del principal, filters, page
-            raise CatalogUseCaseError(code, secret)
+            raise CatalogUseCaseError(
+                code,
+                secret,
+                resource_access_cause=(
+                    OperationalResourceAccessCause.NOT_FOUND
+                    if code is CatalogUseCaseErrorCode.UNAVAILABLE
+                    else None
+                ),
+            )
 
     fixture = _Fixture.create()
     catalog = replace(fixture.services(), list_connections=_FailingList())

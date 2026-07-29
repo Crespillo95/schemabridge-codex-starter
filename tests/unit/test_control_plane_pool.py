@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any, cast
@@ -130,6 +131,7 @@ def test_pool_saturation_is_one_sanitized_operational_failure(error: Exception) 
 
     assert str(captured.value) == "control database pool is unavailable"
     assert "full" not in str(captured.value)
+    assert captured.value.__cause__ is None
     assert isinstance(captured.value, psycopg.OperationalError)
 
 
@@ -144,3 +146,23 @@ def test_pool_startup_failure_does_not_mark_it_ready() -> None:
     assert not pool.started
     assert str(captured.value) == "control database pool is unavailable"
     assert "secret endpoint" not in str(captured.value)
+    assert captured.value.__cause__ is None
+
+
+def test_upstream_pool_logger_is_sanitized_before_any_handler(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _pool(_FakePool())
+    caplog.set_level(logging.WARNING, logger="psycopg.pool")
+
+    logging.getLogger("psycopg.pool").warning(
+        "error connecting user=%s host=%s password=%s",
+        "schemabridge_observer",
+        "private-control.example",
+        "super-secret",
+    )
+
+    assert "control_pool_internal_event" in caplog.text
+    assert "schemabridge_observer" not in caplog.text
+    assert "private-control.example" not in caplog.text
+    assert "super-secret" not in caplog.text

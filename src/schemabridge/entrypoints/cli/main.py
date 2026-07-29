@@ -428,6 +428,7 @@ def control_plane_check(
             "api": build_control_plane_migrator(credential_kind="api").require_current(),
             "worker": build_control_plane_migrator(credential_kind="worker").require_current(),
             "catalog": build_control_plane_migrator(credential_kind="catalog").require_current(),
+            "observer": build_control_plane_migrator(credential_kind="observer").require_current(),
         }
         separation = build_source_control_database_separation().execute()
     except (ControlPlaneMigrationError, DatabaseConfigurationError) as error:

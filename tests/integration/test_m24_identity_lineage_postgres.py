@@ -174,7 +174,7 @@ def lineage_database() -> Iterator[_DatabaseUrls]:
     )
     try:
         migrated = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert migrated.inspection.current_version == 9
+        assert migrated.inspection.current_version == 11
         yield urls
     finally:
         with psycopg.connect(admin_dsn, autocommit=True) as connection:
@@ -680,7 +680,7 @@ def test_submitted_v1_job_executes_after_rotation_through_verified_lineage(
         submit,
         v1,
         workflow_id=workflow_id,
-        idempotency_key="pre-rotation-idempotency-0001",
+        idempotency_key="pre-rotation-idempotency-0001",  # gitleaks:allow -- non-secret key
     )
     assert not pre_rotation.replayed
     assert pre_rotation.job.authorization.workspace_id == pair.previous.workspace_id
@@ -713,7 +713,7 @@ def test_submitted_v1_job_executes_after_rotation_through_verified_lineage(
         replay_submit,
         v2,
         workflow_id=workflow_id,
-        idempotency_key="pre-rotation-idempotency-0001",
+        idempotency_key="pre-rotation-idempotency-0001",  # gitleaks:allow -- non-secret key
     )
     assert replay.replayed
     assert replay.job == pre_rotation.job

@@ -39,6 +39,7 @@ from schemabridge.domain.catalog_inventory import (
     TenantCapacityPolicyChange,
     TenantCapacitySnapshot,
 )
+from schemabridge.domain.connectors import MAX_ROUTE_REVISION
 
 _PRIVATE_CATALOG_BINDING = re.compile(r"^[a-z][a-z0-9._:-]{2,199}$")
 
@@ -49,6 +50,7 @@ class ManagedCatalogConnectorRoute:
 
     route: CatalogConnectionRoute
     credential_binding_ref: str = field(repr=False)
+    provider_secret_version: int | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if (
@@ -56,6 +58,13 @@ class ManagedCatalogConnectorRoute:
             or _PRIVATE_CATALOG_BINDING.fullmatch(self.credential_binding_ref) is None
             or "://" in self.credential_binding_ref
             or "@" in self.credential_binding_ref
+            or (
+                self.provider_secret_version is not None
+                and (
+                    type(self.provider_secret_version) is not int
+                    or not 1 <= self.provider_secret_version <= MAX_ROUTE_REVISION
+                )
+            )
         ):
             raise ValueError("managed catalog connector route is invalid")
 

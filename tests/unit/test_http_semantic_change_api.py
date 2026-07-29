@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import base64
+import io
+import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
 
+from schemabridge.adapters.observability.runtime import RuntimeOperationalTelemetry
 from schemabridge.adapters.semantic_change.cursor import (
     SignedSemanticChangeCursorCodec,
 )
 from schemabridge.application.authentication import AuthenticationBoundaryError
+from schemabridge.application.ports.operational_telemetry import OperationalTelemetryPort
 from schemabridge.application.ports.semantic_change_read import (
     SemanticChangeFindingFilter,
     SemanticChangeFindingPublic,
@@ -350,6 +354,7 @@ def _client(
     fixture: _Fixture | None = None,
     *,
     semantic_changes: SemanticChangeHttpServices | None = None,
+    telemetry: OperationalTelemetryPort | None = None,
 ) -> TestClient:
     unused = _UnusedJobPort()
     selected = fixture.semantic_services() if fixture is not None else semantic_changes
@@ -364,7 +369,8 @@ def _client(
                 cancel=unused,  # type: ignore[arg-type]
                 readiness=_Readiness(),
                 semantic_changes=selected,
-            )
+            ),
+            telemetry=telemetry,
         ),
         raise_server_exceptions=False,
     )
@@ -524,6 +530,34 @@ def test_report_routes_are_authenticated_bounded_and_minimized() -> None:
         "token",
     ):
         assert forbidden not in encoded
+
+
+def test_semantic_change_404_denial_emits_no_protected_resource_context() -> None:
+    fixture = _Fixture.create()
+    stream = io.StringIO()
+    telemetry = RuntimeOperationalTelemetry(
+        service="api",
+        environment="staging",
+        stream=stream,
+    )
+
+    with _client(fixture, telemetry=telemetry) as client:
+        denied = client.get(
+            "/v1/semantic-changes/reports",
+            headers=_headers("no-role-token"),
+        )
+
+    assert denied.status_code == 404
+    assert denied.json()["code"] == "semantic_change_resource_unavailable"
+    event = next(
+        json.loads(line)
+        for line in stream.getvalue().splitlines()
+        if '"event":"http.request"' in line
+    )
+    assert event["outcome"] == "denied"
+    assert event["error_code"] == "unauthorized"
+    assert event["authorization_denials"] == 1
+    assert set(event).isdisjoint({"tenant", "workspace", "actor", "resource"})
 
 
 def test_finding_and_impact_routes_filter_and_page_without_raw_evidence() -> None:

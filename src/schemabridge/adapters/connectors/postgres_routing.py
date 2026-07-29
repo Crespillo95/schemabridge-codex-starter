@@ -40,8 +40,8 @@ _NO_CONTROL = re.compile(r"^[^\x00-\x1f\x7f]+$")
 _ENABLED = "enabled"
 _DISABLED = "disabled"
 _PUBLIC_TARGET_COLUMN_COUNT = 25
-_PRIVATE_PREFLIGHT_ROUTE_COLUMN_COUNT = 9
-_PRIVATE_EXECUTION_ROUTE_COLUMN_COUNT = 11
+_PRIVATE_PREFLIGHT_ROUTE_COLUMN_COUNT = 10
+_PRIVATE_EXECUTION_ROUTE_COLUMN_COUNT = 12
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,7 +235,7 @@ class PostgresPreflightConnectorRouteReader:
                 ConnectorTargetErrorCode.ROUTE_STALE,
                 "connector route is stale",
             )
-        loader = self._database.table("load_current_preflight_connector_route")
+        loader = self._database.table("load_current_preflight_connector_route_v2")
         database_unavailable = False
         invalid_database_response = False
         rows: list[tuple[object, ...]] = []
@@ -251,7 +251,8 @@ class PostgresPreflightConnectorRouteReader:
                                 workspace_id, connection_id, contract_version,
                                 route_revision, target_fingerprint, sql_dialect,
                                 expected_reader, source_identity_fingerprint,
-                                credential_binding_ref
+                                credential_binding_ref,
+                                provider_secret_version
                             FROM {}(%s, %s, %s, %s)
                             """
                         ).format(loader),
@@ -346,7 +347,7 @@ class PostgresExecutionConnectorRouteReader:
                 ConnectorTargetErrorCode.ROUTE_STALE,
                 "connector route is stale",
             )
-        loader = self._database.table("load_owned_execution_connector_route")
+        loader = self._database.table("load_owned_execution_connector_route_v2")
         database_unavailable = False
         invalid_database_response = False
         rows: list[tuple[object, ...]] = []
@@ -364,7 +365,8 @@ class PostgresExecutionConnectorRouteReader:
                                 contract_version, route_revision,
                                 target_fingerprint, sql_dialect,
                                 expected_reader, source_identity_fingerprint,
-                                credential_binding_ref
+                                credential_binding_ref,
+                                provider_secret_version
                             FROM {}(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             """
                         ).format(loader),
@@ -543,7 +545,10 @@ def _preflight_reference_from_row(
         or source_identity_fingerprint != target.source_identity_fingerprint
     ):
         raise ValueError("connector route response does not match the target")
-    return OpaqueConnectorSecretRef(_text(row[8]))
+    return OpaqueConnectorSecretRef(
+        _text(row[8]),
+        provider_secret_version=_positive_integer(row[9]),
+    )
 
 
 def _private_reference_from_row(
@@ -586,7 +591,10 @@ def _private_reference_from_row(
         or source_identity_fingerprint != target.source_identity_fingerprint
     ):
         raise ValueError("connector route response does not match the target")
-    return OpaqueConnectorSecretRef(_text(row[10]))
+    return OpaqueConnectorSecretRef(
+        _text(row[10]),
+        provider_secret_version=_positive_integer(row[11]),
+    )
 
 
 def _text(value: object) -> str:

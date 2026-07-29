@@ -193,7 +193,7 @@ def lifecycle_databases() -> Iterator[_LifecycleDatabases]:
             current.migrator,
             MIGRATIONS,
         ).migrate()
-        assert current_result.inspection.current_version == 9
+        assert current_result.inspection.current_version == 11
 
         with tempfile.TemporaryDirectory(prefix="schemabridge-m24-behind-") as directory:
             behind_migrations = Path(directory)
@@ -261,9 +261,15 @@ def test_api_worker_and_catalog_fail_closed_on_behind_schema_without_auto_migrat
     assert api_result.returncode == 1
     assert worker_result.returncode == 1
     assert catalog_result.returncode == 1
-    assert "api_startup_failed error_type=ControlPlaneMigrationError" in api_result.stdout
-    assert "worker_startup_failed error_type=ControlPlaneMigrationError" in worker_result.stdout
-    assert "catalog_startup_failed error_type=ControlPlaneMigrationError" in catalog_result.stdout
+    for service, output in (
+        ("api", api_result.stdout),
+        ("worker", worker_result.stdout),
+        ("catalog", catalog_result.stdout),
+    ):
+        assert _runtime_event_contracts(output) == (
+            (service, "service.health", "started", None),
+            (service, "service.health", "failed", "internal_failure"),
+        )
     assert "Traceback" not in api_result.stdout
     assert "Traceback" not in worker_result.stdout
     assert "Traceback" not in catalog_result.stdout
@@ -335,7 +341,7 @@ def test_worker_os_process_crash_reclaims_lease_and_fences_stale_owner(
         first_fence,
     )
 
-    before_expiry_token = "m24-too-early-capability-" + ("b" * 40)
+    before_expiry_token = "m24-too-early-capability-" + ("b" * 40)  # gitleaks:allow -- fixture
     before_expiry = _run_lease_process(
         urls,
         action="claim-once",
@@ -430,11 +436,29 @@ def test_api_worker_and_catalog_start_independently_and_exit_cleanly_on_sigterm(
         api_output = api_process.communicate(timeout=15)[0]
     finally:
         api_output = _ensure_stopped(api_process, locals().get("api_output", ""))
-    # Uvicorn 0.51 completes shutdown and then re-raises the captured signal after
-    # restoring the prior handler, so the process status truthfully remains SIGTERM.
+    # Uvicorn completes shutdown and then re-raises the captured signal after restoring
+    # the prior handler, so the process status truthfully remains SIGTERM.
     assert api_process.returncode == -signal.SIGTERM
-    assert "Shutting down" in api_output
-    assert "Application shutdown complete" in api_output
+    api_events = _runtime_events(api_output)
+    assert _runtime_event_contract(api_events[0]) == (
+        "api",
+        "service.health",
+        "started",
+        None,
+    )
+    assert _runtime_event_contract(api_events[-1]) == (
+        "api",
+        "runtime.log",
+        "succeeded",
+        None,
+    )
+    assert sum(event["event"] == "runtime.log" for event in api_events) >= 6
+    assert all(
+        event["service"] == "api"
+        and event["event"] in {"service.health", "runtime.log"}
+        and event["outcome"] in {"started", "succeeded"}
+        for event in api_events
+    )
     assert "Traceback" not in api_output
     _assert_sanitized(api_output, urls)
 
@@ -443,9 +467,13 @@ def test_api_worker_and_catalog_start_independently_and_exit_cleanly_on_sigterm(
     try:
         worker_prefix = _wait_for_output(
             worker_process,
-            marker="worker_iteration outcome=idle",
+            marker='"event":"service.health","outcome":"succeeded"',
             timeout=15,
         )
+        # The readiness event precedes installation of the process-owned signal
+        # handlers by only the exporter open. One bounded poll interval proves the
+        # long-running loop, rather than racing SIGTERM against that setup boundary.
+        time.sleep(0.1)
         worker_process.send_signal(signal.SIGTERM)
         worker_output = worker_prefix + worker_process.communicate(timeout=15)[0]
     finally:
@@ -454,7 +482,10 @@ def test_api_worker_and_catalog_start_independently_and_exit_cleanly_on_sigterm(
             locals().get("worker_output", worker_prefix),
         )
     assert worker_process.returncode == 0
-    assert "worker_iteration outcome=idle" in worker_output
+    assert _runtime_event_contracts(worker_output) == (
+        ("worker", "service.health", "started", None),
+        ("worker", "service.health", "succeeded", None),
+    )
     assert "Traceback" not in worker_output
     _assert_sanitized(worker_output, urls)
 
@@ -463,7 +494,7 @@ def test_api_worker_and_catalog_start_independently_and_exit_cleanly_on_sigterm(
     try:
         catalog_prefix = _wait_for_output(
             catalog_process,
-            marker="catalog_iteration outcome=idle",
+            marker='"event":"catalog.refresh","outcome":"succeeded"',
             timeout=15,
         )
         catalog_process.send_signal(signal.SIGTERM)
@@ -474,7 +505,19 @@ def test_api_worker_and_catalog_start_independently_and_exit_cleanly_on_sigterm(
             locals().get("catalog_output", catalog_prefix),
         )
     assert catalog_process.returncode == 0
-    assert "catalog_iteration outcome=idle" in catalog_output
+    catalog_events = _runtime_events(catalog_output)
+    assert tuple(map(_runtime_event_contract, catalog_events[:2])) == (
+        ("catalog", "service.health", "started", None),
+        ("catalog", "service.health", "succeeded", None),
+    )
+    assert all(
+        _runtime_event_contract(event) == ("catalog", "catalog.refresh", "succeeded", None)
+        and event["jobs_completed"] == 0
+        and event["jobs_failed"] == 0
+        and event["records_processed"] == 0
+        for event in catalog_events[2:]
+    )
+    assert len(catalog_events) >= 3
     assert "Traceback" not in catalog_output
     _assert_sanitized(catalog_output, urls)
 
@@ -507,7 +550,21 @@ def test_catalog_sigterm_commits_at_most_the_active_page_and_keeps_refresh_resum
         catalog_output = _ensure_stopped(catalog_process, catalog_output)
 
     assert catalog_process.returncode == 0
-    assert "catalog_iteration outcome=stopped status=staging" in catalog_output
+    catalog_events = _runtime_events(catalog_output)
+    assert tuple(map(_runtime_event_contract, catalog_events[:2])) == (
+        ("catalog", "service.health", "started", None),
+        ("catalog", "service.health", "succeeded", None),
+    )
+    assert _runtime_event_contract(catalog_events[-1]) == (
+        "catalog",
+        "catalog.refresh",
+        "cancelled",
+        "operation_cancelled",
+    )
+    assert catalog_events[-1]["jobs_completed"] == 0
+    assert catalog_events[-1]["jobs_failed"] == 0
+    assert isinstance(catalog_events[-1]["records_processed"], int)
+    assert catalog_events[-1]["records_processed"] > 0
     assert "Traceback" not in catalog_output
     _assert_sanitized(catalog_output, urls)
     status, pages_after_signal, source_complete, active_generation = _catalog_refresh_coordinates(
@@ -768,7 +825,7 @@ def _wait_for_output(
         output.append(line)
         if marker in line:
             return "".join(output)
-    pytest.fail("worker did not report an idle iteration before the bounded timeout")
+    pytest.fail("process did not report the expected event before the bounded timeout")
 
 
 def _ensure_stopped(process: subprocess.Popen[str], output: str) -> str:
@@ -787,6 +844,38 @@ def _ensure_stopped(process: subprocess.Popen[str], output: str) -> str:
 def _safe_process_summary(output: str) -> str:
     lines = [line for line in output.splitlines() if "error_type" in line]
     return lines[-1] if lines else "no sanitized process status"
+
+
+def _runtime_events(output: str) -> tuple[dict[str, object], ...]:
+    events: list[dict[str, object]] = []
+    for line in output.splitlines():
+        if not line:
+            continue
+        raw: object = json.loads(line)
+        assert isinstance(raw, dict)
+        assert all(isinstance(key, str) for key in raw)
+        event = {str(key): value for key, value in raw.items()}
+        assert event["schema_version"] == "schemabridge.telemetry.v1"
+        assert isinstance(event["timestamp"], str)
+        assert isinstance(event["duration_ms"], int)
+        events.append(event)
+    assert events
+    return tuple(events)
+
+
+def _runtime_event_contract(event: Mapping[str, object]) -> tuple[object, object, object, object]:
+    return (
+        event["service"],
+        event["event"],
+        event["outcome"],
+        event.get("error_code"),
+    )
+
+
+def _runtime_event_contracts(
+    output: str,
+) -> tuple[tuple[object, object, object, object], ...]:
+    return tuple(_runtime_event_contract(event) for event in _runtime_events(output))
 
 
 def _assert_sanitized(output: str, urls: _DatabaseUrls) -> None:

@@ -33,8 +33,8 @@ from schemabridge.domain.connectors import (
 )
 
 _APPLY_ROUTE_SQL = (
-    "SELECT * FROM schemabridge_control.apply_connector_route_change("
-    + ", ".join(["%s"] * 35)
+    "SELECT * FROM schemabridge_control.apply_connector_route_change_v2("
+    + ", ".join(["%s"] * 39)
     + ")"
 )
 
@@ -146,6 +146,10 @@ def ensure_catalog_connector_target(
                 f"test.catalog.{label}",
                 f"test.execution.{label}",
                 f"test.profile.{label}",
+                101,
+                202,
+                303,
+                404,
                 _digest(f"catalog-test-proposal:{label}"),
                 f"approval-catalog-test-{label}",
                 _digest(f"catalog-test-approval:{label}"),

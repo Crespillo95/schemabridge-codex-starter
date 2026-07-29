@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling>=1.27"]
+requires = ["hatchling==1.27.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -51,12 +51,17 @@ datahub = [
 ]
 llm = ["openai==2.46.0"]
 
+[dependency-groups]
+build = ["hatchling==1.27.0"]
+supply-chain = ["pip-audit==2.10.1"]
+
 [project.scripts]
 schemabridge = "schemabridge.entrypoints.cli.main:app"
 schemabridge-api = "schemabridge.entrypoints.http.main:main"
 schemabridge-ai-policy = "schemabridge.entrypoints.ai_policy.main:main"
 schemabridge-catalog = "schemabridge.entrypoints.catalog.main:main"
 schemabridge-connector-route = "schemabridge.entrypoints.connector_route.main:main"
+schemabridge-observer = "schemabridge.entrypoints.observer.main:main"
 schemabridge-semantic-change = "schemabridge.entrypoints.semantic_change.main:main"
 schemabridge-semantic-profile-worker = "schemabridge.entrypoints.semantic_profile_worker.main:main"
 schemabridge-semantic-reconciler = "schemabridge.entrypoints.semantic_reconciler.main:main"
@@ -109,6 +114,9 @@ branch = true
 show_missing = true
 skip_covered = true
 fail_under = 80
+
+[tool.uv]
+required-version = "==0.11.30"
 
 [[tool.mypy.overrides]]
 module = ["psycopg", "psycopg.*", "mcp", "mcp.*", "datahub", "datahub.*"]

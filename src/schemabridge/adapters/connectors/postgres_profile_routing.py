@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 import psycopg
 from psycopg import sql
 
-from schemabridge.adapters.connectors.local_secrets import OpaqueConnectorSecretRef
 from schemabridge.adapters.storage.postgres import (
     ControlConnectionProvider,
     _ControlDatabase,
@@ -17,6 +16,7 @@ from schemabridge.application.connectors import (
     ConnectorTargetError,
     ConnectorTargetErrorCode,
 )
+from schemabridge.application.ports.connector_secrets import OpaqueConnectorSecretRef
 from schemabridge.application.ports.semantic_profile_jobs import (
     SemanticJoinProfileRouteContext,
 )
@@ -24,7 +24,7 @@ from schemabridge.domain.catalog_inventory import CatalogConnectionId
 from schemabridge.domain.connectors import SourceDialect
 
 _POSTGRES_READER = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
-_PROFILE_ROUTE_COLUMN_COUNT = 10
+_PROFILE_ROUTE_COLUMN_COUNT = 11
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,7 +51,7 @@ class ProfilePostgresConnectorRoute:
 
 @dataclass(frozen=True, slots=True)
 class PostgresSemanticProfileConnectorRouteReader:
-    """Load a profile binding through the exact v9 lease-owned capability."""
+    """Load a version-pinned profile binding through the exact lease-owned capability."""
 
     dsn: str = field(repr=False)
     schema: str = "schemabridge_control"
@@ -83,7 +83,7 @@ class PostgresSemanticProfileConnectorRouteReader:
                 "semantic profile connector route is stale",
             )
         target = context.execution_target
-        loader = self._database.table("load_owned_profile_connector_route")
+        loader = self._database.table("load_owned_profile_connector_route_v2")
         rows: list[tuple[object, ...]] = []
         try:
             with self._database.connect() as connection, connection.transaction():
@@ -98,7 +98,8 @@ class PostgresSemanticProfileConnectorRouteReader:
                                 contract_version, route_revision,
                                 target_fingerprint, sql_dialect,
                                 expected_reader, source_identity_fingerprint,
-                                credential_binding_ref
+                                credential_binding_ref,
+                                provider_secret_version
                             FROM {}(%s, %s, %s, %s, %s, %s, %s, %s, %s)
                             """
                         ).format(loader),
@@ -177,7 +178,10 @@ def _route_from_row(
         dialect=dialect,
         expected_reader=expected_reader,
         source_identity_fingerprint=source_identity_fingerprint,
-        secret_reference=OpaqueConnectorSecretRef(_text(row[9])),
+        secret_reference=OpaqueConnectorSecretRef(
+            _text(row[9]),
+            provider_secret_version=_positive_integer(row[10]),
+        ),
     )
 
 

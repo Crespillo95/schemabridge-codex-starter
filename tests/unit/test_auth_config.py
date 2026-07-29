@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -8,11 +9,37 @@ from pydantic import ValidationError
 
 from schemabridge.config import Settings
 
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+
 
 def _oidc_payload(
     profile: str = "production",
     **overrides: object,
 ) -> dict[str, object]:
+    connector_secrets: dict[str, object]
+    if profile in {"staging", "production"}:
+        connector_secrets = {
+            "SCHEMABRIDGE_CONNECTOR_SECRET_MODE": "remote",
+            "SCHEMABRIDGE_CONNECTOR_SECRET_PROVIDER_URL": ("https://secrets.example.test"),
+            "SCHEMABRIDGE_CONNECTOR_SECRET_ROLE": "schemabridge-preflight",
+            "SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_ROLE": "schemabridge-registry-reader",
+            "SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_BINDING_REF": ("registry.reader.primary"),
+            "SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_VERSION": 17,
+            "SCHEMABRIDGE_CONNECTOR_SECRET_KV_MOUNT": "tenant-connectors",
+            "SCHEMABRIDGE_CONNECTOR_SECRET_CAPABILITY": "preflight",
+            "SCHEMABRIDGE_CONNECTOR_SECRET_CA_BUNDLE": (
+                "/var/run/secrets/schemabridge/trust/ca.crt"
+            ),
+            "SCHEMABRIDGE_WORKLOAD_IDENTITY_TOKEN_FILE": (
+                "/var/run/secrets/schemabridge/identity/token"
+            ),
+            "SCHEMABRIDGE_WORKLOAD_IDENTITY_ROOT": ("/var/run/secrets/schemabridge/identity"),
+            "SCHEMABRIDGE_WORKLOAD_IDENTITY_AUDIENCE": ("schemabridge-secret-manager"),
+        }
+    else:
+        connector_secrets = {
+            "SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY": ("/run/secrets/schemabridge-connectors"),
+        }
     payload: dict[str, object] = {
         "SCHEMABRIDGE_ENVIRONMENT": profile,
         "SCHEMABRIDGE_AUTH_MODE": "oidc",
@@ -28,11 +55,7 @@ def _oidc_payload(
         "SCHEMABRIDGE_QUERY_STUDIO_SIGNING_KEY": (
             "unit-test-query-studio-signing-key-with-diversity"
         ),
-        "SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY": ("/run/secrets/schemabridge-connectors"),
-        "DATABASE_URL": (
-            "postgresql://source_reader:source_password@source.example.test/source"
-            "?sslmode=verify-full"
-        ),
+        **connector_secrets,
         "SCHEMABRIDGE_CONTROL_DATABASE_URL": (
             "postgresql://control_runtime:control_password@control.example.test/control"
             "?sslmode=verify-full"
@@ -155,8 +178,8 @@ def test_production_accepts_complete_oidc_metadata_and_server_modes() -> None:
     settings = Settings.model_validate(
         _oidc_payload(
             SCHEMABRIDGE_CATALOG_MODE="live",
-            SCHEMABRIDGE_PUBLICATION_MODE="live",
-            SCHEMABRIDGE_JUDGE_EXECUTION="live",
+            SCHEMABRIDGE_PUBLICATION_MODE="disabled",
+            SCHEMABRIDGE_JUDGE_EXECUTION="disabled",
             SCHEMABRIDGE_OIDC_ROLE_CLAIM="groups",
             SCHEMABRIDGE_OIDC_TENANT_CLAIM="workspace_id",
         )
@@ -168,8 +191,8 @@ def test_production_accepts_complete_oidc_metadata_and_server_modes() -> None:
     assert settings.registry_mode == "live"
     assert settings.semantic_registry_selection == "active"
     assert settings.control_plane_kind == "postgres"
-    assert settings.publication_mode == "live"
-    assert settings.execution_mode == "live"
+    assert settings.publication_mode == "disabled"
+    assert settings.execution_mode == "disabled"
     assert settings.oidc_role_claim == "groups"
     assert settings.oidc_tenant_claim == "workspace_id"
     assert settings.oidc_allowed_groups["data-publishers"] == ("publisher", "auditor")
@@ -204,7 +227,12 @@ def test_managed_profiles_require_active_postgres_control_plane(profile: str) ->
 def test_postgres_control_plane_requires_a_separate_database_and_keys() -> None:
     same_database = "postgresql://control:password@source.example.test/source?sslmode=verify-full"
     with pytest.raises(ValidationError, match="separate from every source database"):
-        Settings.model_validate(_oidc_payload(SCHEMABRIDGE_CONTROL_DATABASE_URL=same_database))
+        Settings.model_validate(
+            _oidc_payload(
+                DATABASE_URL=same_database,
+                SCHEMABRIDGE_CONTROL_DATABASE_URL=same_database,
+            )
+        )
 
     for missing in (
         "SCHEMABRIDGE_CONTROL_DATABASE_URL",
@@ -258,6 +286,11 @@ def test_postgres_control_plane_rejects_loopback_aliases_for_the_same_database(
 )
 def test_managed_postgres_urls_require_verified_tls(field: str) -> None:
     payload = _oidc_payload()
+    if field == "DATABASE_URL":
+        payload[field] = (
+            "postgresql://source_reader:source_password@source.example.test/source"
+            "?sslmode=verify-full"
+        )
     payload[field] = str(payload[field]).split("?", maxsplit=1)[0]
 
     with pytest.raises(ValidationError, match="verified TLS"):
@@ -279,14 +312,13 @@ def test_control_plane_secrets_are_independent_and_strong() -> None:
 
 def test_control_operator_actor_and_roles_are_an_atomic_typed_configuration() -> None:
     actor = "sb_actor_v2_" + "a" * 64
-    settings = Settings.model_validate(
-        _oidc_payload(
-            SCHEMABRIDGE_CONTROL_OPERATOR_ACTOR_ID=actor,
-            SCHEMABRIDGE_CONTROL_OPERATOR_ROLES=("platform_admin",),
+    with pytest.raises(ValidationError, match="forbidden cross-component credential"):
+        Settings.model_validate(
+            _oidc_payload(
+                SCHEMABRIDGE_CONTROL_OPERATOR_ACTOR_ID=actor,
+                SCHEMABRIDGE_CONTROL_OPERATOR_ROLES=("platform_admin",),
+            )
         )
-    )
-    assert settings.control_operator_actor_id == actor
-    assert settings.control_operator_roles == ("platform_admin",)
 
     with pytest.raises(ValidationError, match="configured together"):
         Settings.model_validate(_oidc_payload(SCHEMABRIDGE_CONTROL_OPERATOR_ACTOR_ID=actor))
@@ -304,21 +336,19 @@ def test_control_operator_actor_and_roles_are_an_atomic_typed_configuration() ->
 
 
 def test_optional_operator_credentials_are_distinct_and_bound_to_control_database() -> None:
-    settings = Settings.model_validate(
-        _oidc_payload(
-            SCHEMABRIDGE_CONTROL_RECONCILER_DATABASE_URL=(
-                "postgresql://control_reconciler:password@control.example.test/control"
-                "?sslmode=verify-full"
-            ),
-            SCHEMABRIDGE_CONTROL_MIGRATOR_DATABASE_URL=(
-                "postgresql://control_migrator:password@control.example.test/control"
-                "?sslmode=verify-full"
-            ),
+    with pytest.raises(ValidationError, match="forbidden cross-component credential"):
+        Settings.model_validate(
+            _oidc_payload(
+                SCHEMABRIDGE_CONTROL_RECONCILER_DATABASE_URL=(
+                    "postgresql://control_reconciler:password@control.example.test/control"
+                    "?sslmode=verify-full"
+                ),
+                SCHEMABRIDGE_CONTROL_MIGRATOR_DATABASE_URL=(
+                    "postgresql://control_migrator:password@control.example.test/control"
+                    "?sslmode=verify-full"
+                ),
+            )
         )
-    )
-
-    assert settings.control_reconciler_database_url is not None
-    assert settings.control_migrator_database_url is not None
     with pytest.raises(ValidationError, match="must identify the configured control database"):
         Settings.model_validate(
             _oidc_payload(
@@ -340,20 +370,15 @@ def test_optional_operator_credentials_are_distinct_and_bound_to_control_databas
 
 
 def test_restore_credential_targets_a_distinct_verified_database() -> None:
-    settings = Settings.model_validate(
-        _oidc_payload(
-            SCHEMABRIDGE_CONTROL_RESTORE_DATABASE_URL=(
-                "postgresql://control_restore:password@restore.example.test/control_restore"
-                "?sslmode=verify-full"
+    with pytest.raises(ValidationError, match="forbidden cross-component credential"):
+        Settings.model_validate(
+            _oidc_payload(
+                SCHEMABRIDGE_CONTROL_RESTORE_DATABASE_URL=(
+                    "postgresql://control_restore:password@restore.example.test/control_restore"
+                    "?sslmode=verify-full"
+                )
             )
         )
-    )
-
-    assert settings.control_restore_database_url is not None
-    assert "restore.example.test" not in repr(settings)
-    assert "postgresql://control_restore:password@restore.example.test/control_restore" not in repr(
-        settings
-    )
     with pytest.raises(ValidationError, match="distinct from the active control database"):
         Settings.model_validate(
             _oidc_payload(
@@ -572,6 +597,8 @@ def test_environment_json_decodes_role_configuration(
 ) -> None:
     monkeypatch.setenv("SCHEMABRIDGE_ENVIRONMENT", "production")
     monkeypatch.setenv("SCHEMABRIDGE_AUTH_MODE", "oidc")
+    monkeypatch.setenv("SCHEMABRIDGE_PUBLICATION_MODE", "disabled")
+    monkeypatch.setenv("SCHEMABRIDGE_JUDGE_EXECUTION", "disabled")
     monkeypatch.setenv("SCHEMABRIDGE_OIDC_ISSUER", "https://identity.example.test")
     monkeypatch.setenv("SCHEMABRIDGE_OIDC_AUDIENCE", "schemabridge")
     monkeypatch.setenv("SCHEMABRIDGE_OIDC_PROVIDER", "corporate-oidc")
@@ -591,13 +618,47 @@ def test_environment_json_decodes_role_configuration(
         "SCHEMABRIDGE_QUERY_STUDIO_SIGNING_KEY",
         "unit-test-query-studio-signing-key-with-diversity",
     )
+    monkeypatch.setenv("SCHEMABRIDGE_CONNECTOR_SECRET_MODE", "remote")
     monkeypatch.setenv(
-        "SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY",
-        "/run/secrets/schemabridge-connectors",
+        "SCHEMABRIDGE_CONNECTOR_SECRET_PROVIDER_URL",
+        "https://secrets.example.test",
     )
     monkeypatch.setenv(
-        "DATABASE_URL",
-        "postgresql://source_reader:source_password@source.example.test/source?sslmode=verify-full",
+        "SCHEMABRIDGE_CONNECTOR_SECRET_ROLE",
+        "schemabridge-preflight",
+    )
+    monkeypatch.setenv(
+        "SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_ROLE",
+        "schemabridge-registry-reader",
+    )
+    monkeypatch.setenv(
+        "SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_BINDING_REF",
+        "registry.reader.primary",
+    )
+    monkeypatch.setenv("SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_VERSION", "17")
+    monkeypatch.setenv(
+        "SCHEMABRIDGE_CONNECTOR_SECRET_KV_MOUNT",
+        "tenant-connectors",
+    )
+    monkeypatch.setenv(
+        "SCHEMABRIDGE_CONNECTOR_SECRET_CAPABILITY",
+        "preflight",
+    )
+    monkeypatch.setenv(
+        "SCHEMABRIDGE_CONNECTOR_SECRET_CA_BUNDLE",
+        "/var/run/secrets/schemabridge/trust/ca.crt",
+    )
+    monkeypatch.setenv(
+        "SCHEMABRIDGE_WORKLOAD_IDENTITY_TOKEN_FILE",
+        "/var/run/secrets/schemabridge/identity/token",
+    )
+    monkeypatch.setenv(
+        "SCHEMABRIDGE_WORKLOAD_IDENTITY_ROOT",
+        "/var/run/secrets/schemabridge/identity",
+    )
+    monkeypatch.setenv(
+        "SCHEMABRIDGE_WORKLOAD_IDENTITY_AUDIENCE",
+        "schemabridge-secret-manager",
     )
     monkeypatch.setenv(
         "SCHEMABRIDGE_CONTROL_DATABASE_URL",
@@ -642,6 +703,23 @@ def test_oidc_secrets_are_not_part_of_typed_application_settings() -> None:
 def test_unknown_runtime_profile_is_rejected() -> None:
     with pytest.raises(ValidationError):
         Settings.model_validate({"SCHEMABRIDGE_ENVIRONMENT": "preview"})
+
+
+def test_checked_in_environment_example_is_a_valid_secret_free_development_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for field in Settings.model_fields.values():
+        if isinstance(field.alias, str):
+            monkeypatch.delenv(field.alias, raising=False)
+    settings = Settings(_env_file=_REPOSITORY_ROOT / ".env.example")
+
+    assert settings.runtime_profile == "development"
+    assert settings.runtime_component == "web"
+    assert settings.control_plane_schema_version == 11
+    assert settings.connector_secret_mode == "local"
+    assert settings.openai_api_key is None
+    assert settings.datahub_gms_token is None
+    assert settings.oidc_issuer is None
 
 
 def test_settings_accept_field_names_for_composition_tests() -> None:

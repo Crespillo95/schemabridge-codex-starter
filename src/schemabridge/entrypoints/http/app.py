@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import secrets
 from asyncio import Lock
-from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum, auto
+from time import perf_counter
 from typing import Annotated, Protocol
 
 from fastapi import FastAPI, Header, Path, Query, Request, Response
@@ -33,6 +36,13 @@ from schemabridge.application.catalog_inventory import (
     CatalogUseCaseErrorCode,
 )
 from schemabridge.application.ports.authentication import BearerAuthenticationPort
+from schemabridge.application.ports.operational_telemetry import (
+    OperationalErrorCode,
+    OperationalEvent,
+    OperationalOutcome,
+    OperationalResourceAccessCause,
+    OperationalTelemetryPort,
+)
 from schemabridge.application.ports.semantic_change_read import (
     SemanticChangeFindingFilter,
     SemanticChangeFindingPublic,
@@ -114,6 +124,94 @@ _SECURITY_HEADERS = (
     (b"referrer-policy", b"no-referrer"),
     (b"permissions-policy", b"camera=(), microphone=(), geolocation=()"),
 )
+_HTTP_RESOURCE_ACCESS_CAUSE_STATE = "schemabridge_http_resource_access_cause"
+_BUSINESS_HTTP_ROUTES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("POST", re.compile(r"^/v1/workflows/[a-z0-9][a-z0-9_-]{2,63}/execution-jobs$")),
+    ("GET", re.compile(r"^/v1/execution-jobs/[a-z0-9][a-z0-9_-]{2,199}$")),
+    ("POST", re.compile(r"^/v1/execution-jobs/[a-z0-9][a-z0-9_-]{2,199}/cancel$")),
+    ("GET", re.compile(r"^/v1/catalog/connections$")),
+    ("POST", re.compile(r"^/v1/catalog/connections$")),
+    ("POST", re.compile(r"^/v1/catalog/connections/[a-z0-9][a-z0-9_-]{2,199}/disable$")),
+    ("GET", re.compile(r"^/v1/catalog/connections/[a-z0-9][a-z0-9_-]{2,199}/assets$")),
+    (
+        "GET",
+        re.compile(
+            r"^/v1/catalog/connections/[a-z0-9][a-z0-9_-]{2,199}"
+            r"/assets/[^\x00-\x1f\x7f]{1,500}/fields$"
+        ),
+    ),
+    (
+        "POST",
+        re.compile(r"^/v1/catalog/connections/[a-z0-9][a-z0-9_-]{2,199}/refreshes$"),
+    ),
+    ("GET", re.compile(r"^/v1/catalog/refreshes/[a-z0-9][a-z0-9_-]{2,199}$")),
+    ("GET", re.compile(r"^/v1/semantic-changes/reports$")),
+    ("GET", re.compile(r"^/v1/semantic-changes/reports/report_[0-9a-f]{64}$")),
+    (
+        "GET",
+        re.compile(r"^/v1/semantic-changes/reports/report_[0-9a-f]{64}/findings$"),
+    ),
+    (
+        "GET",
+        re.compile(r"^/v1/semantic-changes/reports/report_[0-9a-f]{64}/impacts$"),
+    ),
+)
+
+
+def _emit_safe_operational_event(
+    telemetry: OperationalTelemetryPort | None,
+    *,
+    event: OperationalEvent,
+    outcome: OperationalOutcome,
+    duration_ms: int,
+    correlation_id: str | None = None,
+    error_code: OperationalErrorCode | None = None,
+    counts: Mapping[str, int] | None = None,
+) -> None:
+    """Use the injected sink, retaining only a fixed safe fallback for test apps."""
+
+    if telemetry is not None:
+        with suppress(Exception):
+            telemetry.emit(
+                event=event,
+                outcome=outcome,
+                duration_ms=duration_ms,
+                correlation_id=correlation_id,
+                error_code=error_code,
+                counts=counts,
+            )
+        return
+    message = f"{event} outcome={outcome}"
+    if error_code is not None:
+        message = f"{message} error_code={error_code}"
+    level = logging.ERROR if outcome in {"failed", "denied", "degraded"} else logging.INFO
+    logger.log(level, message)
+
+
+class _HttpTrafficClass(Enum):
+    BUSINESS = auto()
+    EXCLUDED = auto()
+
+
+def _classify_http_traffic(scope: Scope) -> _HttpTrafficClass:
+    method = scope.get("method")
+    path = scope.get("path")
+    if not isinstance(method, str) or not isinstance(path, str):
+        return _HttpTrafficClass.EXCLUDED
+    if any(
+        method == expected_method and pattern.fullmatch(path) is not None
+        for expected_method, pattern in _BUSINESS_HTTP_ROUTES
+    ):
+        return _HttpTrafficClass.BUSINESS
+    return _HttpTrafficClass.EXCLUDED
+
+
+def _mark_resource_access_cause(
+    request: Request,
+    cause: OperationalResourceAccessCause,
+) -> None:
+    state = request.scope.setdefault("state", {})
+    state[_HTTP_RESOURCE_ACCESS_CAUSE_STATE] = cause
 
 
 class ApiClockPort(Protocol):
@@ -390,10 +488,12 @@ class ApiBoundaryMiddleware:
         *,
         max_body_bytes: int,
         allowed_hosts: tuple[str, ...],
+        telemetry: OperationalTelemetryPort | None,
     ) -> None:
         self._app = app
         self._max_body_bytes = max_body_bytes
         self._allowed_hosts = frozenset(host.casefold() for host in allowed_hosts)
+        self._telemetry = telemetry
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -515,11 +615,15 @@ class ApiBoundaryMiddleware:
                 request_id=request_id,
             )
             return
-        except Exception as error:
-            logger.error(
-                "api_request_failed request_id=%s error_type=%s",
-                request_id,
-                type(error).__name__,
+        except Exception:
+            _emit_safe_operational_event(
+                self._telemetry,
+                event="http.request",
+                outcome="failed",
+                duration_ms=0,
+                correlation_id=request_id,
+                error_code="internal_failure",
+                counts={"requests_completed": 1},
             )
             await _send_problem(
                 send,
@@ -531,6 +635,69 @@ class ApiBoundaryMiddleware:
             return
         for message in pending_response:
             await send(message)
+
+
+class ApiOperationalTelemetryMiddleware:
+    """Measure only allowlisted business traffic with a safe internal denial signal."""
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        telemetry: OperationalTelemetryPort,
+    ) -> None:
+        self._app = app
+        self._telemetry = telemetry
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+        state = scope.setdefault("state", {})
+        request_id = state.setdefault("request_id", secrets.token_hex(16))
+        traffic_class = _classify_http_traffic(scope)
+        started = perf_counter()
+        status_code = 500
+
+        async def status_send(message: Message) -> None:
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+            await send(message)
+
+        try:
+            await self._app(scope, receive, status_send)
+        finally:
+            if traffic_class is _HttpTrafficClass.BUSINESS:
+                duration_ms = min(int((perf_counter() - started) * 1_000), 86_400_000)
+                authorization_denied = state.get(
+                    _HTTP_RESOURCE_ACCESS_CAUSE_STATE
+                ) is OperationalResourceAccessCause.DENIED or status_code in {401, 403}
+                outcome: OperationalOutcome
+                error_code: OperationalErrorCode | None
+                if status_code >= 500:
+                    outcome = "failed"
+                    error_code = "internal_failure"
+                elif authorization_denied:
+                    outcome = "denied"
+                    error_code = "unauthorized"
+                elif status_code == 429:
+                    outcome = "denied"
+                    error_code = "request_rejected"
+                else:
+                    outcome = "succeeded"
+                    error_code = None
+                counts = {"requests_completed": 1}
+                if authorization_denied and status_code < 500:
+                    counts["authorization_denials"] = 1
+                self._telemetry.emit(
+                    event="http.request",
+                    outcome=outcome,
+                    duration_ms=duration_ms,
+                    correlation_id=request_id,
+                    error_code=error_code,
+                    counts=counts,
+                )
 
 
 class _RequestTooLarge(Exception):
@@ -545,18 +712,42 @@ def create_http_app(
     allowed_hosts: tuple[str, ...] = ("127.0.0.1", "localhost", "testserver"),
     docs_enabled: bool = False,
     lifecycle_resources: tuple[ApiLifecycleResource, ...] = (),
+    metrics_exporter: ApiLifecycleResource | None = None,
+    telemetry: OperationalTelemetryPort | None = None,
 ) -> FastAPI:
     """Create an explicit dependency-injected HTTP application."""
 
     @asynccontextmanager
     async def lifespan(_application: FastAPI) -> AsyncIterator[None]:
         opened: list[ApiLifecycleResource] = []
+        metrics_exporter_opened = False
+        started = perf_counter()
         try:
             for resource in lifecycle_resources:
                 resource.open()
                 opened.append(resource)
+            if telemetry is not None:
+                telemetry.emit(
+                    event="service.health",
+                    outcome="succeeded",
+                    duration_ms=min(int((perf_counter() - started) * 1_000), 86_400_000),
+                )
+            if metrics_exporter is not None:
+                metrics_exporter.open()
+                metrics_exporter_opened = True
             yield
+        except Exception:
+            if telemetry is not None:
+                telemetry.emit(
+                    event="service.health",
+                    outcome="failed",
+                    duration_ms=min(int((perf_counter() - started) * 1_000), 86_400_000),
+                    error_code="internal_failure",
+                )
+            raise
         finally:
+            if metrics_exporter_opened and metrics_exporter is not None:
+                metrics_exporter.close()
             for resource in reversed(opened):
                 resource.close()
 
@@ -573,11 +764,17 @@ def create_http_app(
         ApiBoundaryMiddleware,
         max_body_bytes=max_body_bytes,
         allowed_hosts=allowed_hosts,
+        telemetry=telemetry,
     )
     app.add_middleware(
         ApiConcurrencyMiddleware,
         max_concurrency=max_concurrency,
     )
+    if telemetry is not None:
+        app.add_middleware(
+            ApiOperationalTelemetryMiddleware,
+            telemetry=telemetry,
+        )
 
     @app.exception_handler(StarletteHttpException)
     async def http_error(
@@ -658,6 +855,9 @@ def create_http_app(
         request: Request,
         error: ExecutionJobUseCaseError,
     ) -> JSONResponse:
+        if error.code is ExecutionJobUseCaseErrorCode.UNAVAILABLE:
+            assert error.resource_access_cause is not None
+            _mark_resource_access_cause(request, error.resource_access_cause)
         status = {
             ExecutionJobUseCaseErrorCode.INVALID_REQUEST: 422,
             ExecutionJobUseCaseErrorCode.UNAVAILABLE: 404,
@@ -683,6 +883,9 @@ def create_http_app(
         request: Request,
         error: CatalogUseCaseError,
     ) -> JSONResponse:
+        if error.code is CatalogUseCaseErrorCode.UNAVAILABLE:
+            assert error.resource_access_cause is not None
+            _mark_resource_access_cause(request, error.resource_access_cause)
         status = {
             CatalogUseCaseErrorCode.INVALID_REQUEST: 422,
             CatalogUseCaseErrorCode.UNAVAILABLE: 404,
@@ -719,6 +922,9 @@ def create_http_app(
         request: Request,
         error: SemanticChangeReadError,
     ) -> JSONResponse:
+        if error.code is SemanticChangeReadErrorCode.UNAVAILABLE:
+            assert error.resource_access_cause is not None
+            _mark_resource_access_cause(request, error.resource_access_cause)
         status = {
             SemanticChangeReadErrorCode.INVALID_REQUEST: 422,
             SemanticChangeReadErrorCode.UNAVAILABLE: 404,
@@ -769,11 +975,14 @@ def create_http_app(
     def ready(request: Request) -> HealthResponse | JSONResponse:
         try:
             services.readiness.require_ready()
-        except Exception as error:
-            logger.warning(
-                "api_readiness_failed request_id=%s error_type=%s",
-                _request_id(request),
-                type(error).__name__,
+        except Exception:
+            _emit_safe_operational_event(
+                telemetry,
+                event="service.health",
+                outcome="failed",
+                duration_ms=0,
+                correlation_id=_request_id(request),
+                error_code="queue_unavailable",
             )
             return _problem_response(
                 request,

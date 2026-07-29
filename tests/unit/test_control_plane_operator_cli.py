@@ -21,6 +21,23 @@ from schemabridge.entrypoints.cli.main import app
 runner = CliRunner()
 
 
+def test_managed_control_plane_help_accepts_the_explicit_operator_component() -> None:
+    result = runner.invoke(
+        app,
+        ["control-plane", "migrate", "--help"],
+        env={
+            "SCHEMABRIDGE_ENVIRONMENT": "production",
+            "SCHEMABRIDGE_COMPONENT": "operator",
+            "SCHEMABRIDGE_CONTROL_PLANE_MODE": "postgres",
+            "SCHEMABRIDGE_CONTROL_MIGRATOR_DATABASE_URL": (
+                "postgresql://migrator:password@control.example.test/control?sslmode=verify-full"
+            ),
+        },
+    )
+
+    assert result.exit_code == 0, result.output
+
+
 class _Counts:
     total = 7
     imported = 2
@@ -165,7 +182,7 @@ def test_capacity_apply_authenticates_before_building_operator(
     assert built is False
 
 
-def test_control_plane_check_inspects_all_six_dedicated_credentials(
+def test_control_plane_check_inspects_all_seven_dedicated_credentials(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[str] = []
@@ -206,6 +223,7 @@ def test_control_plane_check_inspects_all_six_dedicated_credentials(
         "api",
         "worker",
         "catalog",
+        "observer",
     )
     assert calls == [
         "runtime",
@@ -214,6 +232,7 @@ def test_control_plane_check_inspects_all_six_dedicated_credentials(
         "api",
         "worker",
         "catalog",
+        "observer",
     ]
     assert payload["writes_performed"] is False
 

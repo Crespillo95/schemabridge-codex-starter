@@ -8,18 +8,40 @@ import signal
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from threading import Event
+from time import perf_counter
 from types import FrameType
 from typing import Any, Protocol, cast
 
+from schemabridge.application.ports.operational_telemetry import (
+    OperationalErrorCode,
+    OperationalEvent,
+    OperationalOutcome,
+    OperationalTelemetryPort,
+)
 from schemabridge.application.semantic_profile_worker import (
     SemanticJoinProfileWorkerError,
     SemanticJoinProfileWorkerOutcome,
     SemanticJoinProfileWorkerResult,
 )
+from schemabridge.domain.semantic_profile_jobs import SemanticJoinProfileFailureCode
 
 logger = logging.getLogger(__name__)
 _SignalHandler = Callable[[int, FrameType | None], Any] | int | None
-_LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
+
+
+def _emit_fallback_log(
+    *,
+    event: OperationalEvent,
+    outcome: OperationalOutcome,
+    error_code: OperationalErrorCode | None,
+) -> None:
+    """Retain a fixed safe diagnostic for explicitly injected test runtimes."""
+
+    message = f"{event} outcome={outcome}"
+    if error_code is not None:
+        message = f"{message} error_code={error_code}"
+    level = logging.ERROR if outcome in {"failed", "denied", "degraded"} else logging.INFO
+    logger.log(level, message)
 
 
 class SemanticProfileIterationPort(Protocol):
@@ -47,6 +69,24 @@ class SemanticProfileWorkerProcessRuntime:
         repr=False,
     )
     stop_event: Event = field(default_factory=Event, repr=False)
+    telemetry: OperationalTelemetryPort | None = field(default=None, repr=False)
+    metrics_exporter: SemanticProfileProcessLifecyclePort | None = field(
+        default=None,
+        repr=False,
+    )
+
+
+def _profile_source_error_code(
+    failure_code: SemanticJoinProfileFailureCode | None,
+) -> OperationalErrorCode | None:
+    if failure_code is SemanticJoinProfileFailureCode.SOURCE_TIMEOUT:
+        return "source_timeout"
+    if failure_code in {
+        SemanticJoinProfileFailureCode.SOURCE_UNAVAILABLE,
+        SemanticJoinProfileFailureCode.SOURCE_CONNECTION_MISMATCH,
+    }:
+        return "source_unavailable"
+    return None
 
 
 def run_semantic_profile_worker(
@@ -55,6 +95,7 @@ def run_semantic_profile_worker(
     poll_interval_seconds: float,
     once: bool = False,
     stop_event: Event | None = None,
+    telemetry: OperationalTelemetryPort | None = None,
 ) -> int:
     """Poll serially until signalled, or perform exactly one iteration."""
 
@@ -62,31 +103,107 @@ def run_semantic_profile_worker(
         raise ValueError("semantic profile poll interval is outside the supported bound")
     stopping = stop_event or Event()
     while not stopping.is_set():
+        started = perf_counter()
         try:
             result = worker.execute()
-        except SemanticJoinProfileWorkerError as error:
-            logger.error("semantic_profile_iteration_failed code=%s", error.code.value)
+        except SemanticJoinProfileWorkerError:
+            duration_ms = min(int((perf_counter() - started) * 1_000), 86_400_000)
+            if telemetry is not None:
+                telemetry.emit(
+                    event="profile.run",
+                    outcome="failed",
+                    duration_ms=duration_ms,
+                    error_code="queue_unavailable",
+                    counts={"jobs_failed": 1},
+                )
+            else:
+                _emit_fallback_log(
+                    event="profile.run",
+                    outcome="failed",
+                    error_code="queue_unavailable",
+                )
             if once:
                 return 1
             stopping.wait(poll_interval_seconds)
             continue
-        except Exception as error:
-            logger.error(
-                "semantic_profile_iteration_failed "
-                "code=unexpected_profile_worker_error error_type=%s",
-                type(error).__name__,
+        except Exception:
+            duration_ms = min(int((perf_counter() - started) * 1_000), 86_400_000)
+            if telemetry is not None:
+                telemetry.emit(
+                    event="profile.run",
+                    outcome="failed",
+                    duration_ms=duration_ms,
+                    error_code="internal_failure",
+                    counts={"jobs_failed": 1},
+                )
+            else:
+                _emit_fallback_log(
+                    event="profile.run",
+                    outcome="failed",
+                    error_code="internal_failure",
+                )
+            if once:
+                return 1
+            stopping.wait(poll_interval_seconds)
+            continue
+        if telemetry is not None:
+            failed = result.outcome is SemanticJoinProfileWorkerOutcome.FAILED
+            retry = result.outcome is SemanticJoinProfileWorkerOutcome.RETRY_SCHEDULED
+            stopped = result.outcome is SemanticJoinProfileWorkerOutcome.STOPPED
+            duration_ms = min(int((perf_counter() - started) * 1_000), 86_400_000)
+            telemetry.emit(
+                event="profile.run",
+                outcome=(
+                    "failed"
+                    if failed
+                    else ("degraded" if retry else ("cancelled" if stopped else "succeeded"))
+                ),
+                duration_ms=duration_ms,
+                error_code=(
+                    "source_unavailable"
+                    if failed or retry
+                    else ("operation_cancelled" if stopped else None)
+                ),
+                counts={
+                    "jobs_completed": int(
+                        result.outcome is SemanticJoinProfileWorkerOutcome.COMPLETED
+                    ),
+                    "jobs_failed": int(failed),
+                    "retries_scheduled": int(retry),
+                },
             )
-            if once:
-                return 1
-            stopping.wait(poll_interval_seconds)
-            continue
-        logger.info(
-            "semantic_profile_iteration outcome=%s status=%s failure_code=%s attempts=%s",
-            result.outcome.value,
-            result.status.value if result.status is not None else "none",
-            result.failure_code.value if result.failure_code is not None else "none",
-            result.attempts,
-        )
+            source_error_code = _profile_source_error_code(result.failure_code)
+            if result.outcome is SemanticJoinProfileWorkerOutcome.COMPLETED:
+                telemetry.emit(
+                    event="source.operation",
+                    outcome="succeeded",
+                    duration_ms=duration_ms,
+                )
+            elif source_error_code is not None:
+                telemetry.emit(
+                    event="source.operation",
+                    outcome="failed",
+                    duration_ms=duration_ms,
+                    error_code=source_error_code,
+                )
+        else:
+            failed = result.outcome is SemanticJoinProfileWorkerOutcome.FAILED
+            retry = result.outcome is SemanticJoinProfileWorkerOutcome.RETRY_SCHEDULED
+            stopped = result.outcome is SemanticJoinProfileWorkerOutcome.STOPPED
+            fallback_outcome: OperationalOutcome = (
+                "failed"
+                if failed
+                else ("degraded" if retry else ("cancelled" if stopped else "succeeded"))
+            )
+            _emit_fallback_log(
+                event="profile.run",
+                outcome=fallback_outcome,
+                error_code=(
+                    "source_unavailable"
+                    if failed or retry
+                    else ("operation_cancelled" if stopped else None)
+                ),
+            )
         if once or result.outcome is SemanticJoinProfileWorkerOutcome.STOPPED:
             return 0
         if result.outcome is SemanticJoinProfileWorkerOutcome.IDLE:
@@ -152,16 +269,25 @@ def command(
 
     arguments = _parser().parse_args(argv)
     resolved = runtime or _build_runtime(readiness_probe=arguments.probe_ready)
-    logging.basicConfig(level=resolved.log_level.upper(), format=_LOG_FORMAT)
     if resolved.control_resource is not None:
         resolved.control_resource.open()
+    metrics_exporter_opened = False
     try:
+        if resolved.telemetry is not None:
+            resolved.telemetry.emit(
+                event="service.health",
+                outcome="succeeded",
+                duration_ms=0,
+            )
         if arguments.probe_ready:
             if resolved.worker is not None:
                 raise ValueError("readiness runtime must not include a polling profile worker")
             return 0
         if resolved.worker is None:
             raise ValueError("polling runtime requires a composed profile worker")
+        if resolved.metrics_exporter is not None:
+            resolved.metrics_exporter.open()
+            metrics_exporter_opened = True
         previous = _install_signal_handlers(resolved.stop_event)
         try:
             return run_semantic_profile_worker(
@@ -169,24 +295,41 @@ def command(
                 poll_interval_seconds=resolved.poll_interval_seconds,
                 once=arguments.once,
                 stop_event=resolved.stop_event,
+                telemetry=resolved.telemetry,
             )
         finally:
             _restore_signal_handlers(previous)
     finally:
-        if resolved.control_resource is not None:
-            resolved.control_resource.close()
+        try:
+            if metrics_exporter_opened and resolved.metrics_exporter is not None:
+                resolved.metrics_exporter.close()
+        finally:
+            if resolved.control_resource is not None:
+                resolved.control_resource.close()
 
 
 def main() -> None:
+    from schemabridge.bootstrap import configure_runtime_logging
+
+    logging_session = configure_runtime_logging(service="profile")
     try:
+        logging_session.emit(
+            event="service.health",
+            outcome="started",
+            duration_ms=0,
+        )
         status = command()
-    except Exception as error:
-        logging.basicConfig(level=logging.ERROR, format=_LOG_FORMAT)
-        logger.error(
-            "semantic_profile_startup_failed error_type=%s",
-            type(error).__name__,
+    except Exception:
+        logging_session.set_level("ERROR")
+        logging_session.emit(
+            event="service.health",
+            outcome="failed",
+            duration_ms=0,
+            error_code="internal_failure",
         )
         raise SystemExit(1) from None
+    finally:
+        logging_session.close()
     raise SystemExit(status)
 
 

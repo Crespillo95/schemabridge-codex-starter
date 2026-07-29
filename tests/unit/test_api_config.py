@@ -50,7 +50,7 @@ def test_control_pool_limits_are_bounded_and_ordered() -> None:
 
 def test_inventory_cursor_key_is_strong_api_only_and_distinct() -> None:
     token = "local-api-bearer-token-with-enough-byte-diversity-123"
-    cursor_key = "inventory-cursor-signing-key-with-diversity-456789"
+    cursor_key = "inventory-cursor-signing-key-with-diversity-456789"  # gitleaks:allow -- fixture
     settings = _component_settings(
         {
             "SCHEMABRIDGE_COMPONENT": "api",
@@ -186,7 +186,21 @@ def test_api_bind_host_must_be_an_explicit_ip_address() -> None:
 
 
 def test_managed_api_jwks_must_be_https_and_same_issuer_origin() -> None:
-    payload = _managed_oidc_payload()
+    payload: dict[str, object] = {
+        "SCHEMABRIDGE_ENVIRONMENT": "production",
+        "SCHEMABRIDGE_COMPONENT": "api",
+        "SCHEMABRIDGE_AUTH_MODE": "oidc",
+        "SCHEMABRIDGE_OIDC_ISSUER": "https://identity.example.test",
+        "SCHEMABRIDGE_OIDC_AUDIENCE": "schemabridge-api",
+        "SCHEMABRIDGE_OIDC_PROVIDER": "corporate",
+        "SCHEMABRIDGE_OIDC_ALLOWED_GROUPS": {"analysts": ("analyst",)},
+        "SCHEMABRIDGE_OIDC_ALLOWED_TENANTS": ("tenant-a",),
+        "SCHEMABRIDGE_PSEUDONYMIZATION_KEY": ("pseudonymization-key-for-api-config-test-12345"),
+        "SCHEMABRIDGE_CONTROL_API_DATABASE_URL": (
+            "postgresql://schemabridge_api:password@control.example.test/control"
+            "?sslmode=verify-full"
+        ),
+    }
     payload["SCHEMABRIDGE_API_OIDC_JWKS_URL"] = "http://identity.example.test/jwks"
     with pytest.raises(ValidationError, match="must use HTTPS"):
         Settings.model_validate(payload)
@@ -196,7 +210,7 @@ def test_managed_api_jwks_must_be_https_and_same_issuer_origin() -> None:
         Settings.model_validate(payload)
 
     payload["SCHEMABRIDGE_API_OIDC_JWKS_URL"] = "https://identity.example.test/jwks"
-    settings = Settings.model_validate(payload)
+    settings = _component_settings(payload)
     assert settings.api_oidc_jwks_url == "https://identity.example.test/jwks"
 
 
@@ -214,9 +228,8 @@ def test_api_and_worker_control_credentials_must_target_control_with_distinct_ro
             ),
         }
     )
-    settings = Settings.model_validate(payload)
-    assert settings.control_api_database_url is not None
-    assert settings.control_worker_database_url is not None
+    with pytest.raises(ValidationError, match="forbidden cross-component credential"):
+        Settings.model_validate(payload)
 
     payload["SCHEMABRIDGE_CONTROL_WORKER_DATABASE_URL"] = payload[
         "SCHEMABRIDGE_CONTROL_API_DATABASE_URL"
@@ -414,7 +427,7 @@ def test_managed_catalog_forbids_deployment_wide_datahub_credentials() -> None:
             "postgresql://schemabridge_catalog:password@control.example.test/control"
             "?sslmode=verify-full"
         ),
-        "SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY": ("/run/secrets/schemabridge-catalog-connectors"),
+        **_remote_secret_payload("catalog"),
         "DATAHUB_GMS_TOKEN": "synthetic-datahub-reader-token",
     }
 
@@ -438,8 +451,8 @@ def test_managed_catalog_forbids_deployment_wide_datahub_credentials() -> None:
     assert settings.runtime_component == "catalog"
     assert settings.auth_mode == "local-demo"
 
-    del payload["SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY"]
-    with pytest.raises(ValidationError, match="CONNECTOR_SECRET_DIRECTORY"):
+    del payload["SCHEMABRIDGE_CONNECTOR_SECRET_PROVIDER_URL"]
+    with pytest.raises(ValidationError, match="configuration is incomplete"):
         _component_settings(payload)
 
 
@@ -474,6 +487,42 @@ def test_dedicated_component_does_not_load_the_shared_dotenv(
     assert settings.database_url is None
 
 
+def test_operator_component_ignores_dotenv_and_rejects_non_operator_secrets(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".env").write_text(
+        "SCHEMABRIDGE_COMPONENT=web\nOPENAI_API_KEY=must-not-cross-operator-boundary\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    for field in Settings.model_fields.values():
+        if isinstance(field.alias, str):
+            monkeypatch.delenv(field.alias, raising=False)
+    monkeypatch.setenv("SCHEMABRIDGE_ENVIRONMENT", "production")
+    monkeypatch.setenv("SCHEMABRIDGE_COMPONENT", "operator")
+    monkeypatch.setenv("SCHEMABRIDGE_CONTROL_PLANE_MODE", "postgres")
+    monkeypatch.setenv(
+        "SCHEMABRIDGE_CONTROL_MIGRATOR_DATABASE_URL",
+        "postgresql://migrator:password@control.example.test/control?sslmode=verify-full",
+    )
+    monkeypatch.setenv(
+        "SCHEMABRIDGE_CONTROL_DATABASE_URL",
+        "postgresql://runtime:password@control.example.test/control?sslmode=verify-full",
+    )
+
+    settings = get_settings()
+
+    assert settings.runtime_component == "operator"
+    assert settings.control_migrator_database_url is not None
+    assert settings.control_database_url is not None
+    assert settings.openai_api_key is None
+
+    monkeypatch.setenv("OPENAI_API_KEY", "forbidden-operator-openai-key")
+    with pytest.raises(ValidationError, match="operator component received"):
+        get_settings()
+
+
 def test_production_worker_needs_no_browser_identity_or_signing_secret() -> None:
     payload: dict[str, object] = {
         "SCHEMABRIDGE_ENVIRONMENT": "production",
@@ -482,14 +531,14 @@ def test_production_worker_needs_no_browser_identity_or_signing_secret() -> None
             "postgresql://schemabridge_worker:password@control.example.test/control"
             "?sslmode=verify-full"
         ),
-        "SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY": ("/run/secrets/schemabridge-worker-connectors"),
+        **_remote_secret_payload("execution"),
         "SCHEMABRIDGE_WORKER_IDENTITY_LINEAGE_MODE": "verified-oidc",
     }
 
-    connector_directory = payload.pop("SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY")
-    with pytest.raises(ValidationError, match="CONNECTOR_SECRET_DIRECTORY"):
+    provider_url = payload.pop("SCHEMABRIDGE_CONNECTOR_SECRET_PROVIDER_URL")
+    with pytest.raises(ValidationError, match="configuration is incomplete"):
         _component_settings(payload)
-    payload["SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY"] = connector_directory
+    payload["SCHEMABRIDGE_CONNECTOR_SECRET_PROVIDER_URL"] = provider_url
 
     settings = _component_settings(payload)
 
@@ -522,7 +571,7 @@ def test_managed_worker_requires_verified_identity_lineage_mode(
             "postgresql://schemabridge_worker:password@control.example.test/control"
             "?sslmode=verify-full"
         ),
-        "SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY": ("/run/secrets/schemabridge-worker-connectors"),
+        **_remote_secret_payload("execution"),
     }
 
     with pytest.raises(
@@ -537,6 +586,80 @@ def test_managed_worker_requires_verified_identity_lineage_mode(
     assert settings.auth_mode == "local-demo"
     assert settings.oidc_issuer is None
     assert settings.pseudonymization_key is None
+
+
+def test_managed_connector_secrets_require_remote_exact_version_identity() -> None:
+    payload: dict[str, object] = {
+        "SCHEMABRIDGE_ENVIRONMENT": "production",
+        "SCHEMABRIDGE_COMPONENT": "worker",
+        "SCHEMABRIDGE_CONTROL_WORKER_DATABASE_URL": (
+            "postgresql://schemabridge_worker:password@control.example.test/control"
+            "?sslmode=verify-full"
+        ),
+        "SCHEMABRIDGE_WORKER_IDENTITY_LINEAGE_MODE": "verified-oidc",
+        "SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY": ("/run/secrets/schemabridge-worker-connectors"),
+    }
+    with pytest.raises(ValidationError, match="remote exact-version"):
+        _component_settings(payload)
+
+    payload.pop("SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY")
+    payload.update(_remote_secret_payload("execution"))
+    settings = _component_settings(payload)
+    rendered = repr(settings)
+    assert settings.connector_secret_mode == "remote"
+    assert settings.connector_secret_capability == "execution"
+    for private in (
+        "secrets.example.test",
+        "schemabridge-execution",
+        "tenant-connectors",
+        "/var/run/secrets/schemabridge/trust/ca.crt",
+        "/var/run/secrets/schemabridge/identity/token",
+    ):
+        assert private not in rendered
+
+
+@pytest.mark.parametrize(
+    ("updates", "message"),
+    (
+        (
+            {"SCHEMABRIDGE_CONNECTOR_SECRET_PROVIDER_URL": "http://secrets.example.test"},
+            "HTTPS origin",
+        ),
+        (
+            {"SCHEMABRIDGE_CONNECTOR_SECRET_PROVIDER_URL": "https://u:p@secrets.example.test"},
+            "HTTPS origin",
+        ),
+        (
+            {"SCHEMABRIDGE_CONNECTOR_SECRET_CAPABILITY": "catalog"},
+            "does not match",
+        ),
+        (
+            {"SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY": ("/run/secrets/legacy-connectors")},
+            "forbids a local secret directory",
+        ),
+        (
+            {"SCHEMABRIDGE_WORKLOAD_IDENTITY_TOKEN_FILE": ("/var/run/secrets/other/token")},
+            "absolute and contained",
+        ),
+    ),
+)
+def test_remote_connector_secret_configuration_fails_closed(
+    updates: dict[str, object],
+    message: str,
+) -> None:
+    payload: dict[str, object] = {
+        "SCHEMABRIDGE_ENVIRONMENT": "production",
+        "SCHEMABRIDGE_COMPONENT": "worker",
+        "SCHEMABRIDGE_CONTROL_WORKER_DATABASE_URL": (
+            "postgresql://schemabridge_worker:password@control.example.test/control"
+            "?sslmode=verify-full"
+        ),
+        "SCHEMABRIDGE_WORKER_IDENTITY_LINEAGE_MODE": "verified-oidc",
+        **_remote_secret_payload("execution"),
+        **updates,
+    }
+    with pytest.raises(ValidationError, match=message):
+        _component_settings(payload)
 
 
 @pytest.mark.parametrize("mode", ("exact-local", "verified-oidc"))
@@ -576,7 +699,7 @@ def _managed_oidc_payload() -> dict[str, object]:
         "SCHEMABRIDGE_QUERY_STUDIO_SIGNING_KEY": (
             "query-studio-signing-key-for-api-config-test-67890"
         ),
-        "SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY": ("/run/secrets/schemabridge-connectors"),
+        **_remote_secret_payload("preflight"),
         "DATABASE_URL": (
             "postgresql://reader:password@source.example.test/source?sslmode=verify-full"
         ),
@@ -586,6 +709,33 @@ def _managed_oidc_payload() -> dict[str, object]:
         "SCHEMABRIDGE_CONTROL_AUDIT_SIGNING_KEY": ("audit-signing-key-for-api-config-test-12345"),
         "SCHEMABRIDGE_IDENTITY_MIGRATION_KEY": ("identity-migration-key-for-api-config-test-123"),
     }
+
+
+def _remote_secret_payload(capability: str) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "SCHEMABRIDGE_CONNECTOR_SECRET_MODE": "remote",
+        "SCHEMABRIDGE_CONNECTOR_SECRET_PROVIDER_URL": "https://secrets.example.test",
+        "SCHEMABRIDGE_CONNECTOR_SECRET_ROLE": f"schemabridge-{capability}",
+        "SCHEMABRIDGE_CONNECTOR_SECRET_KV_MOUNT": "tenant-connectors",
+        "SCHEMABRIDGE_CONNECTOR_SECRET_CAPABILITY": capability,
+        "SCHEMABRIDGE_CONNECTOR_SECRET_CA_BUNDLE": ("/var/run/secrets/schemabridge/trust/ca.crt"),
+        "SCHEMABRIDGE_WORKLOAD_IDENTITY_TOKEN_FILE": (
+            "/var/run/secrets/schemabridge/identity/token"
+        ),
+        "SCHEMABRIDGE_WORKLOAD_IDENTITY_ROOT": ("/var/run/secrets/schemabridge/identity"),
+        "SCHEMABRIDGE_WORKLOAD_IDENTITY_AUDIENCE": "schemabridge-secret-manager",
+    }
+    if capability != "catalog":
+        payload.update(
+            {
+                "SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_ROLE": (
+                    f"schemabridge-{capability}-registry"
+                ),
+                "SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_BINDING_REF": ("registry.reader.primary"),
+                "SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_VERSION": 17,
+            }
+        )
+    return payload
 
 
 def _component_settings(payload: dict[str, object]) -> Settings:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import json
 import logging
 import signal
 from threading import Event
@@ -9,6 +11,7 @@ from threading import Event
 import pytest
 
 import schemabridge.entrypoints.catalog.main as catalog_main
+from schemabridge.adapters.observability.runtime import RuntimeOperationalTelemetry
 from schemabridge.application.catalog_indexer import (
     CatalogIndexerIterationOutcome,
     CatalogIndexerIterationResult,
@@ -135,16 +138,54 @@ def test_catalog_polling_stops_gracefully_after_current_iteration() -> None:
 
 
 @pytest.mark.parametrize(
+    ("result", "source_outcome"),
+    [
+        (_idle(), None),
+        (_completed(), "success"),
+        (_failed(), "error"),
+    ],
+)
+def test_catalog_source_metrics_exclude_idle_polls(
+    result: CatalogIndexerIterationResult,
+    source_outcome: str | None,
+) -> None:
+    telemetry = RuntimeOperationalTelemetry(
+        service="catalog",
+        environment="production",
+        stream=io.StringIO(),
+    )
+
+    assert (
+        catalog_main.run_catalog_indexer(
+            _OneResultIndexer(result),
+            poll_interval_seconds=0.1,
+            once=True,
+            telemetry=telemetry,
+        )
+        == 0
+    )
+
+    metrics = telemetry.render_openmetrics()
+    if source_outcome is None:
+        assert "schemabridge_source_operations_total{" not in metrics
+    else:
+        assert (
+            "schemabridge_source_operations_total"
+            f'{{capability="catalog",outcome="{source_outcome}"}} 1.0' in metrics
+        )
+
+
+@pytest.mark.parametrize(
     ("indexer", "expected_code", "secret"),
     [
         (
             _ExpectedFailureIndexer(),
-            CatalogIndexerUseCaseErrorCode.STORE_UNAVAILABLE.value,
+            "queue_unavailable",
             "database-route-and-secret-must-not-appear",
         ),
         (
             _CrashingIndexer(),
-            "unexpected_catalog_error",
+            "internal_failure",
             "must-not-appear-in-catalog-log",
         ),
     ],
@@ -172,12 +213,14 @@ def test_catalog_command_opens_and_closes_pool_and_restores_handlers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     pool = _LifecyclePool()
+    metrics_exporter = _LifecyclePool()
     indexer = _OneResultIndexer(_completed())
     runtime = CatalogProcessRuntime(
         indexer=indexer,
         log_level="INFO",
         poll_interval_seconds=0.1,
         control_pool=pool,
+        metrics_exporter=metrics_exporter,
     )
     restored: list[dict[int, catalog_main._SignalHandler]] = []
     monkeypatch.setattr(catalog_main, "_install_signal_handlers", lambda _event: {})
@@ -193,21 +236,25 @@ def test_catalog_command_opens_and_closes_pool_and_restores_handlers(
     assert indexer.calls == 1
     assert restored == [{}]
     assert pool.events == ["opened", "closed"]
+    assert metrics_exporter.events == ["opened", "closed"]
 
 
 def test_catalog_readiness_only_checks_lifecycle_resource() -> None:
     pool = _LifecyclePool()
+    metrics_exporter = _LifecyclePool()
     runtime = CatalogProcessRuntime(
         indexer=None,
         log_level="INFO",
         poll_interval_seconds=0.1,
         control_pool=pool,
+        metrics_exporter=metrics_exporter,
     )
 
     status = catalog_main.command(["--probe-ready"], runtime=runtime)
 
     assert status == 0
     assert pool.events == ["opened", "closed"]
+    assert metrics_exporter.events == []
 
 
 @pytest.mark.parametrize(
@@ -283,9 +330,9 @@ def test_catalog_modes_are_mutually_exclusive() -> None:
 
 def test_catalog_main_omits_startup_exception_message(
     monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    caplog.set_level(logging.ERROR, logger=catalog_main.__name__)
+    monkeypatch.setenv("SCHEMABRIDGE_LOG_LEVEL", "INFO")
     monkeypatch.setattr(
         catalog_main,
         "command",
@@ -295,9 +342,14 @@ def test_catalog_main_omits_startup_exception_message(
     with pytest.raises(SystemExit) as captured:
         catalog_main.main()
 
+    events = [json.loads(line) for line in capsys.readouterr().err.splitlines()]
     assert captured.value.code == 1
-    assert "RuntimeError" in caplog.text
-    assert "database-url-must-not-appear-in-startup-log" not in caplog.text
+    assert events[-1]["event"] == "service.health"
+    assert events[-1]["outcome"] == "failed"
+    assert events[-1]["error_code"] == "internal_failure"
+    serialized = json.dumps(events)
+    assert "RuntimeError" not in serialized
+    assert "database-url-must-not-appear-in-startup-log" not in serialized
 
 
 def test_catalog_runtime_repr_excludes_indexer_and_pool() -> None:

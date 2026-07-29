@@ -202,7 +202,7 @@ def isolated_control_database() -> Iterator[_DatabaseUrls]:
             urls.migrator,
             MIGRATIONS,
         ).migrate()
-        assert migrated.inspection.current_version == 9
+        assert migrated.inspection.current_version == 11
         assert migrated.inspection.is_current
         yield urls
     finally:
@@ -975,7 +975,8 @@ def test_unexpected_socket_error_never_reaches_uvicorn_traceback_logs(
     assert secret not in log_text
     assert "traceback" not in log_text.casefold()
     assert "exception in asgi application" not in log_text.casefold()
-    assert "error_type=RuntimeError" in log_text
+    assert "http.request outcome=failed error_code=internal_failure" in log_text
+    assert "RuntimeError" not in log_text
 
 
 def test_real_socket_saturation_and_routing_errors_keep_the_problem_contract() -> None:

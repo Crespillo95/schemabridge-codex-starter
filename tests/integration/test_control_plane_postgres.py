@@ -1137,7 +1137,7 @@ def test_signed_backup_restores_exact_state_into_a_fresh_database(
     assert evidence.archive.stat().st_mode & 0o077 == 0
     assert evidence.manifest_path.stat().st_mode & 0o077 == 0
     manifest = evidence.manifest
-    assert manifest.table_counts["schema_migrations"] == 9
+    assert manifest.table_counts["schema_migrations"] == 11
     assert manifest.table_counts["execution_jobs"] == 0
     assert manifest.table_counts["execution_job_events"] == 0
     assert manifest.table_counts["registry_active_pointers"] == 1
@@ -1159,7 +1159,7 @@ def test_signed_backup_restores_exact_state_into_a_fresh_database(
 
     verification = restore.restore_backup(evidence.archive, evidence.manifest_path)
 
-    assert verification.schema_version == 9
+    assert verification.schema_version == 11
     assert verification.schema_checksum == manifest.schema_checksum
     assert verification.state_sha256 == manifest.state_sha256
     assert verification.table_counts == manifest.table_counts

@@ -40,6 +40,8 @@ SOURCE_IDENTITY_FINGERPRINT = "1" * 64
 CATALOG_IDENTITY_FINGERPRINT = "2" * 64
 PRIVATE_REFERENCE = "vault:execution:workspace-routing-unit"
 PREFLIGHT_REFERENCE = "vault:preflight:workspace-routing-unit"
+EXECUTION_SECRET_VERSION = 37
+PREFLIGHT_SECRET_VERSION = 23
 CONTROL_DSN = "postgresql://private-control.invalid/control"
 
 
@@ -203,6 +205,7 @@ def _private_row(
         target.expected_reader,
         target.source_identity_fingerprint,
         PRIVATE_REFERENCE,
+        EXECUTION_SECRET_VERSION,
     )
 
 
@@ -217,6 +220,7 @@ def _preflight_row(target: GovernedExecutionTarget) -> tuple[object, ...]:
         target.expected_reader,
         target.source_identity_fingerprint,
         PREFLIGHT_REFERENCE,
+        PREFLIGHT_SECRET_VERSION,
     )
 
 
@@ -454,12 +458,13 @@ def test_preflight_route_returns_only_exact_opaque_reference_read_only() -> None
 
     assert type(reference) is OpaqueConnectorSecretRef
     assert reference.value == PREFLIGHT_REFERENCE
+    assert reference.provider_secret_version == PREFLIGHT_SECRET_VERSION
     assert PREFLIGHT_REFERENCE not in repr(reference)
     assert CONTROL_DSN not in repr(reader)
     assert connection.transaction_count == 1
     assert connection.statements[0] == ("SET TRANSACTION READ ONLY", None)
     query, params = connection.statements[1]
-    assert "load_current_preflight_connector_route" in query
+    assert "load_current_preflight_connector_route_v2" in query
     assert params == (
         target.workspace_id,
         target.connection_id.root,
@@ -503,6 +508,7 @@ def test_preflight_route_requires_exactly_one_row(
         (4, "e" * 64),
         (6, "other_reader"),
         (7, "e" * 64),
+        (9, 0),
     ),
 )
 def test_preflight_route_rejects_malformed_or_substituted_row(
@@ -585,13 +591,14 @@ def test_execution_lease_context_and_opaque_reference_hide_private_values() -> N
 
     assert type(reference) is OpaqueConnectorSecretRef
     assert reference.value == PRIVATE_REFERENCE
+    assert reference.provider_secret_version == EXECUTION_SECRET_VERSION
     assert LEASE_CAPABILITY not in repr(lease)
     assert PRIVATE_REFERENCE not in repr(reference)
     assert CONTROL_DSN not in repr(reader)
     assert connection.transaction_count == 1
     assert connection.statements[0] == ("SET TRANSACTION READ ONLY", None)
     query, params = connection.statements[1]
-    assert "load_owned_execution_connector_route" in query
+    assert "load_owned_execution_connector_route_v2" in query
     assert params == (
         lease.job_workspace_id,
         lease.connector_workspace_id,
@@ -618,6 +625,7 @@ def test_execution_lease_context_and_opaque_reference_hide_private_values() -> N
         (6, "e" * 64),
         (8, "other_reader"),
         (9, "e" * 64),
+        (11, 0),
     ),
 )
 def test_private_execution_route_requires_exact_lease_and_target_row(

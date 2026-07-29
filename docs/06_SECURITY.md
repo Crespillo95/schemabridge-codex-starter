@@ -40,6 +40,9 @@
   an unchanged secret handle, unsafe local secret files, catalog generations surviving a changed
   source/type identity, unsupported-dialect execution, forged cost evidence, and planner-output
   or topology leakage.
+- secret-version substitution caused by conflating a public route revision with an external
+  provider version, reading a provider's latest version, or inventing version pins for historical
+  routes during migration.
 
 ## Defense in depth
 
@@ -51,6 +54,17 @@
 - statement and lock timeouts;
 - application opens read-only transactions;
 - no admin credentials in runtime configuration.
+
+### Connector secret versions
+
+- every executable remote binding carries an explicit positive immutable provider version;
+- provider versions remain private and are approval-bound through one-way route fingerprints;
+- `route_revision` is never used as a provider version and the provider's latest version is never
+  read;
+- schema upgrades do not infer versions for legacy routes; loaders return no executable route
+  until a new explicitly versioned rotation is approved;
+- capability loaders return the opaque reference and exact version atomically, while repr, public
+  models, logs, metrics, traces, and errors expose neither.
 
 ### Query construction
 
@@ -972,3 +986,48 @@ At minimum test:
 ## Incident rule
 
 When a safety control fails, stop feature work, add a regression test first, then fix the narrowest responsible layer and document the decision.
+
+## M29 security boundary
+
+M29 retains every accepted query and semantic invariant and adds operated-runtime controls without
+granting a new source write, SQL, DataHub mutation, or automatic semantic-approval path.
+
+- Managed source composition permits only the HTTPS exact-version remote-secret adapter. Local
+  files, global source/DataHub credentials, environment bearer tokens, redirects, unverified TLS,
+  default service accounts, wrong audiences/roles, expired projected tokens, missing versions,
+  oversized/malformed provider replies, and provider failures stop before source I/O.
+- Remote errors, representations, logs, metrics, API/UI projections, and persisted state expose no
+  token, JWT claim, binding, path, DSN, endpoint, username, password, provider response, SQL,
+  parameter, result, or source value. TLS and pool failures suppress their upstream exception
+  causes so credentials cannot survive in a chained traceback.
+- Seven runtime workloads use distinct control identities. Only web/preflight, execution, catalog,
+  and profile receive their own 600-second audience-bound connector identity. API, reconciler, and
+  observer cannot resolve connector credentials; the observer can read only aggregate queue
+  state through its security-barrier view.
+- Managed web must explicitly disable synchronous execution and publication. Its preflight role
+  cannot execute a query, and the pod receives neither a source execution credential nor DataHub
+  writer material. The UI disables those actions before composing their adapters. Execution may
+  cross only the authenticated API/job/worker lane once a Streamlit client is implemented;
+  publication remains blocked until a typed durable approval queue and dedicated publisher worker
+  exist.
+- The checked-in Kubernetes profile contains no Secret object, RBAC grant, token, or credential.
+  It requires immutable version-named external Secret references, non-root restricted containers,
+  digest-only images, TLS, namespace default-deny, exact ingress/scrape selectors, and separate
+  capability egress planes. Its unresolved placeholders deliberately fail validation.
+- Telemetry accepts only closed event/metric labels. Hostile input cannot become a field or label,
+  SIEM retries never retain the sensitive payload, and loss is a first-class page signal. Metrics
+  endpoints are bounded, mutation-free, unauthenticated only on internal policy-selected ports,
+  and perform no source I/O.
+- CI inputs are immutable and least-privileged. Vulnerability reports must be structurally complete
+  and artifact-bound; an empty scanner result is not accepted as evidence. Release signing is
+  restricted to a protected published-release workflow using short-lived OIDC.
+- Retention verifies every signed archive/manifest pair before making any decision, requires exact
+  reviewed policy/plan fingerprints and an explicit confirmation to execute, rechecks the complete
+  set, rejects links/tampering/orphans, and moves pairs to recoverable quarantine. Restore cannot
+  target the active control plane or a source, and verification failure cannot cut over.
+
+Static manifests, local synthetic metrics, unsigned local evidence, and a local quarantine do not
+satisfy the operated production boundary. Provider IAM/rotation/revocation, target-cluster
+admission and network enforcement, production mTLS/SIEM/alert delivery, remote encrypted
+object-lock retention, fresh-target recovery/rollback, vulnerability disposition, M30/M31, and
+external security review remain mandatory production NO-GO items until independently evidenced.

@@ -13,6 +13,7 @@ from schemabridge.adapters.connectors.postgres_route_operator import (
     PostgresConnectorRouteOperator,
 )
 from schemabridge.application.ports.connector_route_operator import (
+    ConnectorPrivateBinding,
     ConnectorPrivateBindings,
     ConnectorRouteStoreError,
     ConnectorRouteStoreErrorCode,
@@ -41,6 +42,7 @@ PRIVATE_VALUES = (
     "vault:execution:adapter-charlie",
     "vault:profile:adapter-delta",
 )
+PRIVATE_VERSIONS = (101, 202, 303, 404)
 
 
 class _Composable(Protocol):
@@ -180,10 +182,10 @@ def _write() -> ConnectorRouteWrite:
         contract_fingerprint="5" * 64,
         target_fingerprint=target.fingerprint,
         private_bindings=ConnectorPrivateBindings(
-            preflight=PRIVATE_VALUES[0],
-            catalog=PRIVATE_VALUES[1],
-            execution=PRIVATE_VALUES[2],
-            profile=PRIVATE_VALUES[3],
+            preflight=ConnectorPrivateBinding(PRIVATE_VALUES[0], PRIVATE_VERSIONS[0]),
+            catalog=ConnectorPrivateBinding(PRIVATE_VALUES[1], PRIVATE_VERSIONS[1]),
+            execution=ConnectorPrivateBinding(PRIVATE_VALUES[2], PRIVATE_VERSIONS[2]),
+            profile=ConnectorPrivateBinding(PRIVATE_VALUES[3], PRIVATE_VERSIONS[3]),
         ),
         proposal_fingerprint="6" * 64,
         approval_id="connector_route_approval_" + ("7" * 64),
@@ -266,10 +268,12 @@ def test_apply_calls_fixed_cas_with_identity_fingerprints_and_sanitized_result()
     query, params = connection.statements[0]
     assert "apply_connector_route_change" in query
     assert params is not None
-    assert len(params) == 35
+    assert len(params) == 39
     assert params[10] == SOURCE_IDENTITY_FINGERPRINT
     assert params[11] == CATALOG_IDENTITY_FINGERPRINT
     assert params[22:26] == PRIVATE_VALUES
+    assert params[26:30] == PRIVATE_VERSIONS
+    assert "apply_connector_route_change_v2" in query
     rendered = repr(change)
     for private_value in PRIVATE_VALUES:
         assert private_value not in rendered

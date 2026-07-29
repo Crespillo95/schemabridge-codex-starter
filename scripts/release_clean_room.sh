@@ -32,7 +32,6 @@ fi
 
 printf '%s\n' '[1/9] Clean Python environment and complete dependency install'
 bash scripts/bootstrap.sh
-make install
 .venv/bin/python -m pip check
 
 printf '%s\n' '[2/9] Service-free quality gate'

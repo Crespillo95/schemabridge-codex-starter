@@ -8,9 +8,11 @@ import json
 import re
 import subprocess
 import tomllib
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from importlib import metadata
 from pathlib import Path
+from typing import cast
 from urllib.parse import unquote
 
 _DEPENDENCY_NAME = re.compile(r"^[A-Za-z0-9_.-]+")
@@ -21,7 +23,13 @@ _SECRET_PATTERNS = (
     ("openai_key", re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b")),
     ("github_token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}\b")),
     ("aws_access_key", re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b")),
+    ("google_api_key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")),
+    ("gitlab_token", re.compile(r"\bglpat-[0-9A-Za-z_-]{20,}\b")),
+    ("slack_token", re.compile(r"\bxox[baprs]-[0-9A-Za-z-]{20,}\b")),
+    ("stripe_live_key", re.compile(r"\b(?:sk|rk)_live_[0-9A-Za-z]{20,}\b")),
 )
+_FORBIDDEN_CREDENTIAL_SUFFIXES = frozenset({".jks", ".key", ".keystore", ".p12", ".pem", ".pfx"})
+_PARALLEL_COVERAGE_PREFIX = ".coverage."
 _FORBIDDEN_ARTIFACT_PARTS = frozenset(
     {
         ".coverage",
@@ -98,7 +106,14 @@ def scan_candidate_artifacts(root: Path, files: tuple[Path, ...]) -> tuple[Findi
     for path in files:
         relative = path.relative_to(root)
         parts = set(relative.parts)
-        if path.name != ".env.example" and parts & _FORBIDDEN_ARTIFACT_PARTS:
+        has_parallel_coverage_artifact = any(
+            part.startswith(_PARALLEL_COVERAGE_PREFIX)
+            and len(part) > len(_PARALLEL_COVERAGE_PREFIX)
+            for part in parts
+        )
+        if path.name != ".env.example" and (
+            parts & _FORBIDDEN_ARTIFACT_PARTS or has_parallel_coverage_artifact
+        ):
             findings.append(
                 Finding(
                     "runtime_artifact",
@@ -107,7 +122,10 @@ def scan_candidate_artifacts(root: Path, files: tuple[Path, ...]) -> tuple[Findi
                     "runtime, cache, environment, or generated artifact is commit-visible",
                 )
             )
-        if path.name in {".DS_Store", "Thumbs.db"} or path.suffix in {".key", ".pem"}:
+        if (
+            path.name in {".DS_Store", "Thumbs.db", "secrets.toml"}
+            or path.suffix.casefold() in _FORBIDDEN_CREDENTIAL_SUFFIXES
+        ):
             findings.append(
                 Finding("secret_or_os_artifact", "error", str(relative), "forbidden file type")
             )
@@ -175,7 +193,7 @@ def scan_external_links(root: Path, files: tuple[Path, ...]) -> tuple[int, tuple
             url = match.group(0).rstrip(".,;:")
             locations.setdefault(url, str(path.relative_to(root)))
     findings: list[Finding] = []
-    for url, path in sorted(locations.items()):
+    for url, source_path in sorted(locations.items()):
         result = subprocess.run(
             ("curl", "-fsSIL", "--max-time", "30", "--retry", "1", url),
             check=False,
@@ -187,7 +205,7 @@ def scan_external_links(root: Path, files: tuple[Path, ...]) -> tuple[int, tuple
                 Finding(
                     "broken_external_link",
                     "error",
-                    path,
+                    source_path,
                     f"HTTPS reference did not return successfully: {url}",
                 )
             )
@@ -263,10 +281,11 @@ def dependency_licenses(root: Path) -> tuple[tuple[DependencyLicense, ...], tupl
             continue
         classifiers = package_metadata.get_all("Classifier") or []
         license_classifiers = [value for value in classifiers if value.startswith("License ::")]
+        package_metadata_mapping = cast(Mapping[str, str], package_metadata)
         license_value = (
-            package_metadata.get("License-Expression")
+            package_metadata_mapping.get("License-Expression")
             or ", ".join(license_classifiers)
-            or package_metadata.get("License")
+            or package_metadata_mapping.get("License")
         )
         if not license_value or license_value.casefold() == "unknown":
             findings.append(

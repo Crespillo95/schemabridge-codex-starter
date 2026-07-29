@@ -53,6 +53,8 @@ IDENTITY_KEY = "unit-test-identity-migration-key-with-diversity"
 
 def _postgres_settings(**overrides: object) -> Settings:
     payload: dict[str, object] = {
+        "OPENAI_API_KEY": None,
+        "DATAHUB_GMS_TOKEN": None,
         "SCHEMABRIDGE_CONTROL_PLANE_MODE": "postgres",
         "SCHEMABRIDGE_CONTROL_DATABASE_URL": RUNTIME_DSN,
         "SCHEMABRIDGE_CONTROL_AUDIT_SIGNING_KEY": AUDIT_KEY,
@@ -170,7 +172,7 @@ def test_migrator_builder_uses_pinned_release_version_and_hides_dsn() -> None:
         settings=settings,
     )
 
-    assert migrator.known_migrations()[-1].version == 9  # type: ignore[attr-defined]
+    assert migrator.known_migrations()[-1].version == 11  # type: ignore[attr-defined]
     assert "do-not-print" not in repr(migrator)
 
 
@@ -194,6 +196,7 @@ def test_migrator_builder_rejects_configured_schema_version_drift() -> None:
 
 def test_backup_and_restore_builders_keep_operator_credentials_out_of_repr() -> None:
     settings = _postgres_settings(
+        SCHEMABRIDGE_COMPONENT="operator",
         SCHEMABRIDGE_CONTROL_MIGRATOR_DATABASE_URL=(
             "postgresql://migrator:backup-secret@control.example.test/control"
         ),

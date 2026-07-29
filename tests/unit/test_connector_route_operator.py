@@ -14,6 +14,7 @@ from schemabridge.application.connector_route_operator import (
     PreparedConnectorRouteChange,
 )
 from schemabridge.application.ports.connector_route_operator import (
+    ConnectorPrivateBinding,
     ConnectorPrivateBindings,
     ConnectorRouteStoreError,
     ConnectorRouteStoreErrorCode,
@@ -47,6 +48,7 @@ PRIVATE_VALUES = (
     "vault:execution:opaque-charlie",
     "vault:profile:opaque-delta",
 )
+PRIVATE_VERSIONS = (11, 22, 33, 44)
 
 
 def _budget(*, total_cost: str = "12345.67") -> QueryCostBudget:
@@ -63,10 +65,10 @@ def _budget(*, total_cost: str = "12345.67") -> QueryCostBudget:
 
 def _bindings() -> ConnectorPrivateBindings:
     return ConnectorPrivateBindings(
-        preflight=PRIVATE_VALUES[0],
-        catalog=PRIVATE_VALUES[1],
-        execution=PRIVATE_VALUES[2],
-        profile=PRIVATE_VALUES[3],
+        preflight=ConnectorPrivateBinding(PRIVATE_VALUES[0], PRIVATE_VERSIONS[0]),
+        catalog=ConnectorPrivateBinding(PRIVATE_VALUES[1], PRIVATE_VERSIONS[1]),
+        execution=ConnectorPrivateBinding(PRIVATE_VALUES[2], PRIVATE_VERSIONS[2]),
+        profile=ConnectorPrivateBinding(PRIVATE_VALUES[3], PRIVATE_VERSIONS[3]),
     )
 
 
@@ -244,18 +246,46 @@ def test_private_bindings_are_absent_from_repr_public_model_and_errors() -> None
         assert private_value not in public_json
 
     changed = ConnectorPrivateBindings(
-        preflight="vault:preflight:changed-echo",
-        catalog=PRIVATE_VALUES[1],
-        execution=PRIVATE_VALUES[2],
-        profile=PRIVATE_VALUES[3],
+        preflight=ConnectorPrivateBinding("vault:preflight:changed-echo", 55),
+        catalog=ConnectorPrivateBinding(PRIVATE_VALUES[1], PRIVATE_VERSIONS[1]),
+        execution=ConnectorPrivateBinding(PRIVATE_VALUES[2], PRIVATE_VERSIONS[2]),
+        profile=ConnectorPrivateBinding(PRIVATE_VALUES[3], PRIVATE_VERSIONS[3]),
     )
     with pytest.raises(ValueError) as raised:
         PreparedConnectorRouteChange(
             proposal=prepared.proposal,
             private_bindings=changed,
         )
-    for private_value in (*PRIVATE_VALUES, changed.preflight):
+    for private_value in (*PRIVATE_VALUES, changed.preflight.reference):
         assert private_value not in str(raised.value)
+
+
+def test_provider_version_is_private_and_rebinds_route_approval() -> None:
+    baseline_bindings = _bindings()
+    rotated_bindings = ConnectorPrivateBindings(
+        preflight=baseline_bindings.preflight,
+        catalog=baseline_bindings.catalog,
+        execution=ConnectorPrivateBinding(
+            baseline_bindings.execution.reference,
+            baseline_bindings.execution.provider_secret_version + 1,
+        ),
+        profile=baseline_bindings.profile,
+    )
+
+    baseline = _prepare_create(
+        ConnectorRouteOperator(_Store()),
+        bindings=baseline_bindings,
+    )
+    rotated = _prepare_create(
+        ConnectorRouteOperator(_Store()),
+        bindings=rotated_bindings,
+    )
+
+    assert baseline_bindings.fingerprint != rotated_bindings.fingerprint
+    assert baseline.proposal.route_fingerprint != rotated.proposal.route_fingerprint
+    assert baseline.proposal.fingerprint != rotated.proposal.fingerprint
+    assert "provider_secret_version" not in baseline.proposal.model_dump_json()
+    assert str(PRIVATE_VERSIONS[2]) not in repr(baseline_bindings)
 
 
 def test_public_source_or_catalog_identity_change_rebinds_contract_target_and_proposal() -> None:
@@ -392,10 +422,10 @@ def test_changed_payload_reusing_idempotency_identity_is_a_sanitized_conflict() 
     changed = _prepare_create(
         operator,
         bindings=ConnectorPrivateBindings(
-            preflight="vault:preflight:changed-echo",
-            catalog=PRIVATE_VALUES[1],
-            execution=PRIVATE_VALUES[2],
-            profile=PRIVATE_VALUES[3],
+            preflight=ConnectorPrivateBinding("vault:preflight:changed-echo", 55),
+            catalog=ConnectorPrivateBinding(PRIVATE_VALUES[1], PRIVATE_VERSIONS[1]),
+            execution=ConnectorPrivateBinding(PRIVATE_VALUES[2], PRIVATE_VERSIONS[2]),
+            profile=ConnectorPrivateBinding(PRIVATE_VALUES[3], PRIVATE_VERSIONS[3]),
         ),
     )
     baseline_approval = _approve(operator, baseline)

@@ -5,7 +5,7 @@ import os
 import re
 from pathlib import Path
 from typing import Literal, Self, TypeAlias
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -19,16 +19,26 @@ from schemabridge.domain.semantic_profile_jobs import (
 )
 
 RuntimeProfile: TypeAlias = Literal["development", "hosted-demo", "staging", "production"]
-RuntimeComponent: TypeAlias = Literal["web", "api", "worker", "catalog", "reconciler"]
+RuntimeComponent: TypeAlias = Literal[
+    "web",
+    "api",
+    "worker",
+    "catalog",
+    "reconciler",
+    "observer",
+    "operator",
+]
 AuthMode: TypeAlias = Literal["local-demo", "oidc"]
 WorkerIdentityLineageMode: TypeAlias = Literal["exact-local", "verified-oidc"]
 ApiJwtAlgorithm: TypeAlias = Literal["RS256", "ES256"]
 CatalogMode: TypeAlias = Literal["recorded", "live"]
 RegistryMode: TypeAlias = Literal["recorded", "live"]
 RegistrySelectionMode: TypeAlias = Literal["fixed", "active"]
-PublicationMode: TypeAlias = Literal["fake", "live"]
-ExecutionMode: TypeAlias = Literal["recorded", "live"]
+PublicationMode: TypeAlias = Literal["fake", "live", "disabled"]
+ExecutionMode: TypeAlias = Literal["recorded", "live", "disabled"]
 ControlPlaneMode: TypeAlias = Literal["local", "postgres"]
+ConnectorSecretMode: TypeAlias = Literal["local", "remote"]
+ConnectorSecretCapability: TypeAlias = Literal["preflight", "execution", "catalog", "profile"]
 QueryStudioAiMode: TypeAlias = Literal["disabled", "fake", "live"]
 QueryStudioAiRegion: TypeAlias = Literal["global", "eu", "us"]
 RoleName: TypeAlias = Literal[
@@ -52,7 +62,7 @@ class Settings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=None,
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
@@ -86,6 +96,63 @@ class Settings(BaseSettings):
         default=None,
         alias="SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY",
         repr=False,
+    )
+    connector_secret_mode: ConnectorSecretMode = Field(
+        default="local",
+        alias="SCHEMABRIDGE_CONNECTOR_SECRET_MODE",
+    )
+    connector_secret_provider_url: str | None = Field(
+        default=None,
+        alias="SCHEMABRIDGE_CONNECTOR_SECRET_PROVIDER_URL",
+        repr=False,
+    )
+    connector_secret_role: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=63,
+        pattern=r"^[a-z][a-z0-9_-]{0,62}$",
+        alias="SCHEMABRIDGE_CONNECTOR_SECRET_ROLE",
+        repr=False,
+    )
+    connector_secret_kv_mount: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=63,
+        pattern=r"^[a-z][a-z0-9_-]{0,62}$",
+        alias="SCHEMABRIDGE_CONNECTOR_SECRET_KV_MOUNT",
+        repr=False,
+    )
+    connector_secret_capability: ConnectorSecretCapability | None = Field(
+        default=None,
+        alias="SCHEMABRIDGE_CONNECTOR_SECRET_CAPABILITY",
+    )
+    connector_secret_ca_bundle: Path | None = Field(
+        default=None,
+        alias="SCHEMABRIDGE_CONNECTOR_SECRET_CA_BUNDLE",
+        repr=False,
+    )
+    connector_secret_timeout_seconds: float = Field(
+        default=5.0,
+        ge=0.1,
+        le=15.0,
+        alias="SCHEMABRIDGE_CONNECTOR_SECRET_TIMEOUT_SECONDS",
+    )
+    workload_identity_token_file: Path | None = Field(
+        default=None,
+        alias="SCHEMABRIDGE_WORKLOAD_IDENTITY_TOKEN_FILE",
+        repr=False,
+    )
+    workload_identity_root: Path | None = Field(
+        default=None,
+        alias="SCHEMABRIDGE_WORKLOAD_IDENTITY_ROOT",
+        repr=False,
+    )
+    workload_identity_audience: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=63,
+        pattern=r"^[a-z][a-z0-9_-]{0,62}$",
+        alias="SCHEMABRIDGE_WORKLOAD_IDENTITY_AUDIENCE",
     )
     postgres_reader_user: str = Field(
         default="schemabridge_reader",
@@ -173,6 +240,27 @@ class Settings(BaseSettings):
         default=Path(".local/datahub/mcp.env"),
         alias="SCHEMABRIDGE_SEMANTIC_REGISTRY_READER_ENV_PATH",
     )
+    semantic_registry_secret_role: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=63,
+        pattern=r"^[a-z][a-z0-9_-]{0,62}$",
+        alias="SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_ROLE",
+        repr=False,
+    )
+    semantic_registry_secret_binding_ref: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=200,
+        pattern=r"^[a-z][a-z0-9._:-]{2,199}$",
+        alias="SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_BINDING_REF",
+        repr=False,
+    )
+    semantic_registry_secret_version: int | None = Field(
+        default=None,
+        ge=1,
+        alias="SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_VERSION",
+    )
     control_plane_kind: ControlPlaneMode = Field(
         default="local",
         alias="SCHEMABRIDGE_CONTROL_PLANE_MODE",
@@ -201,6 +289,10 @@ class Settings(BaseSettings):
         default=None,
         alias="SCHEMABRIDGE_CONTROL_CATALOG_DATABASE_URL",
     )
+    control_observer_database_url: SecretStr | None = Field(
+        default=None,
+        alias="SCHEMABRIDGE_CONTROL_OBSERVER_DATABASE_URL",
+    )
     control_restore_database_url: SecretStr | None = Field(
         default=None,
         alias="SCHEMABRIDGE_CONTROL_RESTORE_DATABASE_URL",
@@ -213,7 +305,7 @@ class Settings(BaseSettings):
         alias="SCHEMABRIDGE_CONTROL_PLANE_SCHEMA",
     )
     control_plane_schema_version: int = Field(
-        default=9,
+        default=11,
         ge=1,
         le=10_000,
         alias="SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION",
@@ -423,6 +515,60 @@ class Settings(BaseSettings):
         min_length=1,
         max_length=32,
         alias="SCHEMABRIDGE_API_ALLOWED_HOSTS",
+    )
+    observer_bind_host: str = Field(
+        default="127.0.0.1",
+        min_length=1,
+        max_length=253,
+        alias="SCHEMABRIDGE_OBSERVER_BIND_HOST",
+    )
+    observer_port: int = Field(
+        default=9464,
+        ge=1_024,
+        le=65_535,
+        alias="SCHEMABRIDGE_OBSERVER_PORT",
+    )
+    observer_limit_concurrency: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        alias="SCHEMABRIDGE_OBSERVER_LIMIT_CONCURRENCY",
+    )
+    observer_graceful_shutdown_seconds: int = Field(
+        default=20,
+        ge=1,
+        le=120,
+        alias="SCHEMABRIDGE_OBSERVER_GRACEFUL_SHUTDOWN_SECONDS",
+    )
+    observer_snapshot_timeout_ms: int = Field(
+        default=2_000,
+        ge=100,
+        le=5_000,
+        alias="SCHEMABRIDGE_OBSERVER_SNAPSHOT_TIMEOUT_MS",
+    )
+    observer_max_metrics_response_bytes: int = Field(
+        default=65_536,
+        ge=1_024,
+        le=65_536,
+        alias="SCHEMABRIDGE_OBSERVER_MAX_METRICS_RESPONSE_BYTES",
+    )
+    process_metrics_bind_host: str = Field(
+        default="127.0.0.1",
+        min_length=1,
+        max_length=253,
+        alias="SCHEMABRIDGE_PROCESS_METRICS_BIND_HOST",
+    )
+    process_metrics_port: int = Field(
+        default=9464,
+        ge=1_024,
+        le=65_535,
+        alias="SCHEMABRIDGE_PROCESS_METRICS_PORT",
+    )
+    process_metrics_max_response_bytes: int = Field(
+        default=65_536,
+        ge=1_024,
+        le=65_536,
+        alias="SCHEMABRIDGE_PROCESS_METRICS_MAX_RESPONSE_BYTES",
     )
     api_job_authorization_ttl_seconds: int = Field(
         default=300,
@@ -645,12 +791,13 @@ class Settings(BaseSettings):
 
         if (
             self.environment in {"staging", "production"}
-            and self.runtime_component not in {"worker", "catalog", "reconciler"}
+            and self.runtime_component
+            not in {"worker", "catalog", "reconciler", "observer", "operator"}
             and self.auth_mode != "oidc"
         ):
             raise ValueError(f"{self.environment} requires SCHEMABRIDGE_AUTH_MODE=oidc")
         if (
-            self.runtime_component in {"worker", "catalog", "reconciler"}
+            self.runtime_component in {"worker", "catalog", "reconciler", "observer", "operator"}
             and self.auth_mode != "local-demo"
         ):
             raise ValueError(
@@ -712,13 +859,37 @@ class Settings(BaseSettings):
             "worker",
             "catalog",
             "reconciler",
+            "observer",
+            "operator",
         }:
             self._validate_oidc_metadata()
 
         self._validate_api_configuration()
         self._validate_control_plane()
         self._validate_role_configuration()
+        self._validate_managed_web_mutation_modes()
         return self
+
+    def _validate_managed_web_mutation_modes(self) -> None:
+        if self.environment not in {"staging", "production"} or self.runtime_component != "web":
+            return
+        managed_web_modes = {
+            "publication_kind": (
+                self.publication_kind,
+                "SCHEMABRIDGE_PUBLICATION_MODE",
+            ),
+            "judge_execution_kind": (
+                self.judge_execution_kind,
+                "SCHEMABRIDGE_JUDGE_EXECUTION",
+            ),
+        }
+        for field_name, (value, environment_variable) in managed_web_modes.items():
+            if field_name not in self.model_fields_set:
+                raise ValueError(
+                    f"{self.environment} web requires explicit {environment_variable}=disabled"
+                )
+            if value != "disabled":
+                raise ValueError(f"{self.environment} web requires {environment_variable}=disabled")
 
     def _apply_hosted_demo_profile(self) -> None:
         forced = {
@@ -865,6 +1036,14 @@ class Settings(BaseSettings):
             ipaddress.ip_address(self.api_bind_host)
         except ValueError as error:
             raise ValueError("API bind host must be an explicit IP address") from error
+        try:
+            ipaddress.ip_address(self.observer_bind_host)
+        except ValueError as error:
+            raise ValueError("observer bind host must be an explicit IP address") from error
+        try:
+            ipaddress.ip_address(self.process_metrics_bind_host)
+        except ValueError as error:
+            raise ValueError("process metrics bind host must be an explicit IP address") from error
         if any(
             not host or host != host.strip() or len(host) > 253 or "/" in host or "://" in host
             for host in self.api_allowed_hosts
@@ -927,13 +1106,17 @@ class Settings(BaseSettings):
             raise ValueError("active semantic registry selection requires live registry mode")
         if active and not postgres:
             raise ValueError("active semantic registry selection requires PostgreSQL control plane")
-        if self.runtime_component in {"api", "worker", "catalog", "reconciler"} and not postgres:
+        if (
+            self.runtime_component in {"api", "worker", "catalog", "reconciler", "observer"}
+            and not postgres
+        ):
             raise ValueError(
                 f"{self.runtime_component} component requires PostgreSQL control plane"
             )
         if not postgres:
             if managed:
                 raise ValueError(f"{self.environment} requires PostgreSQL control plane")
+            self._reject_cross_component_credentials()
             return
         if self.control_pool_min_size > self.control_pool_max_size:
             raise ValueError("control pool minimum size cannot exceed its maximum size")
@@ -964,6 +1147,16 @@ class Settings(BaseSettings):
                 "SCHEMABRIDGE_CONTROL_RECONCILER_DATABASE_URL",
                 self.control_reconciler_database_url,
             ),
+            "observer": (
+                "observer database",
+                "SCHEMABRIDGE_CONTROL_OBSERVER_DATABASE_URL",
+                self.control_observer_database_url,
+            ),
+            "operator": (
+                "migrator database",
+                "SCHEMABRIDGE_CONTROL_MIGRATOR_DATABASE_URL",
+                self.control_migrator_database_url,
+            ),
         }[self.runtime_component]
         if selected_control_url is None:
             raise ValueError(
@@ -973,15 +1166,14 @@ class Settings(BaseSettings):
             (active and self.runtime_component in {"web", "worker"})
             or (self.runtime_component == "catalog" and self.catalog_kind == "live")
         )
-        if requires_connector_secrets and (
-            self.connector_secret_directory is None
-            or not self.connector_secret_directory.is_absolute()
-        ):
-            raise ValueError(
-                "managed connector routing requires an absolute "
-                "SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY"
-            )
-        self._reject_cross_component_credentials()
+        requires_registry_secret = (
+            managed and active and self.runtime_component in {"web", "worker", "reconciler"}
+        )
+        self._validate_connector_secret_configuration(
+            managed=managed,
+            required=requires_connector_secrets,
+            registry_required=requires_registry_secret,
+        )
         if self.control_plane_schema != CONTROL_PLANE_SCHEMA:
             raise ValueError(
                 "this release supports only the schemabridge_control control-plane schema"
@@ -993,6 +1185,13 @@ class Settings(BaseSettings):
             label=control_label,
         )
         control_username = urlsplit(control_url).username
+        if (
+            self.runtime_component == "observer"
+            and unquote(control_username or "") != "schemabridge_observer"
+        ):
+            raise ValueError(
+                "observer control database URL must use the schemabridge_observer role"
+            )
         control_users = {control_username}
         for label, operator_url in (
             ("runtime database", self.control_database_url),
@@ -1001,6 +1200,7 @@ class Settings(BaseSettings):
             ("API database", self.control_api_database_url),
             ("worker database", self.control_worker_database_url),
             ("catalog database", self.control_catalog_database_url),
+            ("observer database", self.control_observer_database_url),
         ):
             if operator_url is None or operator_url is selected_control_url:
                 continue
@@ -1042,7 +1242,15 @@ class Settings(BaseSettings):
 
         if self.runtime_component == "catalog":
             self._validate_catalog_configuration(managed=managed)
-        if self.runtime_component in {"api", "worker", "catalog"}:
+        if self.runtime_component in {"api", "worker", "catalog", "observer"}:
+            self._reject_cross_component_credentials()
+            return
+        if self.runtime_component == "operator":
+            if (self.control_operator_actor_id is None) != (not self.control_operator_roles):
+                raise ValueError("control operator actor and roles must be configured together")
+            if len(self.control_operator_roles) != len(set(self.control_operator_roles)):
+                raise ValueError("control operator roles cannot contain duplicates")
+            self._reject_cross_component_credentials()
             return
         if self.runtime_component == "reconciler":
             if self.control_audit_signing_key is None:
@@ -1058,6 +1266,7 @@ class Settings(BaseSettings):
                 raise ValueError("control operator actor and roles must be configured together")
             if len(self.control_operator_roles) != len(set(self.control_operator_roles)):
                 raise ValueError("control operator roles cannot contain duplicates")
+            self._reject_cross_component_credentials()
             return
         if self.control_audit_signing_key is None:
             raise ValueError(
@@ -1082,9 +1291,183 @@ class Settings(BaseSettings):
             raise ValueError("control operator actor and roles must be configured together")
         if len(self.control_operator_roles) != len(set(self.control_operator_roles)):
             raise ValueError("control operator roles cannot contain duplicates")
+        self._reject_cross_component_credentials()
+
+    def _validate_connector_secret_configuration(
+        self,
+        *,
+        managed: bool,
+        required: bool,
+        registry_required: bool,
+    ) -> None:
+        common_remote_values = (
+            self.connector_secret_provider_url,
+            self.connector_secret_kv_mount,
+            self.connector_secret_ca_bundle,
+            self.workload_identity_token_file,
+            self.workload_identity_root,
+            self.workload_identity_audience,
+        )
+        connector_remote_values = (
+            self.connector_secret_role,
+            self.connector_secret_capability,
+        )
+        registry_remote_values = (
+            self.semantic_registry_secret_role,
+            self.semantic_registry_secret_binding_ref,
+            self.semantic_registry_secret_version,
+        )
+        if self.connector_secret_mode == "local":
+            if any(
+                value is not None
+                for value in (
+                    *common_remote_values,
+                    *connector_remote_values,
+                    *registry_remote_values,
+                )
+            ):
+                raise ValueError(
+                    "local connector secret mode cannot receive remote identity configuration"
+                )
+            if required and (
+                self.connector_secret_directory is None
+                or not self.connector_secret_directory.is_absolute()
+            ):
+                raise ValueError(
+                    "connector routing requires an absolute SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY"
+                )
+            if managed and required:
+                raise ValueError("managed connector routing requires remote exact-version secrets")
+            if managed and registry_required:
+                raise ValueError("managed semantic registry requires remote exact-version secrets")
+            return
+        if self.connector_secret_directory is not None:
+            raise ValueError("remote connector secret mode forbids a local secret directory")
+        if not required and not registry_required:
+            raise ValueError(
+                "remote connector secret configuration is forbidden for this component"
+            )
+        if any(value is None for value in common_remote_values):
+            raise ValueError("remote connector secret configuration is incomplete")
+        if required and any(value is None for value in connector_remote_values):
+            raise ValueError("remote connector secret configuration is incomplete")
+        if not required and any(value is not None for value in connector_remote_values):
+            raise ValueError("remote connector capability is forbidden for this component")
+        if registry_required and any(value is None for value in registry_remote_values):
+            raise ValueError("remote semantic registry secret configuration is incomplete")
+        if not registry_required and any(value is not None for value in registry_remote_values):
+            raise ValueError(
+                "remote semantic registry secret configuration is forbidden for this component"
+            )
+        if (
+            required
+            and registry_required
+            and self.connector_secret_role == self.semantic_registry_secret_role
+        ):
+            raise ValueError("remote secret capabilities require distinct provider roles")
+        assert self.connector_secret_provider_url is not None
+        provider = urlsplit(self.connector_secret_provider_url)
+        if (
+            provider.scheme != "https"
+            or provider.hostname is None
+            or provider.username is not None
+            or provider.password is not None
+            or provider.path not in {"", "/"}
+            or provider.query
+            or provider.fragment
+        ):
+            raise ValueError(
+                "remote connector secret provider must be an HTTPS origin without credentials"
+            )
+        assert self.connector_secret_ca_bundle is not None
+        assert self.workload_identity_token_file is not None
+        assert self.workload_identity_root is not None
+        if (
+            not self.connector_secret_ca_bundle.is_absolute()
+            or not self.workload_identity_root.is_absolute()
+            or not self.workload_identity_token_file.is_absolute()
+            or self.workload_identity_token_file == self.workload_identity_root
+            or not self.workload_identity_token_file.is_relative_to(self.workload_identity_root)
+        ):
+            raise ValueError("remote connector secret paths must be absolute and contained")
+        allowed_capabilities = {
+            "web": {"preflight"},
+            "worker": {"execution", "profile"},
+            "catalog": {"catalog"},
+            "api": set(),
+            "reconciler": set(),
+            "observer": set(),
+            "operator": set(),
+        }[self.runtime_component]
+        if required and self.connector_secret_capability not in allowed_capabilities:
+            raise ValueError(
+                "remote connector secret capability does not match the runtime component"
+            )
 
     def _reject_cross_component_credentials(self) -> None:
         if self.runtime_component == "web":
+            if self.environment not in {"staging", "production"}:
+                return
+            web_forbidden: tuple[object | None, ...] = (
+                self.control_reconciler_database_url,
+                self.control_migrator_database_url,
+                self.control_restore_database_url,
+                self.control_api_database_url,
+                self.control_worker_database_url,
+                self.control_catalog_database_url,
+                self.control_observer_database_url,
+                self.control_operator_actor_id,
+                self.control_operator_roles or None,
+                self.database_url,
+                self.datahub_gms_token,
+                self.api_local_bearer_token,
+                self.api_oidc_jwks_url,
+                self.inventory_cursor_signing_key,
+                self.connector_secret_directory,
+            )
+            if any(value is not None for value in web_forbidden):
+                raise ValueError("web component received a forbidden cross-component credential")
+            return
+        if self.runtime_component == "observer":
+            forbidden: tuple[object | None, ...] = (
+                self.control_database_url,
+                self.control_reconciler_database_url,
+                self.control_migrator_database_url,
+                self.control_restore_database_url,
+                self.control_api_database_url,
+                self.control_worker_database_url,
+                self.control_catalog_database_url,
+                self.control_operator_actor_id,
+                self.control_operator_roles or None,
+                self.openai_api_key,
+                self.query_studio_signing_key,
+                self.control_audit_signing_key,
+                self.identity_migration_key,
+                self.database_url,
+                self.datahub_gms_token,
+                self.oidc_issuer,
+                self.oidc_audience,
+                self.oidc_provider,
+                self.oidc_allowed_groups or None,
+                self.oidc_allowed_tenants or None,
+                self.pseudonymization_key,
+                self.api_local_bearer_token,
+                self.api_oidc_jwks_url,
+                self.inventory_cursor_signing_key,
+                self.connector_secret_directory,
+                self.connector_secret_provider_url,
+                self.connector_secret_role,
+                self.connector_secret_kv_mount,
+                self.connector_secret_capability,
+                self.connector_secret_ca_bundle,
+                self.workload_identity_token_file,
+                self.workload_identity_root,
+                self.workload_identity_audience,
+            )
+            if any(value is not None for value in forbidden):
+                raise ValueError(
+                    "observer component received a forbidden cross-component credential"
+                )
             return
         if self.runtime_component == "reconciler":
             forbidden = (
@@ -1094,6 +1477,7 @@ class Settings(BaseSettings):
                 self.control_api_database_url,
                 self.control_worker_database_url,
                 self.control_catalog_database_url,
+                self.control_observer_database_url,
                 self.identity_migration_key,
                 self.openai_api_key,
                 self.query_studio_signing_key,
@@ -1115,11 +1499,44 @@ class Settings(BaseSettings):
                     "reconciler component received a forbidden cross-component credential"
                 )
             return
+        if self.runtime_component == "operator":
+            operator_forbidden: tuple[object | None, ...] = (
+                self.openai_api_key,
+                self.query_studio_signing_key,
+                self.datahub_gms_token,
+                self.oidc_issuer,
+                self.oidc_audience,
+                self.oidc_provider,
+                self.oidc_allowed_groups or None,
+                self.oidc_allowed_tenants or None,
+                self.pseudonymization_key,
+                self.api_local_bearer_token,
+                self.api_oidc_jwks_url,
+                self.inventory_cursor_signing_key,
+                self.connector_secret_directory,
+                self.connector_secret_provider_url,
+                self.connector_secret_role,
+                self.connector_secret_kv_mount,
+                self.connector_secret_capability,
+                self.connector_secret_ca_bundle,
+                self.workload_identity_token_file,
+                self.workload_identity_root,
+                self.workload_identity_audience,
+                self.semantic_registry_secret_role,
+                self.semantic_registry_secret_binding_ref,
+                self.semantic_registry_secret_version,
+            )
+            if any(value is not None for value in operator_forbidden):
+                raise ValueError(
+                    "operator component received a forbidden cross-component credential"
+                )
+            return
         common = (
             self.control_database_url,
             self.control_reconciler_database_url,
             self.control_migrator_database_url,
             self.control_restore_database_url,
+            self.control_observer_database_url,
             self.control_operator_actor_id,
             self.control_operator_roles or None,
             self.openai_api_key,
@@ -1257,6 +1674,9 @@ def get_settings() -> Settings:
     """Build settings at the composition boundary."""
 
     component = os.environ.get("SCHEMABRIDGE_COMPONENT", "web")
-    if component in {"api", "worker", "catalog", "reconciler"}:
+    if component in {"api", "worker", "catalog", "reconciler", "observer", "operator"}:
         return Settings(_env_file=None)
-    return Settings()
+    resolved = Settings(_env_file=".env")
+    if resolved.runtime_component != "web":
+        raise ValueError("background components must be selected through the process environment")
+    return resolved

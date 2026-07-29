@@ -6,12 +6,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from schemabridge.adapters.connectors.local_secrets import (
-    ConnectorSecretErrorCode,
-    ConnectorSecretResolutionError,
-    OpaqueConnectorSecretRef,
-    ResolvedPostgresSecret,
-)
 from schemabridge.adapters.connectors.postgres_profile_routing import (
     ProfilePostgresConnectorRoute,
 )
@@ -24,6 +18,12 @@ from schemabridge.adapters.postgres.relationships import (
 from schemabridge.application.connectors import (
     ConnectorTargetError,
     ConnectorTargetErrorCode,
+)
+from schemabridge.application.ports.connector_secrets import (
+    ConnectorSecretErrorCode,
+    ConnectorSecretResolutionError,
+    OpaqueConnectorSecretRef,
+    ResolvedPostgresSecret,
 )
 from schemabridge.application.ports.relationships import (
     RelationshipErrorCode,

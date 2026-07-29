@@ -30,6 +30,7 @@ def test_streamlit_empty_state_has_specified_navigation_and_mode_labels(
         "Relationships",
         "Query Studio",
         "Decisions",
+        "Operations",
     ]
     rendered = " ".join(str(item.value) for item in (*app.markdown, *app.caption, *app.info))
     assert "Recorded catalog" in rendered

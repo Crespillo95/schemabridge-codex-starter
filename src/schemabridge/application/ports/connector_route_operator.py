@@ -10,6 +10,7 @@ from typing import Protocol
 
 from schemabridge.domain.catalog_inventory import CatalogConnectionId
 from schemabridge.domain.connectors import (
+    MAX_ROUTE_REVISION,
     ConnectorRouteApplyResult,
     ConnectorRouteCapability,
     ConnectorRouteConfirmation,
@@ -47,25 +48,39 @@ class ConnectorRouteStoreError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
-class ConnectorPrivateBindings:
-    """Four distinct adapter-private handles with redacted representations."""
+class ConnectorPrivateBinding:
+    """One opaque handle pinned to an immutable provider version."""
 
-    preflight: str = field(repr=False)
-    catalog: str = field(repr=False)
-    execution: str = field(repr=False)
-    profile: str = field(repr=False)
+    reference: str = field(repr=False)
+    provider_secret_version: int = field(repr=False)
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.reference, str)
+            or _BINDING_REF.fullmatch(self.reference) is None
+            or "://" in self.reference
+            or "@" in self.reference
+            or type(self.provider_secret_version) is not int
+            or not 1 <= self.provider_secret_version <= MAX_ROUTE_REVISION
+        ):
+            raise ValueError("connector private binding is invalid")
+
+
+@dataclass(frozen=True, slots=True)
+class ConnectorPrivateBindings:
+    """Four distinct adapter-private handles with exact provider versions."""
+
+    preflight: ConnectorPrivateBinding = field(repr=False)
+    catalog: ConnectorPrivateBinding = field(repr=False)
+    execution: ConnectorPrivateBinding = field(repr=False)
+    profile: ConnectorPrivateBinding = field(repr=False)
 
     def __post_init__(self) -> None:
         values = (self.preflight, self.catalog, self.execution, self.profile)
-        if any(
-            not isinstance(value, str)
-            or _BINDING_REF.fullmatch(value) is None
-            or "://" in value
-            or "@" in value
-            for value in values
-        ):
+        if any(not isinstance(value, ConnectorPrivateBinding) for value in values):
             raise ValueError("connector private bindings are invalid")
-        if len(set(values)) != len(values):
+        references = tuple(value.reference for value in values)
+        if len(set(references)) != len(references):
             raise ValueError("connector private bindings must be capability-distinct")
 
     @property
@@ -74,10 +89,22 @@ class ConnectorPrivateBindings:
 
         return connector_private_bindings_fingerprint(
             {
-                ConnectorRouteCapability.PREFLIGHT: _digest(self.preflight),
-                ConnectorRouteCapability.CATALOG: _digest(self.catalog),
-                ConnectorRouteCapability.EXECUTION: _digest(self.execution),
-                ConnectorRouteCapability.PROFILE: _digest(self.profile),
+                ConnectorRouteCapability.PREFLIGHT: (
+                    _digest(self.preflight.reference),
+                    self.preflight.provider_secret_version,
+                ),
+                ConnectorRouteCapability.CATALOG: (
+                    _digest(self.catalog.reference),
+                    self.catalog.provider_secret_version,
+                ),
+                ConnectorRouteCapability.EXECUTION: (
+                    _digest(self.execution.reference),
+                    self.execution.provider_secret_version,
+                ),
+                ConnectorRouteCapability.PROFILE: (
+                    _digest(self.profile.reference),
+                    self.profile.provider_secret_version,
+                ),
             }
         )
 
@@ -184,6 +211,7 @@ def _digest(value: str) -> str:
 
 
 __all__ = [
+    "ConnectorPrivateBinding",
     "ConnectorPrivateBindings",
     "ConnectorRouteOperatorPort",
     "ConnectorRouteStoreError",

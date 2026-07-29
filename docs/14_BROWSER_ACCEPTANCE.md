@@ -649,3 +649,29 @@ Give a second person only the running application. After the three-action demo, 
 5. why context publication is a separate approval.
 
 Record misunderstandings as product feedback; do not reinterpret them as automated acceptance.
+
+## M29 operations browser matrix
+
+The M29 view is a deterministic, read-only operator projection. It does not query a source, expose
+an alert payload, or prove that a production monitoring provider is running. Start the final
+application bytes and validate these six closed states:
+
+1. healthy;
+2. degraded workload readiness;
+3. connector-secret provider outage;
+4. queue backlog;
+5. stale backup; and
+6. failed release policy.
+
+At 1280×720 and 390×844, verify the state label, severity, seven-workload readiness count, queue
+depth/age, secret resolution, backup age, release gate, telemetry delivery, and one safe
+recommended response. There must be no SQL, source value, result row, token, JWT, claim, binding,
+path, DSN, endpoint, username/password, provider response, raw exception, or high-cardinality
+identifier. The fixed hostile probe must render as literal escaped text, must not create a DOM
+element or script side effect, and the document must have no horizontal overflow.
+
+Run this browser pass only after the last UI/operator-byte change. Record viewport, each state,
+console output, protected-text scan, overflow result, hostile-probe result, and cleanup in
+`tasks/M29_HANDOFF.md`. A passing synthetic panel is local UX evidence only; production acceptance
+still requires real alert delivery, provider/cluster operations, fresh recovery, M30/M31, and
+external review.

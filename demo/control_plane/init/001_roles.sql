@@ -50,6 +50,17 @@ CREATE ROLE schemabridge_catalog
   NOINHERIT
   PASSWORD 'schemabridge_catalog';
 
+CREATE ROLE schemabridge_observer
+  LOGIN
+  NOSUPERUSER
+  NOCREATEDB
+  NOCREATEROLE
+  NOINHERIT
+  PASSWORD 'schemabridge_observer';
+
+GRANT schemabridge_observer TO schemabridge_migrator
+  WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
+
 ALTER DATABASE schemabridge_control OWNER TO schemabridge_migrator;
 
 GRANT CONNECT ON DATABASE schemabridge_control
@@ -58,4 +69,5 @@ GRANT CONNECT ON DATABASE schemabridge_control
      schemabridge_reconciler,
      schemabridge_api,
      schemabridge_worker,
-     schemabridge_catalog;
+     schemabridge_catalog,
+     schemabridge_observer;

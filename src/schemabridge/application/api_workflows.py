@@ -18,6 +18,9 @@ from schemabridge.application.ports.background_jobs import (
     JobStoreError,
     JobStoreErrorCode,
 )
+from schemabridge.application.ports.operational_telemetry import (
+    OperationalResourceAccessCause,
+)
 from schemabridge.application.ports.workflow_access import (
     WorkflowAccessError,
     WorkflowAccessErrorCode,
@@ -73,8 +76,19 @@ class ExecutionJobUseCaseErrorCode(StrEnum):
 class ExecutionJobUseCaseError(RuntimeError):
     """Sanitized API workflow failure without protected resource facts."""
 
-    def __init__(self, code: ExecutionJobUseCaseErrorCode, message: str) -> None:
+    def __init__(
+        self,
+        code: ExecutionJobUseCaseErrorCode,
+        message: str,
+        *,
+        resource_access_cause: OperationalResourceAccessCause | None = None,
+    ) -> None:
+        if (code is ExecutionJobUseCaseErrorCode.UNAVAILABLE) != (
+            resource_access_cause is not None
+        ):
+            raise ValueError("invalid internal resource access cause")
         self.code = code
+        self.resource_access_cause = resource_access_cause
         super().__init__(message)
 
 
@@ -182,8 +196,10 @@ class SubmitExecutionJob:
                 WorkflowPermission.EXECUTE,
                 at=now,
             )
-        except (AuthorizationError, ValueError):
-            raise _unavailable() from None
+        except AuthorizationError:
+            raise _denied() from None
+        except ValueError:
+            raise _not_found() from None
         except Exception:
             raise _service_unavailable() from None
 
@@ -223,7 +239,7 @@ class SubmitExecutionJob:
                 owner_principal_id=owner_filter,
             )
             if grant is None:
-                raise _unavailable()
+                raise _not_found()
             access_scope = (
                 JobWorkflowAccessScope.OWNER
                 if owner_filter is not None
@@ -235,15 +251,17 @@ class SubmitExecutionJob:
             ).inspect(workflow_id)
         except ExecutionJobUseCaseError:
             raise
-        except (AuthorizationError, ValueError):
-            raise _unavailable() from None
+        except AuthorizationError:
+            raise _denied() from None
+        except ValueError:
+            raise _not_found() from None
         except WorkflowAccessError as error:
             if error.code is WorkflowAccessErrorCode.STORE_FAILURE:
                 raise _service_unavailable() from None
-            raise _unavailable() from None
+            raise _not_found() from None
         except WorkflowError as error:
             if error.code is WorkflowErrorCode.NOT_FOUND:
-                raise _unavailable() from None
+                raise _not_found() from None
             raise _service_unavailable() from None
         except Exception:
             raise _service_unavailable() from None
@@ -253,7 +271,7 @@ class SubmitExecutionJob:
             expected_workflow_revision=expected_workflow_revision,
             expected_plan_fingerprint=expected_plan_fingerprint,
         ):
-            raise _unavailable()
+            raise _not_found()
 
         expires_at = min(
             principal.expires_at,
@@ -261,7 +279,7 @@ class SubmitExecutionJob:
             principal.authenticated_at + _MAX_JOB_AUTHORIZATION_AGE,
         )
         if expires_at <= now:
-            raise _unavailable()
+            raise _not_found()
         try:
             reserved = JobAuthorization.create(
                 workspace_id=principal.workspace_id,
@@ -387,7 +405,7 @@ class CancelExecutionJob:
                     return raced
             raise _service_unavailable() from None
         if cancelled is None or cancelled.id != job_id:
-            raise _unavailable()
+            raise _not_found()
         return cancelled
 
 
@@ -421,7 +439,7 @@ def _load_visible_job_with_owner_filter(
     at: datetime,
 ) -> tuple[BackgroundJob, str | None]:
     if _SAFE_JOB_ID.fullmatch(job_id) is None:
-        raise _unavailable()
+        raise _not_found()
     try:
         owner_filter = authorization.owner_filter_for(
             principal,
@@ -433,14 +451,16 @@ def _load_visible_job_with_owner_filter(
             job_id,
             submitting_actor_id=owner_filter,
         )
-    except (AuthorizationError, ValueError):
-        raise _unavailable() from None
+    except AuthorizationError:
+        raise _denied() from None
+    except ValueError:
+        raise _not_found() from None
     except JobStoreError:
         raise _service_unavailable() from None
     except Exception:
         raise _service_unavailable() from None
     if job is None or job.id != job_id:
-        raise _unavailable()
+        raise _not_found()
     return job, owner_filter
 
 
@@ -523,10 +543,19 @@ def _invalid_request() -> ExecutionJobUseCaseError:
     )
 
 
-def _unavailable() -> ExecutionJobUseCaseError:
+def _denied() -> ExecutionJobUseCaseError:
     return ExecutionJobUseCaseError(
         ExecutionJobUseCaseErrorCode.UNAVAILABLE,
         "The execution job is not available to the authenticated principal.",
+        resource_access_cause=OperationalResourceAccessCause.DENIED,
+    )
+
+
+def _not_found() -> ExecutionJobUseCaseError:
+    return ExecutionJobUseCaseError(
+        ExecutionJobUseCaseErrorCode.UNAVAILABLE,
+        "The execution job is not available to the authenticated principal.",
+        resource_access_cause=OperationalResourceAccessCause.NOT_FOUND,
     )
 
 

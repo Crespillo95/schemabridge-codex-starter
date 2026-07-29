@@ -1,0 +1,97 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: schemabridge-web
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/component: web
+spec:
+  minAvailable: 1
+  unhealthyPodEvictionPolicy: IfHealthyBudget
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: schemabridge-web
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: schemabridge-api
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/component: api
+spec:
+  minAvailable: 1
+  unhealthyPodEvictionPolicy: IfHealthyBudget
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: schemabridge-api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: schemabridge-worker
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/component: worker
+spec:
+  minAvailable: 1
+  unhealthyPodEvictionPolicy: IfHealthyBudget
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: schemabridge-worker
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: schemabridge-catalog
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/component: catalog
+spec:
+  minAvailable: 1
+  unhealthyPodEvictionPolicy: IfHealthyBudget
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: schemabridge-catalog
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: schemabridge-profile
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/component: profile
+spec:
+  minAvailable: 1
+  unhealthyPodEvictionPolicy: IfHealthyBudget
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: schemabridge-profile
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: schemabridge-reconciler
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/component: reconciler
+spec:
+  minAvailable: 1
+  unhealthyPodEvictionPolicy: IfHealthyBudget
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: schemabridge-reconciler
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: schemabridge-observer
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/component: observer
+spec:
+  minAvailable: 1
+  unhealthyPodEvictionPolicy: IfHealthyBudget
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: schemabridge-observer
