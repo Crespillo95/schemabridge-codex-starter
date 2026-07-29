@@ -1,6 +1,6 @@
 # Project state
 
-Last updated: 2026-07-28
+Last updated: 2026-07-29
 
 ## Accepted milestone
 
@@ -34,8 +34,13 @@ inventory paths, 164-test integration, 47-test acceptance, 2,714-test quality, 8
 package/release/scale/diff postflight, and all nine desktop/mobile internal-browser scenarios pass.
 M29 is eligible but not started.
 
-This is not a production or release acceptance. The combined tree remains dirty and has not been
-reviewed or committed as a release candidate. Operated Kubernetes, TLS, NetworkPolicy, external
+This is not a production or release acceptance. The development branch is versioned on a draft
+GitHub PR but has not been reviewed or accepted as a release candidate. The
+first clean hosted run exposed missing DataHub/MCP bootstrap dependencies, ignored immutable M27
+evidence, CI-only ANSI output, and an unseeded synthetic DataHub registry. The publication
+follow-up tracks only the required signed evidence, aligns bootstrap with the tested extras, uses
+color-free CI logs, and explicitly publishes/read-checks the approved synthetic registry before
+live-registry integration. Operated Kubernetes, TLS, NetworkPolicy, external
 secrets, production replica/traffic scale, provider governance, and later operations/security
 gates remain open. M00 through M16 automated development
 gates are complete on the operator machine; M17's recorded deployment package and M18's generated
@@ -50,8 +55,9 @@ acceptance and a clean release commit remain unrecorded.
   integrity validation are executable.
 - POSIX bootstrap selects a supported Python when the default `python3` is too old; the PowerShell
   equivalent is implemented but was not run because PowerShell is unavailable.
-- Git has `HEAD` `231187a` on `agent/ignore-node-modules`; the current M16 remediation remains an
-  uncommitted candidate, and generated/runtime/secret paths are ignored.
+- GitHub publication uses branch `agent/ignore-node-modules` and draft PR #1; generated, runtime,
+  and secret paths remain ignored, while the 19 content-addressed M27 campaign reports and two
+  signed ledger attestations cited by tests and governance documentation are deliberately tracked.
 - A pinned PostgreSQL 16.13 container initializes a deterministic 11-table/eight-schema,
   465-row synthetic dataset on loopback port 55433 with tracked data/schema/constraint checksums,
   UTC, locale `C`, and a hardened reader role.
@@ -1303,13 +1309,14 @@ M28 accepted evidence on 2026-07-28:
 - The standalone Codex CLI package 0.104.0 is present but cannot start because its native arm64
   executable is missing; the active Codex desktop task is unaffected.
 - PowerShell bootstrap behavior is statically reviewed but unverified on Windows.
-- The repository now has `HEAD` `231187a`; the current M16 remediation is still uncommitted and is
-  not yet strict release-candidate evidence.
-- Remote GitHub Actions were updated for PostgreSQL integration and acceptance but were not
-  executed from this uncommitted local folder; the same commands passed locally.
-- The expanded GitHub Actions job now also provisions DataHub and enforces full-suite coverage, but
-  its runtime and disk headroom on an actual GitHub-hosted Ubuntu runner remain unverified until the
-  reviewed tree is committed and pushed.
+- The draft PR is publication evidence, not a signed release candidate. Strict `make release-clean`,
+  exact-commit deployment, external review, and the remaining production gates are still required.
+- The first hosted GitHub Actions run proved that local installed packages, ignored signed
+  evidence, persistent DataHub state, and terminal color could mask clean-checkout failures. The
+  tracked correction removes those assumptions; the current PR check status remains the
+  authoritative remote result.
+- GitHub-hosted runtime and disk headroom must still be judged from the current clean PR run; local
+  success does not substitute for that hosted evidence.
 - The generic transformation algebra is serializable in M02, but only its explicit approved subset
   is interpreted/compiled. M21 adds timestamp/date/decimal operations needed by the synthetic
   commerce cases; every other transformation still fails closed.

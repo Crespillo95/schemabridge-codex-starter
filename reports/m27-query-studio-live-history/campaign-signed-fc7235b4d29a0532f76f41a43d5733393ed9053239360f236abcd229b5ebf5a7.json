@@ -1,0 +1,240 @@
+{
+  "report": {
+    "candidate_order": [
+      "gpt-5-nano-2025-08-07",
+      "gpt-5.4-nano-2026-03-17",
+      "gpt-5.6-luna"
+    ],
+    "corpus_sha256": "a03d96b6ce0ed7172ffcf6a074f0d755dc62f2709c10fdce7607e1989614b1ba",
+    "evaluation_outcome": "policy_unavailable",
+    "fake_baseline_configuration_fingerprint": "394320c200711ac406c3007045b847505ea2216ec4477efcfd52a62749d697c2",
+    "fake_baseline_model": "query-studio-fake-v1",
+    "full_corpus_base_provider_attempts": 17,
+    "full_corpus_runs_maximum": 3,
+    "full_evaluations": [],
+    "limits": {
+      "max_cost_eur": "1.00",
+      "max_input_tokens": 250000,
+      "max_output_reasoning_tokens": 40000,
+      "max_provider_attempts": 180
+    },
+    "next_required_model": null,
+    "plan_version": "m27-cheapest-first-campaign-v9",
+    "provider_free_preflight": {
+      "case_outcomes": [
+        {
+          "case_id": "secondary-holders-by-registration-date",
+          "diagnostic": null,
+          "expected_request_sha256": "0ed56b2f29d98a9e88ba64aa04f01da0f6afdffdb80d46bba76e31acfcdca566",
+          "observed_request_sha256": "0ed56b2f29d98a9e88ba64aa04f01da0f6afdffdb80d46bba76e31acfcdca566",
+          "outcome": "fingerprint_match",
+          "passed": true,
+          "repetition": 1
+        },
+        {
+          "case_id": "secondary-holders-by-registration-date",
+          "diagnostic": null,
+          "expected_request_sha256": "0ed56b2f29d98a9e88ba64aa04f01da0f6afdffdb80d46bba76e31acfcdca566",
+          "observed_request_sha256": "0ed56b2f29d98a9e88ba64aa04f01da0f6afdffdb80d46bba76e31acfcdca566",
+          "outcome": "fingerprint_match",
+          "passed": true,
+          "repetition": 2
+        },
+        {
+          "case_id": "secondary-holders-by-registration-date",
+          "diagnostic": null,
+          "expected_request_sha256": "0ed56b2f29d98a9e88ba64aa04f01da0f6afdffdb80d46bba76e31acfcdca566",
+          "observed_request_sha256": "0ed56b2f29d98a9e88ba64aa04f01da0f6afdffdb80d46bba76e31acfcdca566",
+          "outcome": "fingerprint_match",
+          "passed": true,
+          "repetition": 3
+        },
+        {
+          "case_id": "active-customers-by-country",
+          "diagnostic": null,
+          "expected_request_sha256": "e7da2f62d1b44b497fbb2f8776d9bdd251912794a963c8da3120dfc63b1f36d9",
+          "observed_request_sha256": "e7da2f62d1b44b497fbb2f8776d9bdd251912794a963c8da3120dfc63b1f36d9",
+          "outcome": "fingerprint_match",
+          "passed": true,
+          "repetition": 1
+        },
+        {
+          "case_id": "active-customers-by-country",
+          "diagnostic": null,
+          "expected_request_sha256": "e7da2f62d1b44b497fbb2f8776d9bdd251912794a963c8da3120dfc63b1f36d9",
+          "observed_request_sha256": "e7da2f62d1b44b497fbb2f8776d9bdd251912794a963c8da3120dfc63b1f36d9",
+          "outcome": "fingerprint_match",
+          "passed": true,
+          "repetition": 2
+        },
+        {
+          "case_id": "active-customers-by-country",
+          "diagnostic": null,
+          "expected_request_sha256": "e7da2f62d1b44b497fbb2f8776d9bdd251912794a963c8da3120dfc63b1f36d9",
+          "observed_request_sha256": "e7da2f62d1b44b497fbb2f8776d9bdd251912794a963c8da3120dfc63b1f36d9",
+          "outcome": "fingerprint_match",
+          "passed": true,
+          "repetition": 3
+        },
+        {
+          "case_id": "active-products-by-category",
+          "diagnostic": null,
+          "expected_request_sha256": "22735d31cc9d514e8a1f53021ddafcf42c13d7343ea9db025aab85f528193c32",
+          "observed_request_sha256": "22735d31cc9d514e8a1f53021ddafcf42c13d7343ea9db025aab85f528193c32",
+          "outcome": "fingerprint_match",
+          "passed": true,
+          "repetition": 1
+        },
+        {
+          "case_id": "active-products-by-category",
+          "diagnostic": null,
+          "expected_request_sha256": "22735d31cc9d514e8a1f53021ddafcf42c13d7343ea9db025aab85f528193c32",
+          "observed_request_sha256": "22735d31cc9d514e8a1f53021ddafcf42c13d7343ea9db025aab85f528193c32",
+          "outcome": "fingerprint_match",
+          "passed": true,
+          "repetition": 2
+        },
+        {
+          "case_id": "active-products-by-category",
+          "diagnostic": null,
+          "expected_request_sha256": "22735d31cc9d514e8a1f53021ddafcf42c13d7343ea9db025aab85f528193c32",
+          "observed_request_sha256": "22735d31cc9d514e8a1f53021ddafcf42c13d7343ea9db025aab85f528193c32",
+          "outcome": "fingerprint_match",
+          "passed": true,
+          "repetition": 3
+        },
+        {
+          "case_id": "delivered-orders-by-day",
+          "diagnostic": null,
+          "expected_request_sha256": "835738cb2d2980aa777ca4af269979030d520c7bcd4f74156fadf9b0f804a44b",
+          "observed_request_sha256": "835738cb2d2980aa777ca4af269979030d520c7bcd4f74156fadf9b0f804a44b",
+          "outcome": "fingerprint_match",
+          "passed": true,
+          "repetition": 1
+        },
+        {
+          "case_id": "delivered-orders-by-day",
+          "diagnostic": null,
+          "expected_request_sha256": "835738cb2d2980aa777ca4af269979030d520c7bcd4f74156fadf9b0f804a44b",
+          "observed_request_sha256": "835738cb2d2980aa777ca4af269979030d520c7bcd4f74156fadf9b0f804a44b",
+          "outcome": "fingerprint_match",
+          "passed": true,
+          "repetition": 2
+        },
+        {
+          "case_id": "delivered-orders-by-day",
+          "diagnostic": null,
+          "expected_request_sha256": "835738cb2d2980aa777ca4af269979030d520c7bcd4f74156fadf9b0f804a44b",
+          "observed_request_sha256": "835738cb2d2980aa777ca4af269979030d520c7bcd4f74156fadf9b0f804a44b",
+          "outcome": "fingerprint_match",
+          "passed": true,
+          "repetition": 3
+        },
+        {
+          "case_id": "revenue-by-order-date-and-category",
+          "diagnostic": null,
+          "expected_request_sha256": "90596f1c6bdba075f9d819356001cc25d7d2f16d4a9617cbac1cface3be57df0",
+          "observed_request_sha256": "90596f1c6bdba075f9d819356001cc25d7d2f16d4a9617cbac1cface3be57df0",
+          "outcome": "fingerprint_match",
+          "passed": true,
+          "repetition": 1
+        },
+        {
+          "case_id": "revenue-by-order-date-and-category",
+          "diagnostic": null,
+          "expected_request_sha256": "90596f1c6bdba075f9d819356001cc25d7d2f16d4a9617cbac1cface3be57df0",
+          "observed_request_sha256": "90596f1c6bdba075f9d819356001cc25d7d2f16d4a9617cbac1cface3be57df0",
+          "outcome": "fingerprint_match",
+          "passed": true,
+          "repetition": 2
+        },
+        {
+          "case_id": "revenue-by-order-date-and-category",
+          "diagnostic": null,
+          "expected_request_sha256": "90596f1c6bdba075f9d819356001cc25d7d2f16d4a9617cbac1cface3be57df0",
+          "observed_request_sha256": "90596f1c6bdba075f9d819356001cc25d7d2f16d4a9617cbac1cface3be57df0",
+          "outcome": "fingerprint_match",
+          "passed": true,
+          "repetition": 3
+        }
+      ],
+      "failed_case_ids": [],
+      "passed": true,
+      "pipeline_fingerprint": "03df287f3be77c2ab7debac723f95f0c31469dc0261cef28fe4aa6ecbc99db41",
+      "plan_version": "m27-cheapest-first-campaign-v9",
+      "planned_case_count": 15,
+      "provider_calls_performed": 0,
+      "schema_version": 1
+    },
+    "qualification_base_provider_attempts_per_model": 1,
+    "qualification_reports": [
+      {
+        "adapter": "openai_responses_structured",
+        "attempt_policy_version": "m27-durable-attempts-v3",
+        "case_outcomes": [],
+        "complete": false,
+        "configuration_fingerprint": "7225860e1e8c35129d74cc3fdf120a671da4af7a1fb103c447f1cc440ef26b96",
+        "corpus_sha256": "a03d96b6ce0ed7172ffcf6a074f0d755dc62f2709c10fdce7607e1989614b1ba",
+        "cross_tenant_candidates": 0,
+        "endpoint_region": "global",
+        "evaluation_outcome": "policy_unavailable",
+        "external_ai": true,
+        "failed_case_ids": [],
+        "matcher_version": "m27-deterministic-v9",
+        "model_snapshot": "gpt-5-nano-2025-08-07",
+        "openai_sdk_version": "2.46.0",
+        "output_schema_version": "m27-query-studio-v10",
+        "plan_version": "m27-cheapest-first-campaign-v9",
+        "planned_base_provider_attempts": 1,
+        "planned_case_count": 6,
+        "policy_version": null,
+        "pricing": {
+          "accounting_note": "all input charged at full rate; output includes reasoning; USD treated as EUR 1:1",
+          "cached_input_discount_used": false,
+          "input_eur_per_million": "0.05",
+          "model_snapshot": "gpt-5-nano-2025-08-07",
+          "output_eur_per_million": "0.40",
+          "regional_uplift": "1.10",
+          "source_checked_on": "2026-07-26",
+          "source_url": "https://developers.openai.com/api/docs/models/gpt-5-nano",
+          "usd_to_eur_floor": "1.00"
+        },
+        "prompt_version": "m27-openai-prompts-v16",
+        "qualified": false,
+        "reasoning_effort": "minimal",
+        "runtime_model_cascade_detected": false,
+        "schema_version": 2,
+        "sql_tool_or_approval_outputs": 0,
+        "unknown_candidate_ids": 0,
+        "usage": {
+          "budget_exhausted": false,
+          "calculated_cost_eur": "0",
+          "duration_ms": 0,
+          "input_tokens": 0,
+          "output_includes_reasoning": true,
+          "output_reasoning_tokens": 0,
+          "provider_attempts": 0,
+          "within_budget": true
+        }
+      }
+    ],
+    "schema_version": 5,
+    "selected_model": null,
+    "usage": {
+      "budget_exhausted": false,
+      "calculated_cost_eur": "0",
+      "duration_ms": 0,
+      "input_tokens": 0,
+      "output_includes_reasoning": true,
+      "output_reasoning_tokens": 0,
+      "provider_attempts": 0,
+      "within_budget": true
+    },
+    "worst_case_base_provider_attempts": 54
+  },
+  "report_sha256": "fc28574e4eea099d0d6be2326e36518ba7a77516a89d081123575a995d04648a",
+  "schema_version": 1,
+  "signature": "294aeb13a4239c721eceb65d39726527971e368966b759a267b8ef579c8c4a0d",
+  "signature_domain": "schemabridge:m27:query-studio:qualification-campaign-evidence:v1",
+  "signature_key_version": "v1"
+}

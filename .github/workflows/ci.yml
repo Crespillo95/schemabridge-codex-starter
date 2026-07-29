@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+env:
+  NO_COLOR: "1"
+
 jobs:
   quality:
     runs-on: ubuntu-latest
@@ -39,6 +42,12 @@ jobs:
       - run: make datahub-provision-writer
       - run: make datahub-catalog-check
       - run: make datahub-mcp-check
+      - run: >-
+          .venv/bin/schemabridge registry-publish
+          --fingerprint ef480eb7370924ff4c94131a2c6c4063d85652cc83aaec9059538cdc2cf9c1b9
+          --confirm publish-approved-registry-version
+          --json
+      - run: make datahub-registry-check
       - run: make control-plane-reset
       - run: make control-plane-migrate
       - run: make control-plane-check

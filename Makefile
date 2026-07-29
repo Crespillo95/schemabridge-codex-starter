@@ -214,7 +214,7 @@ bootstrap:
 	@$(PYTHON) -c 'import sys; sys.exit(0 if (3, 11) <= sys.version_info[:2] < (3, 14) else "SchemaBridge requires Python >=3.11,<3.14")'
 	$(PYTHON) -m venv --clear $(VENV)
 	$(BIN)/python -m pip install --upgrade pip
-	$(BIN)/python -m pip install -e '.[dev,postgres,sql,ui,api,llm]'
+	$(BIN)/python -m pip install -e '.[dev,postgres,sql,ui,api,datahub,llm]'
 	$(BIN)/schemabridge version
 	$(BIN)/schemabridge doctor
 

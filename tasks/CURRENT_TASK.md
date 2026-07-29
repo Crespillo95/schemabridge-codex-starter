@@ -41,16 +41,36 @@ fail closed.
   clean consoles, no overflow/XSS/protected-data hits, distinct tenant readers/results, and exact
   cleanup.
 
+## Publication reproducibility follow-up — 2026-07-29
+
+The first draft-PR run exposed four clean-checkout assumptions that the accepted local environment
+had masked: `make bootstrap` omitted the existing `datahub` extra; 18 retained signed v4–v10
+campaign reports were ignored despite immutable-byte tests; Rich emitted CI-only ANSI sequences;
+and the fresh DataHub service had no explicitly published semantic registry.
+
+The publication candidate now installs the same reviewed DataHub/MCP dependencies in `bootstrap`,
+tracks the 19 content-addressed synthetic campaign reports plus the two signed ledger attestations
+cited by tests and governance docs, sets `NO_COLOR=1` for stable CI output, and publishes then
+read-checks the exact approved synthetic registry fingerprint before integration tests. No key,
+private data, unsigned runtime report, source-database write, or additional production capability
+is included.
+
+Focused reproduction passes 33 formerly affected tests both in the working repository and in an
+index-only clean export. The development release audit passes 772 candidate files and 23 direct
+licenses with only the expected dirty-tree warning. The current draft-PR checks are the
+authoritative remote publication result.
+
 ## Scope guard
 
 M28 keeps inventory cardinality dynamic, while a single request remains constrained to one
 connection, at most three tables, and two joins. Application preflight never uses
 `EXPLAIN ANALYZE`; engineering timing diagnostics remain synthetic-only.
 
-Local acceptance is not production approval. The tree is dirty and uncommitted; remote secret
-management, TLS/NetworkPolicy, observability/SIEM, supply-chain controls, backup/recovery,
-production capacity/SLO evidence, real-tenant evaluation, penetration/security review, clean
-signed release identity, and external sign-off remain open.
+Local acceptance is not production approval. The draft PR is development publication evidence,
+not a reviewed or signed release candidate; remote secret management, TLS/NetworkPolicy,
+observability/SIEM, supply-chain controls, backup/recovery, production capacity/SLO evidence,
+real-tenant evaluation, penetration/security review, clean signed release identity, and external
+sign-off remain open.
 
 ## Next milestone
 
