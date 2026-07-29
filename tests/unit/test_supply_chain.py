@@ -182,6 +182,11 @@ def test_mutable_action_and_runtime_image_references_are_rejected(tmp_path: Path
             "          include-hidden-files: false\n",
             "supply_chain_artifact_upload_invalid",
         ),
+        (
+            "          cache-dir: .local/trivy-cache\n",
+            "          cache-dir: .cache/trivy\n",
+            "trivy_cache_path_invalid",
+        ),
     ],
 )
 def test_ci_operational_controls_fail_closed(
@@ -382,6 +387,11 @@ def test_duplicate_workflow_keys_and_missing_release_attestations_fail_closed(
             "          include-hidden-files: true\n",
             "          include-hidden-files: false\n",
             "supply_chain_artifact_upload_invalid",
+        ),
+        (
+            "          cache-dir: .local/trivy-cache\n",
+            "          cache-dir: .cache/trivy\n",
+            "trivy_cache_path_invalid",
         ),
     ],
 )

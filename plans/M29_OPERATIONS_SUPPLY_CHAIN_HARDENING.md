@@ -193,7 +193,7 @@ publication.
 The reproducible local gates now pass: schema v11 and the seven-role boundary, focused/full
 PostgreSQL cuts, deterministic acceptance/evaluation, installed wheel, frozen dependency and
 supply-chain policy, local distinct-target recovery, scale contracts, and the final internal
-browser matrix. The consolidated quality gate passes 3136 tests plus Ruff, mypy, supply-chain, and
+browser matrix. The consolidated quality gate passes 3138 tests plus Ruff, mypy, supply-chain, and
 release audit; full coverage passes 3325 tests with 14 explicit external skips at 81.09%. Missing
 DataHub credentials and the retained M27 browser fixture remain explicit external skips. No
 target-provider rotation/revocation, cluster-side admission, real alert/SIEM delivery, immutable
@@ -261,6 +261,9 @@ therefore remain **NO-GO**, and M30/M31 remain blocked.
       runtime requirements are exact and hash-verified.
 - [x] Every workflow action and container base is immutable-SHA/digest pinned; a regression test
       rejects tag references and mutable images.
+- [x] Every Trivy action writes cache only under ignored `.local/trivy-cache`; static workflow
+      policy rejects an omitted or different path as `trivy_cache_path_invalid`, with CI and
+      release regressions.
 - [x] Fixture-backed wheel/runtime-image SBOM and evidence-contract validation covers exact
       direct/runtime dependencies and rejects source/artifact digest mismatches; it is not a final
       local image build claim.

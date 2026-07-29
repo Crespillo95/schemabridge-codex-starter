@@ -35,10 +35,16 @@ package/release/scale/diff postflight, and all nine desktop/mobile internal-brow
 M29's reproducible local baseline is accepted. Control schema v11, the seven-role boundary,
 focused/full PostgreSQL gates, deterministic acceptance/evaluation, installed wheel, frozen
 dependency/supply-chain policy, distinct-target local recovery, scale contracts, and the 6×2
-internal-browser operations matrix pass. The final quality gate passes 3136 tests plus Ruff,
+internal-browser operations matrix pass. The final quality gate passes 3138 tests plus Ruff,
 mypy, supply-chain, and release audit; full coverage passes 3325 tests with 14 explicit external
 skips at 81.09%. No external provider, cluster, alert delivery, immutable retention, external
 cutover/rollback, protected release, or production operation has been accepted.
+
+The first hosted M29 supply-chain run failed closed before provenance because Trivy created
+non-ignored `.cache/trivy` after its image scans. Both workflows now use ignored
+`.local/trivy-cache`, and 43 focused supply-chain regressions enforce
+`trivy_cache_path_invalid`. Corrected hosted evidence remains external and is not claimed by this
+local state record.
 
 This is not a production or release acceptance. The development branch is versioned on a draft
 GitHub PR but has not been reviewed or accepted as a release candidate. The
@@ -604,7 +610,7 @@ evidence.
 - Final local evidence is recorded in `tasks/M29_HANDOFF.md`: 210 focused M29 tests; 18 focused
   PostgreSQL tests; 158 full integration passes with 11 exact external skips; 43 acceptance passes
   with four DataHub skips; deterministic evaluation; complete wheel migrations/entrypoints;
-  frozen install; local recovery; scale; browser acceptance; final 3136-test quality; and
+  frozen install; local recovery; scale; browser acceptance; final 3138-test quality; and
   3325-test/81.09% coverage. Production and release remain **NO-GO**; M30/M31 and external
   provider, cluster, operations, recovery, release, security, and operator acceptance remain
   blocked.
@@ -1394,7 +1400,7 @@ M29 accepted local evidence on 2026-07-29:
   migrations 1–11 and all ten entrypoints, frozen uv installation, dependency audit, local
   distinct-target recovery, the 61-resource validator, and scale correctness pass;
 - `make check` passes supply-chain/release audit, Ruff over 592 files, strict mypy over 300 source
-  files, and 3136 tests with 211 deselected in 758.69 seconds. Full coverage passes 3325 tests with
+  files, and 3138 tests with 211 deselected in 653.40 seconds. Full coverage passes 3325 tests with
   14 explicit external skips and one performance deselection at 81.09% in 2436.86 seconds;
 - the final internal-browser operations matrix passes all six states at desktop and mobile with
   zero console warnings/errors, overflow, injected scripts, protected-data hits, or dangerous

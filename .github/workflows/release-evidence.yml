@@ -96,6 +96,7 @@ jobs:
         with:
           scan-type: image
           image-ref: ${{ steps.image_name.outputs.name }}@${{ steps.build.outputs.digest }}
+          cache-dir: .local/trivy-cache
           format: cyclonedx
           output: .local/supply-chain/runtime-image.cdx.json
       - name: Scan the runtime image
@@ -103,6 +104,7 @@ jobs:
         with:
           scan-type: image
           image-ref: ${{ steps.image_name.outputs.name }}@${{ steps.build.outputs.digest }}
+          cache-dir: .local/trivy-cache
           scanners: vuln
           format: json
           output: .local/supply-chain/trivy-image.json

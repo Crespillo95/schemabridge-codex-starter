@@ -668,6 +668,40 @@ def _checkout_credentials_findings(
     return tuple(findings)
 
 
+def _trivy_cache_findings(
+    path: Path,
+    document: _YamlDocument,
+    root: Path,
+) -> tuple[Finding, ...]:
+    relative = str(path.relative_to(root))
+    jobs = document.value.get("jobs")
+    if not isinstance(jobs, dict):
+        return ()
+    findings: list[Finding] = []
+    for job_name, raw_job in jobs.items():
+        if not isinstance(job_name, str) or not isinstance(raw_job, dict):
+            continue
+        raw_steps = raw_job.get("steps")
+        if not isinstance(raw_steps, list):
+            continue
+        for step_index, raw_step in enumerate(raw_steps, start=1):
+            if not isinstance(raw_step, dict):
+                continue
+            action = raw_step.get("uses")
+            if not isinstance(action, str) or not action.startswith("aquasecurity/trivy-action@"):
+                continue
+            inputs = raw_step.get("with")
+            if not isinstance(inputs, dict) or inputs.get("cache-dir") != ".local/trivy-cache":
+                findings.append(
+                    Finding(
+                        "trivy_cache_path_invalid",
+                        f"{relative}:{job_name}:step-{step_index}",
+                        "Trivy caches must stay in the ignored .local artifact directory",
+                    )
+                )
+    return tuple(findings)
+
+
 def _unconditional_action_inputs(
     raw_step: object,
     action: str,
@@ -1041,6 +1075,7 @@ def verify_workflows(root: Path) -> tuple[Finding, ...]:
         findings.extend(_ci_workflow_findings(path, document, root))
         findings.extend(_supply_chain_artifact_upload_findings(path, document, root))
         findings.extend(_checkout_credentials_findings(path, document, root))
+        findings.extend(_trivy_cache_findings(path, document, root))
         findings.extend(_release_attestation_findings(path, document, root))
     return tuple(findings)
 

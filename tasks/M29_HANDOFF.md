@@ -10,7 +10,7 @@
 - Proposed commit message: `feat: harden operations, supply chain, and recovery`
 
 ```text
-M29_FINAL_AUTOMATED_RESULT=PASS_CHECK_3136_COVERAGE_81_09
+M29_FINAL_AUTOMATED_RESULT=PASS_CHECK_3138_COVERAGE_81_09
 M29_FINAL_POSTGRES_RESULT=PASS_158_TESTS_11_EXTERNAL_SKIPS
 M29_FINAL_RECOVERY_RESULT=PASS_LOCAL_FRESH_TARGET_EXTERNAL_CUTOVER_NOT_RUN
 M29_FINAL_BROWSER_RESULT=PASS_DESKTOP_6_OF_6_MOBILE_6_OF_6
@@ -111,8 +111,8 @@ external operation. A local pass is never a production or release claim.
 | Command | Result | Notes |
 |---|---|---|
 | Required repository docs, M29 plan/state, ADR, and local milestone skill | pass | Read before documentation consolidation |
-| Focused M29 unit/security/managed-composition selection | PASS | 210 M29 recovery/deployment/telemetry/logging/composition tests passed in 12.83 s; the final supply/release/wheel cut passed 58 tests |
-| Final artifact-upload and interrupted-coverage regressions | PASS | 41 supply-chain tests passed in 0.44 s and 13 release-audit tests passed in 0.24 s; CI/release uploads use one immutable action and a seven-path allowlist, while forced `.coverage.*` artifacts fail closed |
+| Focused M29 unit/security/managed-composition selection | PASS | 210 M29 recovery/deployment/telemetry/logging/composition tests passed in 12.83 s; the final supply/release/wheel cut passed 60 tests |
+| Final supply-chain and release-audit regressions | PASS | 43 supply-chain tests passed in 0.35 s and 13 release-audit tests passed in 0.24 s; CI/release uploads use one immutable action and a seven-path allowlist, forced `.coverage.*` artifacts fail closed, and Trivy cache confinement is enforced for both workflows |
 | `make supply-chain-static` | PASS_LOCAL | Immutable-input policy passed; the final precommit release audit inspected 863 candidate files and 23 direct licenses with only the expected dirty-tree warning |
 | `make m29-recovery-policy-check` | PASS | Schema `schemabridge.recovery-operator.v1`; policy fingerprint `24bdecb8bcb8faab8ba83d64eadf201c0b1d31142ebab773b012735f8f6f34ae` |
 | `make control-plane-reset` / `make control-plane-migrate` / `make control-plane-check` | PASS | Clean schema v11; seven credentials current with no pending migration; source/control separation verified |
@@ -126,7 +126,7 @@ external operation. A local pass is never a production or release claim.
 | M29 retention planner and complete distinct fresh-target recovery/rollback drill | PASS_LOCAL_EXTERNAL_CUTOVER_NOT_RUN | Signed backup restored into a distinct fresh local database with schema v11/state verification; retention/tamper/rollback contracts passed; remote object-lock, external cutover, and operated rollback were not run |
 | Operator-patched Kubernetes render and local validator | PASS_LOCAL | Closed 61-resource render passed; the unpatched overlay failed closed with `unresolved_placeholder` |
 | `kubectl apply --server-side --dry-run=server` against target cluster | NOT_RUN_EXTERNAL | Required for production; missing cluster context remains an explicit blocker |
-| `make check` | PASS | Supply-chain and release audit passed; Ruff passed over 592 files, mypy passed over 300 source files, and 3136 tests passed with 211 deselected in 758.69 s; total command time was 762.73 s |
+| `make check` | PASS | Supply-chain and release audit passed; Ruff passed over 592 files, mypy passed over 300 source files, and 3138 tests passed with 211 deselected in 653.40 s; total command time was 658.18 s |
 | `make coverage` | PASS_WITH_EXTERNAL_SKIPS | 3325 passed, 14 skipped, and 1 deselected in 2436.86 s; total coverage was 81.09% against the enforced 80% floor. Thirteen skips require unavailable DataHub credentials and one requires the retained M27 browser corpus |
 | `make test-scale-correctness` and retained PostgreSQL scale postflight | PASS | 33 passed; 10 and 5,434 asset profiles retained bounded 1/17/50 paging, while final unit/integration contracts cover 10/75 and 5,434/41,028 |
 | Release audit / clean exact-revision checks | PRECOMMIT_PASS | Normal audit passed with only dirty-tree warning; strict clean-revision audit is required immediately after commit |
@@ -155,12 +155,17 @@ external operation. A local pass is never a production or release claim.
   non-secret identifiers. The immutable history exceptions are bound individually to exact
   commit/path/rule/line fingerprints, current fixtures carry explicit line-local markers, and no
   path or detector rule is allowlisted.
+- The first hosted M29 supply-chain run reached the image scans but failed closed before provenance
+  because Trivy's implicit `.cache/trivy` made the exact checkout dirty. CI and release now
+  confine every Trivy cache to ignored `.local/trivy-cache`; static policy and regressions reject
+  omission or deviation as `trivy_cache_path_invalid`. The corrected hosted result remains
+  external to this commit and must be read from draft PR #1.
 
 ## Automated test results
 
-- Focused tests: PASS — 210 M29 tests plus the 58-test supply/release/wheel cut.
+- Focused tests: PASS — 210 M29 tests plus the 60-test supply/release/wheel cut.
 - `make check`: PASS — supply-chain/release audit, Ruff over 592 files, mypy over 300 source
-  files, and 3136 tests passed; 211 were deselected.
+  files, and 3138 tests passed; 211 were deselected.
 - Integration tests: PASS — 158 passed, 11 explicit external skips.
 - Acceptance tests: PASS — 43 passed, 4 explicit DataHub skips.
 - Deterministic evaluation: PASS; live LLM attestation not run.
@@ -260,6 +265,8 @@ cleanup_listener=closed
 - D115: accept the reproducible local M29 baseline while retaining production and release NO-GO.
 - D116: baseline only individually reviewed historical secret-scan fingerprints and require
   line-local synthetic markers for current false positives.
+- D117: constrain every Trivy cache to ignored `.local/trivy-cache` and reject any workflow
+  deviation before provenance.
 
 All decisions are recorded in `tasks/DECISION_LOG.md`; the lasting architecture is recorded in
 ADR 0014.
@@ -293,8 +300,8 @@ ADR 0014.
 
 ## Blockers
 
-- Local M29 publication is blocked only until the staged secret scan, strict clean-commit audit,
-  branch push, and hosted PR state are recorded.
+- Publication acceptance still requires the corrected commit to pass replacement hosted PR
+  checks; local 43-test supply-chain evidence is not a hosted pass.
 - Production acceptance is blocked on real provider, cluster, telemetry, remote retention,
   recovery/rollback, production traffic/SLO, vulnerability disposition, and independent
   security/operator evidence.
