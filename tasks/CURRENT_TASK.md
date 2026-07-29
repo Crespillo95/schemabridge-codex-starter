@@ -51,11 +51,11 @@ and the fresh DataHub service had no explicitly published semantic registry.
 The next hosted run reached the live integration suite and exposed two fixture collisions. The
 control container used the new non-secret local default while administrative tests still fell back
 to the older password, and the registry seed plus replay test used the same deterministic local
-principal with different approval timestamps. CI now supplies the Compose file's explicit
-`local-only-not-a-secret` loopback placeholder through the existing test-only admin DSN boundary
-and gives only the approved registry seed a dedicated local subject. No real credential is stored,
-no trust authentication is enabled, and the replay test retains an independent approval identity
-and audit ledger.
+principal with different approval timestamps. Every affected test and browser-runtime fallback now
+uses the Compose file's explicit `local-only-not-a-secret` loopback placeholder while retaining its
+test-only override, and only the approved registry seed receives a dedicated local subject. No
+real credential is stored, no trust authentication is enabled, and the replay test retains an
+independent approval identity and audit ledger.
 
 The same hosted run also proved that `NO_COLOR=1` alone does not make Rich/Typer help bytes
 portable across runner platforms. The three security-contract tests now remove ANSI styling with
@@ -78,7 +78,27 @@ regressions, 22 affected PostgreSQL integration tests, and all four live DataHub
 from clean synthetic volumes. The complete service gates pass with 164 integration tests plus one
 retained fixture skip and 47 acceptance tests. The final CI-shaped `make check` passes Ruff,
 strict mypy over 276 source files, and 2,714 tests with 207 service tests deselected in 726.42
-seconds. The next draft-PR checks are the authoritative remote publication result.
+seconds.
+
+The third hosted run passed both quality jobs and reached coverage only after DataHub, control
+PostgreSQL, integration, and acceptance had passed. Coverage reached 81.29%, but a generic
+job-wide `DATABASE_URL` crossed the component credential boundary and caused 31 deliberate
+fail-closed configuration tests; coverage instrumentation also made the 64-read wall-clock scale
+smoke exceed an unchanged latency budget once, while its zero-error and bounded-page checks
+passed. The generic DSN is now scoped only to the evaluation step, all 19 control-admin fallbacks
+match the explicit local Compose placeholder, and the scale smoke still runs under every gate with
+its 250/500 ms limits unchanged while pytest-cov pauses instrumentation for that dedicated latency
+test. A separately executed deterministic gate covers every exact threshold, and future failures
+print sanitized metrics plus the exact failed checks. Focused regressions pass; the replacement
+draft-PR checks remain the authoritative publication result.
+
+The final local publication bytes pass Ruff, strict mypy over 276 source files, and 2,719
+service-free tests with 207 deselected in 766.64 seconds. From clean synthetic demo, DataHub, and
+control-plane state, the registry read-back, schema v9/six-role check, 164 integration tests plus
+one retained skip, and all 47 acceptance tests pass. The complete corrected coverage run passes
+2,925 tests with that one skip and seven expected DataHub warnings at 81.75% in 2,588.95 seconds.
+The generic source/admin variables were explicitly absent from that process; the scale smoke and
+all 31 formerly contaminated component-boundary tests passed.
 
 ## Scope guard
 

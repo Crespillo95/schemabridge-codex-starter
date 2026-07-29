@@ -494,13 +494,15 @@ def run_load(
         raise ScaleHarnessError("scale load did not account for every read")
     p95 = percentile(latencies, 0.95)
     p99 = percentile(latencies, 0.99)
-    passed = (
-        error_count == 0
-        and p95 <= MAX_P95_MILLISECONDS
-        and p99 <= MAX_P99_MILLISECONDS
-        and maximum_rows_read <= page_size + 1
-        and maximum_materialized_items <= page_size
+    regression_checks = _load_regression_checks(
+        error_count=error_count,
+        p95_milliseconds=p95,
+        p99_milliseconds=p99,
+        maximum_rows_read=maximum_rows_read,
+        maximum_materialized_items=maximum_materialized_items,
+        page_size=page_size,
     )
+    passed = all(regression_checks.values())
     return {
         "read_count": read_count,
         "concurrency": concurrency,
@@ -537,7 +539,28 @@ def run_load(
             "p99_milliseconds": MAX_P99_MILLISECONDS,
             "production_slo": False,
         },
+        "regression_checks": regression_checks,
         "passed": passed,
+    }
+
+
+def _load_regression_checks(
+    *,
+    error_count: int,
+    p95_milliseconds: float,
+    p99_milliseconds: float,
+    maximum_rows_read: int,
+    maximum_materialized_items: int,
+    page_size: int,
+) -> dict[str, bool]:
+    """Evaluate each load gate independently from wall-clock collection."""
+
+    return {
+        "zero_unexpected_errors": error_count == 0,
+        "p95_within_budget": p95_milliseconds <= MAX_P95_MILLISECONDS,
+        "p99_within_budget": p99_milliseconds <= MAX_P99_MILLISECONDS,
+        "rows_within_page_bound": maximum_rows_read <= page_size + 1,
+        "materialized_items_within_page_bound": maximum_materialized_items <= page_size,
     }
 
 

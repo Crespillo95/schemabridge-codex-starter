@@ -126,7 +126,7 @@ pytestmark = [pytest.mark.acceptance, pytest.mark.integration]
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS = ROOT / "migrations/control_plane"
-ADMIN_DSN = "postgresql://postgres:postgres@127.0.0.1:55434/postgres"
+ADMIN_DSN = "postgresql://postgres:local-only-not-a-secret@127.0.0.1:55434/postgres"
 READER_DSN = os.environ.get(
     "SCHEMABRIDGE_TEST_DATABASE_URL",
     "postgresql://schemabridge_reader:schemabridge_reader@127.0.0.1:55433/schemabridge",

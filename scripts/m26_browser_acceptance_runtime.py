@@ -31,7 +31,7 @@ from schemabridge.domain.identity import IdentityRole
 
 ROOT: Final = Path(__file__).resolve().parents[1]
 DEFAULT_STATE_DIR: Final = ROOT / ".local/m26-browser-acceptance"
-DEFAULT_ADMIN_DSN: Final = "postgresql://postgres:postgres@127.0.0.1:55434/postgres"
+DEFAULT_ADMIN_DSN: Final = "postgresql://postgres:local-only-not-a-secret@127.0.0.1:55434/postgres"
 API_DSN_TEMPLATE: Final = (
     "postgresql://schemabridge_api:schemabridge_api@127.0.0.1:55434/{database}"
 )

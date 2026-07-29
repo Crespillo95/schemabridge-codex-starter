@@ -62,7 +62,7 @@ pytestmark = pytest.mark.integration
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS = ROOT / "migrations/control_plane"
-ADMIN_DSN = "postgresql://postgres:postgres@127.0.0.1:55434/postgres"
+ADMIN_DSN = "postgresql://postgres:local-only-not-a-secret@127.0.0.1:55434/postgres"
 API_TOKEN_SENTINEL = "m24-process-token-7Yv!4nQ2zR8cK5pL0sD6wX9a"
 INVENTORY_CURSOR_KEY_SENTINEL = "m25-process-inventory-cursor-key-6Yq2vN8wR4kD9sH3cJ7pT5xB"
 SOURCE_PASSWORD_SENTINEL = "m24-source-password-must-not-appear"

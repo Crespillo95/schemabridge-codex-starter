@@ -50,7 +50,7 @@ pytestmark = pytest.mark.integration
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS = ROOT / "migrations/control_plane"
-ADMIN_DSN = "postgresql://postgres:postgres@127.0.0.1:55434/postgres"
+ADMIN_DSN = "postgresql://postgres:local-only-not-a-secret@127.0.0.1:55434/postgres"
 CAPABILITY_A = "0123456789abcdef" * 4
 CAPABILITY_B = "fedcba9876543210" * 4
 

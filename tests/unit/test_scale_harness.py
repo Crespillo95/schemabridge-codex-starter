@@ -137,7 +137,9 @@ def test_correctness_report_covers_both_cardinalities_and_three_page_sizes(
 
 
 @pytest.mark.scale
-def test_load_harness_records_latency_concurrency_pool_wait_and_zero_errors() -> None:
+def test_load_harness_records_latency_concurrency_pool_wait_and_zero_errors(
+    no_cover: object,
+) -> None:
     result = run_load(
         LazySyntheticScaleReader(),
         read_count=64,
@@ -151,7 +153,7 @@ def test_load_harness_records_latency_concurrency_pool_wait_and_zero_errors() ->
     assert result["zero_unexpected_errors"] is True
     assert cast(int, result["maximum_rows_read"]) <= 18
     assert cast(int, result["maximum_materialized_items"]) <= 17
-    assert result["passed"] is True
+    assert result["passed"] is True, result
     latency = result["latency_milliseconds"]
     assert isinstance(latency, dict)
     assert 0 <= latency["p50"] <= latency["p95"] <= latency["p99"] <= latency["maximum"]
@@ -164,6 +166,50 @@ def test_load_harness_records_latency_concurrency_pool_wait_and_zero_errors() ->
     budgets = result["regression_budgets"]
     assert isinstance(budgets, dict)
     assert budgets["production_slo"] is False
+    assert result["regression_checks"] == {
+        "zero_unexpected_errors": True,
+        "p95_within_budget": True,
+        "p99_within_budget": True,
+        "rows_within_page_bound": True,
+        "materialized_items_within_page_bound": True,
+    }
+
+
+@pytest.mark.parametrize(
+    ("overrides", "failed_check"),
+    (
+        ({"error_count": 1}, "zero_unexpected_errors"),
+        (
+            {"p95_milliseconds": scale_harness.MAX_P95_MILLISECONDS + 0.001},
+            "p95_within_budget",
+        ),
+        (
+            {"p99_milliseconds": scale_harness.MAX_P99_MILLISECONDS + 0.001},
+            "p99_within_budget",
+        ),
+        ({"maximum_rows_read": 19}, "rows_within_page_bound"),
+        ({"maximum_materialized_items": 18}, "materialized_items_within_page_bound"),
+    ),
+)
+def test_load_regression_gate_keeps_exact_limits(
+    overrides: dict[str, int | float],
+    failed_check: str,
+) -> None:
+    passing: dict[str, int | float] = {
+        "error_count": 0,
+        "p95_milliseconds": scale_harness.MAX_P95_MILLISECONDS,
+        "p99_milliseconds": scale_harness.MAX_P99_MILLISECONDS,
+        "maximum_rows_read": 18,
+        "maximum_materialized_items": 17,
+        "page_size": 17,
+    }
+
+    passing_checks = scale_harness._load_regression_checks(**passing)
+    failing_checks = scale_harness._load_regression_checks(**(passing | overrides))
+
+    assert all(passing_checks.values())
+    assert failing_checks[failed_check] is False
+    assert sum(not passed for passed in failing_checks.values()) == 1
 
 
 def test_traversal_rejects_duplicate_or_omitted_identity_without_collecting_inventory() -> None:

@@ -140,7 +140,7 @@ pytestmark = pytest.mark.integration
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS = ROOT / "migrations/control_plane"
 MANIFEST = ROOT / "demo/ground_truth/registries/manifest.yml"
-DEFAULT_ADMIN_DSN = "postgresql://postgres:postgres@127.0.0.1:55434/postgres"
+DEFAULT_ADMIN_DSN = "postgresql://postgres:local-only-not-a-secret@127.0.0.1:55434/postgres"
 NOW = datetime(2026, 7, 24, 12, 0, tzinfo=UTC)
 AUDIT_KEY = b"semantic-change-audit-key-0123456789abcdef"
 LEASE_CAPABILITY = "semantic-catalog-lease-capability-0123456789abcdef"

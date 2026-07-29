@@ -222,7 +222,7 @@ pytestmark = [
 ROOT = Path(__file__).resolve().parents[2]
 DATAHUB_READER = ROOT / ".local/datahub/mcp.env"
 DATAHUB_WRITER = ROOT / ".local/datahub/writer.env"
-DEFAULT_ADMIN_DSN = "postgresql://postgres:postgres@127.0.0.1:55434/postgres"
+DEFAULT_ADMIN_DSN = "postgresql://postgres:local-only-not-a-secret@127.0.0.1:55434/postgres"
 NOW = datetime(2026, 7, 24, 12, 0, tzinfo=UTC)
 LARGE_ASSET_COUNT = 5_434
 M27_LARGE_FIELD_COUNT = 41_028

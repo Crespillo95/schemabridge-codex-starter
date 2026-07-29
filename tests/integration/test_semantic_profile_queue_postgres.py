@@ -65,7 +65,7 @@ pytestmark = pytest.mark.integration
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS = ROOT / "migrations/control_plane"
-DEFAULT_ADMIN_DSN = "postgresql://postgres:postgres@127.0.0.1:55434/postgres"
+DEFAULT_ADMIN_DSN = "postgresql://postgres:local-only-not-a-secret@127.0.0.1:55434/postgres"
 NOW = datetime(2026, 7, 24, 12, 0, tzinfo=UTC)
 CAPABILITY = "semantic-profile-capability-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 OTHER_CAPABILITY = "other-profile-capability-9876543210-zyxwvutsrqponmlkjihgfedcba"
