@@ -109,7 +109,10 @@ MIGRATOR_DSN = (
 )
 AUDIT_KEYS = {"v1": b"control-audit-key-0123456789-abcdef"}
 NOW = datetime(2026, 7, 23, 12, 0, tzinfo=UTC)
-ADMIN_DSN = "postgresql://postgres:postgres@127.0.0.1:55434/postgres"
+ADMIN_DSN = os.environ.get(
+    "SCHEMABRIDGE_TEST_CONTROL_ADMIN_DATABASE_URL",
+    "postgresql://postgres:postgres@127.0.0.1:55434/postgres",
+)
 
 
 class _VersionReader:

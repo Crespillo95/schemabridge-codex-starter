@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from click import unstyle
 from typer.testing import CliRunner
 
 import schemabridge.entrypoints.cli.main as cli_module
@@ -479,7 +480,8 @@ def test_legacy_import_help_never_accepts_secrets_or_raw_identity() -> None:
     )
 
     assert result.exit_code == 0
-    assert "--plan-fingerprint" in result.stdout
-    assert "--confirm" in result.stdout
+    help_output = unstyle(result.stdout)
+    assert "--plan-fingerprint" in help_output
+    assert "--confirm" in help_output
     for forbidden in ("--dsn", "--token", "--key", "--claims", "--subject", "--email"):
-        assert forbidden not in result.stdout
+        assert forbidden not in help_output

@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from click import unstyle
 from typer.testing import CliRunner
 
 import schemabridge.bootstrap as bootstrap_module
@@ -427,18 +428,21 @@ def test_registry_operator_help_exposes_prepare_commit_and_repair_boundaries() -
     repair = runner.invoke(app, ["control-plane", "reconcile", "repair", "--help"])
 
     assert registry.exit_code == 0
-    assert "prepare-activation" in registry.output
-    assert "prepare-rollback" in registry.output
-    assert "activate" in registry.output
-    assert "rollback" in registry.output
+    registry_output = unstyle(registry.output)
+    assert "prepare-activation" in registry_output
+    assert "prepare-rollback" in registry_output
+    assert "activate" in registry_output
+    assert "rollback" in registry_output
     assert reconcile.exit_code == 0
-    assert "inspect" in reconcile.output
-    assert "repair" in reconcile.output
+    reconcile_output = unstyle(reconcile.output)
+    assert "inspect" in reconcile_output
+    assert "repair" in reconcile_output
     assert repair.exit_code == 0
-    assert "--report-fingerprint" in repair.output
-    assert "--inspected-at" in repair.output
-    assert "--actor" in repair.output
-    assert "--confirm" in repair.output
+    repair_output = unstyle(repair.output)
+    assert "--report-fingerprint" in repair_output
+    assert "--inspected-at" in repair_output
+    assert "--actor" in repair_output
+    assert "--confirm" in repair_output
 
 
 def test_registry_prepare_derives_the_explicit_v3_target(

@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+from click import unstyle
 from typer.testing import CliRunner
 
 import schemabridge.entrypoints.cli.main as cli_module
@@ -213,7 +214,8 @@ def test_identity_operator_help_exposes_only_file_and_opaque_approval_inputs() -
         )
 
         assert result.exit_code == 0, result.output
-        help_tokens = set(result.stdout.split())
+        help_output = unstyle(result.stdout)
+        help_tokens = set(help_output.split())
         for option in options:
             assert any(token.startswith(option[:16]) for token in help_tokens)
         for forbidden in (
@@ -224,9 +226,9 @@ def test_identity_operator_help_exposes_only_file_and_opaque_approval_inputs() -
             "--subject",
             "--email",
         ):
-            assert forbidden not in result.stdout
+            assert forbidden not in help_output
         if command == "complete":
-            assert "--actor" not in result.stdout
+            assert "--actor" not in help_output
 
 
 def test_inspect_evidence_emits_only_bounded_non_secret_metadata(

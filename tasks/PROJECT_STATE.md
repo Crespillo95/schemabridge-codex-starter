@@ -37,15 +37,25 @@ M29 is eligible but not started.
 This is not a production or release acceptance. The development branch is versioned on a draft
 GitHub PR but has not been reviewed or accepted as a release candidate. The
 first clean hosted run exposed missing DataHub/MCP bootstrap dependencies, ignored immutable M27
-evidence, CI-only ANSI output, and an unseeded synthetic DataHub registry. The publication
+evidence, CI-only ANSI output, and an unseeded synthetic DataHub registry. The next hosted run
+proved two additional fixture boundaries: control-PostgreSQL administrative tests must inherit the
+same explicit synthetic loopback credential as the container, and the approved registry seed must
+use a different authenticated local subject from the replay contract it prepares. The publication
 follow-up tracks only the required signed evidence, aligns bootstrap with the tested extras, uses
-color-free CI logs, and explicitly publishes/read-checks the approved synthetic registry before
+color-free CI logs, compares CLI help after removing terminal styling, propagates the explicit
+non-secret loopback-only control credential through the test-admin DSN, and explicitly
+publishes/read-checks the approved synthetic registry from a dedicated seed principal before
 live-registry integration. Operated Kubernetes, TLS, NetworkPolicy, external
 secrets, production replica/traffic scale, provider governance, and later operations/security
 gates remain open. M00 through M16 automated development
 gates are complete on the operator machine; M17's recorded deployment package and M18's generated
 development submission package pass their focused local gates, but their external/operator
 acceptance and a clean release commit remain unrecorded.
+
+The publication follow-up's final local bytes pass the 2,714-test CI-shaped quality gate, all 164
+integration tests with one retained fixture skip, all 47 acceptance tests, the four clean-volume
+live-registry tests, and the targeted PostgreSQL/CLI regressions. The replacement hosted checks
+remain the authoritative publication evidence.
 
 ## Current capability
 

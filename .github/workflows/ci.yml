@@ -24,6 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: postgresql://schemabridge_reader:schemabridge_reader@127.0.0.1:55433/schemabridge
+      SCHEMABRIDGE_TEST_CONTROL_ADMIN_DATABASE_URL: postgresql://postgres:local-only-not-a-secret@127.0.0.1:55434/postgres
       SCHEMABRIDGE_TEST_DATABASE_URL: postgresql://schemabridge_reader:schemabridge_reader@127.0.0.1:55433/schemabridge
     steps:
       - uses: actions/checkout@v4
@@ -47,6 +48,8 @@ jobs:
           --fingerprint ef480eb7370924ff4c94131a2c6c4063d85652cc83aaec9059538cdc2cf9c1b9
           --confirm publish-approved-registry-version
           --json
+        env:
+          SCHEMABRIDGE_LOCAL_SUBJECT: ci-registry-bootstrap
       - run: make datahub-registry-check
       - run: make control-plane-reset
       - run: make control-plane-migrate

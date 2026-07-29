@@ -48,17 +48,37 @@ had masked: `make bootstrap` omitted the existing `datahub` extra; 18 retained s
 campaign reports were ignored despite immutable-byte tests; Rich emitted CI-only ANSI sequences;
 and the fresh DataHub service had no explicitly published semantic registry.
 
+The next hosted run reached the live integration suite and exposed two fixture collisions. The
+control container used the new non-secret local default while administrative tests still fell back
+to the older password, and the registry seed plus replay test used the same deterministic local
+principal with different approval timestamps. CI now supplies the Compose file's explicit
+`local-only-not-a-secret` loopback placeholder through the existing test-only admin DSN boundary
+and gives only the approved registry seed a dedicated local subject. No real credential is stored,
+no trust authentication is enabled, and the replay test retains an independent approval identity
+and audit ledger.
+
+The same hosted run also proved that `NO_COLOR=1` alone does not make Rich/Typer help bytes
+portable across runner platforms. The three security-contract tests now remove ANSI styling with
+Click before checking required and forbidden options; the CLI behavior and the assertions'
+allow/deny lists are otherwise unchanged.
+
 The publication candidate now installs the same reviewed DataHub/MCP dependencies in `bootstrap`,
 tracks the 19 content-addressed synthetic campaign reports plus the two signed ledger attestations
-cited by tests and governance docs, sets `NO_COLOR=1` for stable CI output, and publishes then
-read-checks the exact approved synthetic registry fingerprint before integration tests. No key,
-private data, unsigned runtime report, source-database write, or additional production capability
-is included.
+cited by tests and governance docs, sets `NO_COLOR=1` for cleaner CI output, normalizes CLI-help
+styling at the assertion boundary, and publishes then read-checks the exact approved synthetic
+registry fingerprint before integration tests. No key, private data, unsigned runtime report,
+source-database write, or additional production capability is included.
 
 Focused reproduction passes 33 formerly affected tests both in the working repository and in an
 index-only clean export. The development release audit passes 772 candidate files and 23 direct
-licenses with only the expected dirty-tree warning. The current draft-PR checks are the
-authoritative remote publication result.
+licenses with only the expected dirty-tree warning.
+
+The second follow-up passes 75 registry-publication unit tests, the three GitHub-Actions ANSI
+regressions, 22 affected PostgreSQL integration tests, and all four live DataHub registry tests
+from clean synthetic volumes. The complete service gates pass with 164 integration tests plus one
+retained fixture skip and 47 acceptance tests. The final CI-shaped `make check` passes Ruff,
+strict mypy over 276 source files, and 2,714 tests with 207 service tests deselected in 726.42
+seconds. The next draft-PR checks are the authoritative remote publication result.
 
 ## Scope guard
 
