@@ -141,7 +141,12 @@ labelled as evidence, never production targets achieved.
 
 M29 tracks a complete deterministic lock for all project extras. CI and release installation use
 the frozen lock; production images install exact hashed runtime requirements and the local project
-without resolving new dependencies.
+without resolving new dependencies. The final image uses the exact Python 3.13.14/Alpine 3.24
+digest. Its sole sdist-only Linux dependency is built with pinned build tooling and the upstream
+source timestamp, then SHA-bound and installed with the rest of the wheelhouse through read-only
+BuildKit mounts and no runtime network access. The secure `setuptools` backend is isolated from
+the DataHub-constrained application lock in its own exact hashed input; Python vulnerability
+auditing covers the runtime export, project-wheel build export, and this isolated backend.
 
 Every GitHub Action is pinned to a full immutable commit SHA with its reviewed release in a
 comment. Docker base images remain digest-pinned. The supply-chain gate fails for:
@@ -193,8 +198,12 @@ publication.
 The reproducible local gates now pass: schema v11 and the seven-role boundary, focused/full
 PostgreSQL cuts, deterministic acceptance/evaluation, installed wheel, frozen dependency and
 supply-chain policy, local distinct-target recovery, scale contracts, and the final internal
-browser matrix. The consolidated quality gate passes 3138 tests plus Ruff, mypy, supply-chain, and
-release audit; full coverage passes 3325 tests with 14 explicit external skips at 81.09%. Missing
+browser matrix. The monolithic quality command passed supply-chain/release audit, Ruff, and mypy
+before the local command executor stopped it at its 600-second limit with pytest still passing at
+68%. Its exact 3154-test selection then passed in exhaustive disjoint shards
+(3079 + 39 + 22 + 14), with 211 service tests deselected; no assertion failed. The retained full
+coverage baseline over unchanged `src/schemabridge` is 3325 tests with 14 explicit external skips
+at 81.09%; that 2436-second command was not repeated after this supply-chain-only patch. Missing
 DataHub credentials and the retained M27 browser fixture remain explicit external skips. No
 target-provider rotation/revocation, cluster-side admission, real alert/SIEM delivery, immutable
 remote retention, external cutover/rollback, protected release attestation, production
@@ -264,14 +273,22 @@ therefore remain **NO-GO**, and M30/M31 remain blocked.
 - [x] Every Trivy action writes cache only under ignored `.local/trivy-cache`; static workflow
       policy rejects an omitted or different path as `trivy_cache_path_invalid`, with CI and
       release regressions.
+- [x] `pip-audit --disable-pip` covers the complete frozen runtime and build inputs, including the
+      isolated non-vulnerable `setuptools` backend, and the reviewed Alpine image builds
+      `watchdog` reproducibly into the exact SHA-bound local requirement. Static policy rejects a
+      mutable base, missing epoch/hash/BuildKit contract, any changed/additional final-stage
+      command, networked runtime install, or retained wheelhouse layer.
 - [x] Fixture-backed wheel/runtime-image SBOM and evidence-contract validation covers exact
       direct/runtime dependencies and rejects source/artifact digest mismatches; it is not a final
       local image build claim.
 - [ ] The final pushed image and wheel receive complete hosted CycloneDX subjects bound to the
       exact clean revision and registry manifest digest.
-- [x] The exact hashed runtime dependency audit reports zero known vulnerabilities, direct-license
-      inventory has no unknown/prohibited package, and local image-scan/exception schemas fail
-      closed.
+- [x] The exact hashed runtime/build dependency audit reports zero known vulnerabilities,
+      direct-license inventory has no unknown/prohibited package, and local
+      image-scan/exception schemas fail closed.
+- [x] The final local BuildKit image passes non-root runtime smoke, `pip check`, API/UI imports,
+      no-build-tool/no-wheelhouse checks, and a current Trivy scan with zero HIGH/CRITICAL
+      findings. This is local candidate evidence, not a registry or protected-release claim.
 - [ ] The final registry image scan and any dated, owned vulnerability disposition pass in the
       protected hosted release.
 - [x] Provenance policy binds repository, revision, builder, workflow, artifact, and SBOM digests;
@@ -304,9 +321,10 @@ therefore remain **NO-GO**, and M30/M31 remain blocked.
 - [x] Focused unit, security, manifest, observability, supply-chain, retention, recovery, and
       browser-runtime tests pass.
 - [x] Real PostgreSQL integration/acceptance, deterministic evaluation, runtime wheel, release
-      audit, frozen install, local SBOM/scan/provenance policy, recovery drill, `make check`,
-      81.09% coverage, scale postflight, and `git diff --check` pass on the local final source
-      snapshot.
+      audit, frozen install, local SBOM/scan/provenance policy, recovery drill, all `make check`
+      components via exhaustive sharding, scale postflight, and `git diff --check` pass locally.
+      The retained 81.09% coverage baseline targets unchanged `src/schemabridge`; the full
+      2436-second coverage command was not repeated after the final supply-chain-only patch.
 - [ ] Final registry-image SBOM, scan, protected provenance/attestation, and target-environment
       evidence pass against the exact clean release revision.
 - [x] Internal-browser final validation runs after the last UI/operator-byte change and records

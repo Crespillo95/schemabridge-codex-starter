@@ -353,8 +353,12 @@ These runtime dependencies are direct because the API must not rely on Streamlit
 transitive packages. HTTPX is intentionally a direct `dev` dependency only: unit and real-socket
 acceptance clients use it, but neither the `api` extra nor the runtime image installs or imports it.
 The final runtime image installs the frozen hashed API, PostgreSQL, SQL, worker, and UI dependency
-set from `requirements/runtime.txt`, then installs the project wheel with `--no-deps`. Its version
-lock, SBOM, vulnerability scan, provenance, and digest binding are enforced by M29.
+set from `requirements/runtime.txt`, then installs the project wheel with `--no-deps`. The exact
+Python 3.13.14/Alpine 3.24 builder converts the verified `watchdog` sdist into the fixed hash in
+`requirements/runtime-built.txt`; the runtime consumes both wheels only through read-only
+BuildKit mounts with `--no-index`. The vulnerability-fixed backend is isolated and hash-pinned in
+`requirements/watchdog-build.txt`, while CI audits it together with both frozen exports. Its
+version lock, SBOM, vulnerability scan, provenance, and digest binding are enforced by M29.
 
 `make runtime-wheel-smoke` builds the current wheel, installs its runtime extras into an empty
 virtual environment and working directory, verifies that migrations are packaged, and composes

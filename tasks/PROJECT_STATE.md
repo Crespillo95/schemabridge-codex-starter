@@ -35,16 +35,28 @@ package/release/scale/diff postflight, and all nine desktop/mobile internal-brow
 M29's reproducible local baseline is accepted. Control schema v11, the seven-role boundary,
 focused/full PostgreSQL gates, deterministic acceptance/evaluation, installed wheel, frozen
 dependency/supply-chain policy, distinct-target local recovery, scale contracts, and the 6×2
-internal-browser operations matrix pass. The final quality gate passes 3138 tests plus Ruff,
-mypy, supply-chain, and release audit; full coverage passes 3325 tests with 14 explicit external
-skips at 81.09%. No external provider, cluster, alert delivery, immutable retention, external
-cutover/rollback, protected release, or production operation has been accepted.
+internal-browser operations matrix pass. The monolithic quality command passes supply-chain,
+release audit, Ruff, and mypy before the local executor's 600-second limit; its exact 3154-test
+selection passes exhaustively in disjoint shards with no assertion failure. The retained
+full-coverage baseline over unchanged `src/schemabridge` is 3325 tests with 14 explicit external
+skips at 81.09%; it was not rerun after the final supply-chain-only patch. No external provider,
+cluster, alert delivery, immutable retention, external cutover/rollback, protected release, or
+production operation has been accepted.
 
 The first hosted M29 supply-chain run failed closed before provenance because Trivy created
 non-ignored `.cache/trivy` after its image scans. Both workflows now use ignored
-`.local/trivy-cache`, and 43 focused supply-chain regressions enforce
+`.local/trivy-cache`, and the initial 43 focused supply-chain regressions enforce
 `trivy_cache_path_invalid`. Corrected hosted evidence remains external and is not claimed by this
 local state record.
+
+Hosted run `30495413406` proved the cache correction by generating provenance and uploading all
+seven evidence paths, then failed closed on incomplete default `pip-audit` resolution and the old
+Debian image findings. The candidate now audits all runtime/build inputs with `--disable-pip` and
+uses the exact Python 3.13.14/Alpine 3.24 digest. Its only sdist build uses isolated,
+vulnerability-fixed, hash-bound tooling and is reproducible across amd64/arm64; offline BuildKit
+mounts prevent retaining build inputs. Local smoke and an updated Trivy scan pass with zero
+HIGH/CRITICAL findings. The next hosted result remains
+external evidence, and production/release remain NO-GO.
 
 This is not a production or release acceptance. The development branch is versioned on a draft
 GitHub PR but has not been reviewed or accepted as a release candidate. The
@@ -610,10 +622,10 @@ evidence.
 - Final local evidence is recorded in `tasks/M29_HANDOFF.md`: 210 focused M29 tests; 18 focused
   PostgreSQL tests; 158 full integration passes with 11 exact external skips; 43 acceptance passes
   with four DataHub skips; deterministic evaluation; complete wheel migrations/entrypoints;
-  frozen install; local recovery; scale; browser acceptance; final 3138-test quality; and
-  3325-test/81.09% coverage. Production and release remain **NO-GO**; M30/M31 and external
-  provider, cluster, operations, recovery, release, security, and operator acceptance remain
-  blocked.
+  frozen install; local recovery; scale; browser acceptance; final 3154-test quality; and the
+  retained 3325-test/81.09% coverage baseline over unchanged measured product source. Production
+  and release remain **NO-GO**; M30/M31 and external provider, cluster, operations, recovery,
+  release, security, and operator acceptance remain blocked.
 
 ## Test evidence
 
@@ -1399,9 +1411,17 @@ M29 accepted local evidence on 2026-07-29:
 - acceptance passes 43 tests with four DataHub skips; deterministic evaluation, installed-wheel
   migrations 1–11 and all ten entrypoints, frozen uv installation, dependency audit, local
   distinct-target recovery, the 61-resource validator, and scale correctness pass;
-- `make check` passes supply-chain/release audit, Ruff over 592 files, strict mypy over 300 source
-  files, and 3138 tests with 211 deselected in 653.40 seconds. Full coverage passes 3325 tests with
-  14 explicit external skips and one performance deselection at 81.09% in 2436.86 seconds;
+- the monolithic `make check` passes supply-chain/release audit, Ruff over 592 files, and strict
+  mypy over 300 source files before the local executor sends SIGTERM at its 600-second limit while
+  pytest is still passing at 68%. The exact 3154-test selection passes in exhaustive disjoint
+  shards (3079 + 39 + 22 + 14), with 211 service tests deselected and no assertion failure. The
+  retained full-coverage baseline over unchanged `src/schemabridge` passes 3325 tests with 14
+  explicit external skips and one performance deselection at 81.09% in 2436.86 seconds; that
+  command was not rerun after the final supply-chain-only patch;
+- the final local BuildKit image runs as UID/GID 10001, passes `pip check` and API/UI imports,
+  contains no build backend or wheelhouse, and reports zero HIGH/CRITICAL findings under the
+  current Trivy database. The reproducible `watchdog` wheel has the same exact SHA-256 on
+  two independent arm64 builds and amd64; Docker reports a local image size of 180,197,459 bytes;
 - the final internal-browser operations matrix passes all six states at desktop and mobile with
   zero console warnings/errors, overflow, injected scripts, protected-data hits, or dangerous
   actions, followed by exact listener/state cleanup; and

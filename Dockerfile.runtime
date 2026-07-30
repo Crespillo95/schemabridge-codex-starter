@@ -1,16 +1,21 @@
-FROM python:3.13.13-slim-bookworm@sha256:355bfa66770995d7e9a0da4b3473b44d0cb451f6b56f5615ad9c39e3c4eca03f AS builder
+FROM python:3.13.14-alpine3.24@sha256:399babc8b49529dabfd9c922f2b5eea81d611e4512e3ed250d75bd2e7683f4b0 AS builder
 
 ARG SCHEMABRIDGE_RELEASE_REF=release-ref-not-supplied
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    SOURCE_DATE_EPOCH=1730470033
 
 WORKDIR /opt/schemabridge
 
-COPY requirements/build.txt ./requirements/build.txt
+COPY requirements/build.txt requirements/watchdog-build.txt requirements/runtime.txt ./requirements/
 RUN python -m pip install --no-cache-dir --no-deps --require-hashes \
-    -r requirements/build.txt
+    -r requirements/build.txt \
+    -r requirements/watchdog-build.txt
+RUN python -m pip wheel --no-cache-dir --no-deps --no-build-isolation \
+    --require-hashes --wheel-dir /tmp/runtime-wheels \
+    -r requirements/runtime.txt
 
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
@@ -18,7 +23,7 @@ COPY migrations ./migrations
 RUN python -m pip wheel --no-cache-dir --no-deps --no-build-isolation \
     --wheel-dir /tmp/dist .
 
-FROM python:3.13.13-slim-bookworm@sha256:355bfa66770995d7e9a0da4b3473b44d0cb451f6b56f5615ad9c39e3c4eca03f
+FROM python:3.13.14-alpine3.24@sha256:399babc8b49529dabfd9c922f2b5eea81d611e4512e3ed250d75bd2e7683f4b0
 
 ARG SCHEMABRIDGE_RELEASE_REF=release-ref-not-supplied
 
@@ -30,19 +35,23 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     SCHEMABRIDGE_RELEASE_REF=${SCHEMABRIDGE_RELEASE_REF}
 
-RUN useradd --create-home --uid 10001 schemabridge
+RUN adduser -D -u 10001 schemabridge
 WORKDIR /opt/schemabridge
 
 COPY requirements/runtime.txt ./requirements/runtime.txt
-# requirements/runtime.txt is the frozen, hashed export of the API, worker, SQL, and UI runtime.
-RUN python -m pip install --no-cache-dir --no-deps --require-hashes \
-    -r requirements/runtime.txt
+COPY requirements/runtime-built.txt ./requirements/runtime-built.txt
+# The API, worker, SQL, and UI runtime wheelhouse was resolved from the frozen, hashed export.
+# Watchdog's verified sdist becomes a platform-neutral wheel because PyPI has no musllinux wheel.
+RUN --mount=from=builder,source=/tmp/runtime-wheels,target=/tmp/runtime-wheels,ro \
+    python -m pip install --no-cache-dir --no-index --no-deps --require-hashes \
+    -r requirements/runtime-built.txt \
+    && python -m pip install --no-cache-dir --no-index --no-deps --require-hashes \
+    --find-links /tmp/runtime-wheels -r requirements/runtime.txt
 
-COPY --from=builder /tmp/dist/schemabridge-0.1.0-py3-none-any.whl /tmp/schemabridge-0.1.0-py3-none-any.whl
 COPY --from=builder /opt/schemabridge/src/schemabridge/entrypoints/streamlit/app.py ./streamlit_app.py
-RUN python -m pip install --no-cache-dir --no-deps \
-    /tmp/schemabridge-0.1.0-py3-none-any.whl \
-    && rm /tmp/schemabridge-0.1.0-py3-none-any.whl
+RUN --mount=from=builder,source=/tmp/dist,target=/tmp/dist,ro \
+    python -m pip install --no-cache-dir --no-deps \
+    /tmp/dist/schemabridge-0.1.0-py3-none-any.whl
 
 RUN chown -R schemabridge:schemabridge /opt/schemabridge
 USER 10001:10001

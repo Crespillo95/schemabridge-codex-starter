@@ -1031,7 +1031,10 @@ M29 adds focused adversarial tests for remote exact-version secrets and workload
 cross-capability denial, TLS/redirect/size/error sanitization, observer role and aggregate-only
 reads, atomic metric snapshots, bounded process exporters, fail-closed alerts, structured logs,
 SIEM loss, Kubernetes rendering, immutable workflows/images, vulnerability-report coverage,
-SBOM/provenance binding, signed retention, recovery, and rollback decisions.
+SBOM/provenance binding, complete resolver-independent dependency audit, reproducible
+sdist-to-wheel hashing, isolated audited build tooling, Docker-context secret exclusion, exact
+final-stage commands, offline BuildKit installation, no retained wheelhouse, signed retention,
+recovery, and rollback decisions.
 
 Run the local contract gates before any provider or cluster exercise:
 
@@ -1062,3 +1065,7 @@ installation, vulnerability/SBOM/provenance validation, a complete fresh-target 
 operations view is tested last in the Codex internal browser at desktop and 390×844 mobile widths,
 with hostile text literal, clean console, no horizontal overflow, and exact cleanup. Exact counts,
 commands, failures/corrections, and unavailable external services belong in `tasks/M29_HANDOFF.md`.
+The final local runtime candidate must additionally build with BuildKit, run as UID/GID 10001,
+pass `pip check` and API/UI imports without the build backend or wheelhouse, and report zero
+HIGH/CRITICAL findings under the current Trivy database. That local scan is not a registry or
+protected-release attestation.

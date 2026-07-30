@@ -1101,7 +1101,14 @@ than silently using recorded data or a synchronous writer.
 Dependency and build inputs are locked and hash exported. Strict workflow validation rejects
 mutable action/image references, YAML aliases/merge keys/duplicates, broad permissions, unsafe
 triggers, incomplete vulnerability reports, or attestations that do not cover the reviewed wheel,
-SBOM/provenance evidence, and runtime image. Recovery remains a separate capability: signed
+SBOM/provenance evidence, and runtime image. Runtime construction uses the exact reviewed Python
+3.13.14/Alpine 3.24 subject. The sole Linux sdist is converted into a byte-identical
+amd64/arm64 wheel using pinned build tooling and the upstream source epoch, then installed by
+exact SHA-256 with the complete frozen wheelhouse through read-only BuildKit mounts; the runtime
+has no resolver network, build backend, or retained wheelhouse. The vulnerability-fixed build
+backend is isolated in an exact hashed input because DataHub constrains its unrelated application
+dependency range; audit evidence covers both application and build inputs. Recovery remains a
+separate capability: signed
 archive/manifest pairs are fully reverified, retention is bound to exact reviewed policy and plan
 fingerprints, and expired pairs move into a recoverable owner-only quarantine. Restore targets must
 be distinct and empty; cutover remains external and automatic down-migration remains forbidden.

@@ -26,10 +26,26 @@ ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_EXTRAS = ("api", "postgres", "sql", "ui")
 RUNTIME_REQUIREMENTS = Path("requirements/runtime.txt")
 BUILD_REQUIREMENTS = Path("requirements/build.txt")
+WATCHDOG_BUILD_REQUIREMENTS = Path("requirements/watchdog-build.txt")
+BUILT_RUNTIME_REQUIREMENTS = Path("requirements/runtime-built.txt")
 EXCEPTIONS_PATH = Path("requirements/vulnerability-exceptions.json")
 UV_VERSION = "0.11.30"
 PROVENANCE_BUILD_TYPE = "https://github.com/SchemaBridge/buildtypes/github-actions-frozen-uv/v1"
 PROVENANCE_BUILDER_ID = "https://github.com/actions/runner"
+RUNTIME_BASE_IMAGE = (
+    "python:3.13.14-alpine3.24"
+    "@sha256:399babc8b49529dabfd9c922f2b5eea81d611e4512e3ed250d75bd2e7683f4b0"
+)
+WATCHDOG_SOURCE_DATE_EPOCH = "1730470033"
+WATCHDOG_BUILD_REQUIREMENT = (
+    "setuptools==83.0.0 \\\n"
+    "    --hash=sha256:025bccbbf0fa05b6192bc64ae1e7b16e001fd6d6d4d5de03c97b1c1ade523bef \\\n"
+    "    --hash=sha256:29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3\n"
+)
+WATCHDOG_BUILT_REQUIREMENT = (
+    "watchdog @ file:///tmp/runtime-wheels/watchdog-6.0.0-py3-none-any.whl \\\n"
+    "    --hash=sha256:4b510ffee66be0c794ba0a5b921451405f4c8249215168a399af15c37550ff3f\n"
+)
 
 _FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -106,10 +122,13 @@ _SUPPLY_CHAIN_ARTIFACT_PATHS = (
 )
 _DOCKER_CONTEXT_SECRET_EXCLUSIONS = (
     ".streamlit/secrets.toml",
+    "*.pem",
+    "*.key",
     "*.p12",
     "*.pfx",
     "*.jks",
     "*.keystore",
+    "node_modules",
 )
 
 _ALLOWED_LICENSES = frozenset(
@@ -702,6 +721,78 @@ def _trivy_cache_findings(
     return tuple(findings)
 
 
+def _pip_audit_resolution_findings(
+    path: Path,
+    document: _YamlDocument,
+    root: Path,
+) -> tuple[Finding, ...]:
+    relative = str(path.relative_to(root))
+    expected_job = (
+        "supply-chain"
+        if relative == _CI_WORKFLOW_PATH
+        else "attest"
+        if relative == _RELEASE_WORKFLOW_PATH
+        else None
+    )
+    if expected_job is None:
+        return ()
+    jobs = document.value.get("jobs")
+    raw_job = jobs.get(expected_job) if isinstance(jobs, dict) else None
+    raw_steps = raw_job.get("steps") if isinstance(raw_job, dict) else None
+    if not isinstance(raw_steps, list):
+        return ()
+    command = ".venv/bin/pip-audit --disable-pip --require-hashes --format json \\"
+    scripts = tuple(
+        raw_step["run"]
+        for raw_step in raw_steps
+        if isinstance(raw_step, dict)
+        and isinstance(raw_step.get("run"), str)
+        and ".venv/bin/pip-audit" in raw_step["run"]
+    )
+    audited_inputs = (
+        RUNTIME_REQUIREMENTS,
+        BUILD_REQUIREMENTS,
+        WATCHDOG_BUILD_REQUIREMENTS,
+    )
+    if (
+        len(scripts) == 1
+        and scripts[0].count(command) == 1
+        and all(
+            scripts[0].count(f"--requirement {requirement}") == 1 for requirement in audited_inputs
+        )
+    ):
+        return ()
+    return (
+        Finding(
+            "pip_audit_resolution_invalid",
+            f"{relative}:{expected_job}",
+            "pip-audit must inspect all frozen runtime/build inputs without a resolver environment",
+        ),
+    )
+
+
+def _ci_buildkit_findings(
+    path: Path,
+    document: _YamlDocument,
+    root: Path,
+) -> tuple[Finding, ...]:
+    relative = str(path.relative_to(root))
+    if relative != _CI_WORKFLOW_PATH:
+        return ()
+    jobs = document.value.get("jobs")
+    supply_chain = jobs.get("supply-chain") if isinstance(jobs, dict) else None
+    environment = supply_chain.get("env") if isinstance(supply_chain, dict) else None
+    if isinstance(environment, dict) and environment.get("DOCKER_BUILDKIT") == "1":
+        return ()
+    return (
+        Finding(
+            "runtime_buildkit_invalid",
+            f"{relative}:supply-chain",
+            "the runtime image requires an explicit BuildKit-enabled build",
+        ),
+    )
+
+
 def _unconditional_action_inputs(
     raw_step: object,
     action: str,
@@ -1076,6 +1167,8 @@ def verify_workflows(root: Path) -> tuple[Finding, ...]:
         findings.extend(_supply_chain_artifact_upload_findings(path, document, root))
         findings.extend(_checkout_credentials_findings(path, document, root))
         findings.extend(_trivy_cache_findings(path, document, root))
+        findings.extend(_pip_audit_resolution_findings(path, document, root))
+        findings.extend(_ci_buildkit_findings(path, document, root))
         findings.extend(_release_attestation_findings(path, document, root))
     return tuple(findings)
 
@@ -1190,6 +1283,23 @@ def _yaml_image_findings(
     return tuple(findings)
 
 
+def _logical_dockerfile_instructions(text: str) -> tuple[str, ...]:
+    instructions: list[str] = []
+    current: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or (not current and line.startswith("#")):
+            continue
+        continued = line.endswith("\\")
+        current.append(line[:-1].rstrip() if continued else line)
+        if not continued:
+            instructions.append(" ".join(current))
+            current = []
+    if current:
+        instructions.append(" ".join(current))
+    return tuple(instructions)
+
+
 def verify_images(root: Path) -> tuple[Finding, ...]:
     findings: list[Finding] = []
     dockerfiles = tuple(sorted(path for path in root.glob("Dockerfile*") if path.is_file()))
@@ -1233,8 +1343,44 @@ def verify_images(root: Path) -> tuple[Finding, ...]:
         findings.append(Finding("runtime_dockerfile_missing", runtime.name, "file is absent"))
         return tuple(findings)
     text = runtime.read_text(encoding="utf-8")
+    runtime_images = tuple(
+        match.group(1) for line in text.splitlines() if (match := _FROM.match(line)) is not None
+    )
+    if runtime_images != (RUNTIME_BASE_IMAGE, RUNTIME_BASE_IMAGE):
+        findings.append(
+            Finding(
+                "runtime_base_image_unreviewed",
+                runtime.name,
+                "both runtime stages must use the exact reviewed base image",
+            )
+        )
+    watchdog_build_requirement = root / WATCHDOG_BUILD_REQUIREMENTS
+    if (
+        not watchdog_build_requirement.is_file()
+        or watchdog_build_requirement.read_text(encoding="utf-8") != WATCHDOG_BUILD_REQUIREMENT
+    ):
+        findings.append(
+            Finding(
+                "runtime_build_requirement_invalid",
+                str(WATCHDOG_BUILD_REQUIREMENTS),
+                "the isolated watchdog build backend must be exact and hash-bound",
+            )
+        )
+    built_requirement = root / BUILT_RUNTIME_REQUIREMENTS
+    if (
+        not built_requirement.is_file()
+        or built_requirement.read_text(encoding="utf-8") != WATCHDOG_BUILT_REQUIREMENT
+    ):
+        findings.append(
+            Finding(
+                "runtime_built_requirement_invalid",
+                str(BUILT_RUNTIME_REQUIREMENTS),
+                "the reproducible watchdog wheel must be bound to its exact local SHA-256",
+            )
+        )
     required_fragments = (
         "requirements/build.txt",
+        "requirements/watchdog-build.txt",
         "requirements/runtime.txt",
         "--require-hashes",
         "--no-deps",
@@ -1249,6 +1395,79 @@ def verify_images(root: Path) -> tuple[Finding, ...]:
                     f"required frozen-build fragment is absent: {fragment}",
                 )
             )
+    offline_fragments = (
+        "pip wheel --no-cache-dir --no-deps --no-build-isolation",
+        "--wheel-dir /tmp/runtime-wheels",
+        "python -m pip install --no-cache-dir --no-index --no-deps --require-hashes \\\n"
+        "    -r requirements/runtime-built.txt",
+        "&& python -m pip install --no-cache-dir --no-index --no-deps --require-hashes \\",
+        "--find-links /tmp/runtime-wheels",
+    )
+    for fragment in offline_fragments:
+        if fragment not in text:
+            findings.append(
+                Finding(
+                    "runtime_install_not_offline",
+                    runtime.name,
+                    f"required verified-wheelhouse fragment is absent: {fragment}",
+                )
+            )
+    reproducible_fragments = (
+        f"SOURCE_DATE_EPOCH={WATCHDOG_SOURCE_DATE_EPOCH}",
+        "RUN --mount=from=builder,source=/tmp/runtime-wheels,target=/tmp/runtime-wheels,ro \\",
+        "RUN --mount=from=builder,source=/tmp/dist,target=/tmp/dist,ro \\",
+    )
+    for fragment in reproducible_fragments:
+        if fragment not in text:
+            findings.append(
+                Finding(
+                    "runtime_install_not_reproducible",
+                    runtime.name,
+                    f"required reproducible-build fragment is absent: {fragment}",
+                )
+            )
+    runtime_lines = text.splitlines()
+    runtime_from_indexes = tuple(
+        index for index, line in enumerate(runtime_lines) if _FROM.match(line) is not None
+    )
+    runtime_stage = (
+        "\n".join(runtime_lines[runtime_from_indexes[1] :])
+        if len(runtime_from_indexes) >= 2
+        else ""
+    )
+    runtime_run_instructions = tuple(
+        instruction
+        for instruction in _logical_dockerfile_instructions(runtime_stage)
+        if instruction.startswith("RUN ")
+    )
+    expected_runtime_run_instructions = (
+        "RUN adduser -D -u 10001 schemabridge",
+        "RUN --mount=from=builder,source=/tmp/runtime-wheels,target=/tmp/runtime-wheels,ro "
+        "python -m pip install --no-cache-dir --no-index --no-deps --require-hashes "
+        "-r requirements/runtime-built.txt && python -m pip install --no-cache-dir --no-index "
+        "--no-deps --require-hashes --find-links /tmp/runtime-wheels "
+        "-r requirements/runtime.txt",
+        "RUN --mount=from=builder,source=/tmp/dist,target=/tmp/dist,ro "
+        "python -m pip install --no-cache-dir --no-deps "
+        "/tmp/dist/schemabridge-0.1.0-py3-none-any.whl",
+        "RUN chown -R schemabridge:schemabridge /opt/schemabridge",
+    )
+    if runtime_run_instructions != expected_runtime_run_instructions:
+        findings.append(
+            Finding(
+                "runtime_commands_unreviewed",
+                runtime.name,
+                "the final stage contains a missing, changed, or additional RUN instruction",
+            )
+        )
+    if "COPY --from=builder /tmp/runtime-wheels" in text:
+        findings.append(
+            Finding(
+                "runtime_wheelhouse_layer_retained",
+                runtime.name,
+                "the dependency wheelhouse must be mounted read-only, not retained in an OCI layer",
+            )
+        )
     if re.search(r"pip\s+install[^\n]*['\"]?\.\[", text):
         findings.append(
             Finding(
@@ -1364,7 +1583,11 @@ def verify_lock_and_exports(root: Path) -> tuple[Finding, ...]:
 
 def static_findings(root: Path) -> tuple[Finding, ...]:
     findings: list[Finding] = []
-    for relative in (RUNTIME_REQUIREMENTS, BUILD_REQUIREMENTS):
+    for relative in (
+        RUNTIME_REQUIREMENTS,
+        BUILD_REQUIREMENTS,
+        WATCHDOG_BUILD_REQUIREMENTS,
+    ):
         try:
             load_requirements(root, relative)
         except SupplyChainViolation as error:
@@ -1625,9 +1848,17 @@ def _expected_pip_audit_dependencies(root: Path) -> frozenset[tuple[str, str]]:
             )
         ) from error
     expected: set[tuple[str, str]] = set()
-    for requirement in load_requirements(root, RUNTIME_REQUIREMENTS):
-        if requirement.marker is None or Marker(requirement.marker).evaluate():
-            expected.add((requirement.normalized_name, requirement.version))
+    audited_inputs = (
+        RUNTIME_REQUIREMENTS,
+        BUILD_REQUIREMENTS,
+        WATCHDOG_BUILD_REQUIREMENTS,
+    )
+    for relative in audited_inputs:
+        if not (root / relative).is_file():
+            continue
+        for requirement in load_requirements(root, relative):
+            if requirement.marker is None or Marker(requirement.marker).evaluate():
+                expected.add((requirement.normalized_name, requirement.version))
     if not expected:
         raise SupplyChainViolation(
             (
@@ -1733,7 +1964,7 @@ def _validate_pip_audit_report(
             Finding(
                 "vulnerability_report_incomplete",
                 location,
-                "pip-audit dependency set does not match the applicable frozen runtime export",
+                "pip-audit dependency set does not match the applicable frozen inputs",
             )
         )
     return _pip_audit_vulnerabilities(payload), tuple(findings)

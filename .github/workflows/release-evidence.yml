@@ -115,9 +115,11 @@ jobs:
       - name: Audit exact Python runtime dependencies
         run: |
           set +e
-          .venv/bin/pip-audit --require-hashes --format json \
+          .venv/bin/pip-audit --disable-pip --require-hashes --format json \
             --output "$EVIDENCE_DIRECTORY/pip-audit.json" \
-            --requirement requirements/runtime.txt
+            --requirement requirements/runtime.txt \
+            --requirement requirements/build.txt \
+            --requirement requirements/watchdog-build.txt
           audit_status=$?
           set -e
           if [[ "$audit_status" -gt 1 ]]; then

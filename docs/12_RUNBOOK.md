@@ -4038,6 +4038,17 @@ receive signing authority. Reject empty/incomplete scanner output, a mutable act
 different source revision or artifact digest, an expired/unknown exception, or prohibited/unknown
 direct license.
 
+The runtime build requires BuildKit. Python auditing uses `--disable-pip` so already-installed
+resolver packages cannot disappear from the report. Audit all three exact inputs:
+`requirements/runtime.txt`, `requirements/build.txt`, and
+`requirements/watchdog-build.txt`. The last isolates the vulnerability-fixed sdist backend from
+DataHub's application constraint. The exact Alpine base builds `watchdog` with
+`SOURCE_DATE_EPOCH=1730470033`; installation must verify `requirements/runtime-built.txt`, stay
+`--no-index`, and leave neither `/tmp/runtime-wheels` nor `/tmp/dist` in the final filesystem.
+A different generated hash, changed/additional final-stage command, retained wheelhouse, missing
+epoch, networked runtime resolution, or HIGH/CRITICAL Trivy result is a stop condition, not an
+exception to add implicitly.
+
 Before enabling a release, create and protect the exact GitHub environment
 `production-release`, require independent reviewers, restrict deployment branches/tags, and add
 an environment-only secret named `SCHEMABRIDGE_RELEASE_APPROVAL_SENTINEL` containing 32–128 safe

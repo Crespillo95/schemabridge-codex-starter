@@ -7,10 +7,13 @@
 !.env.example
 .secrets
 .streamlit/secrets.toml
+*.pem
+*.key
 *.p12
 *.pfx
 *.jks
 *.keystore
+node_modules
 __pycache__
 *.pyc
 *.pyo

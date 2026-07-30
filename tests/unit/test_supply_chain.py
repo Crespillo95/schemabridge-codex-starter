@@ -187,6 +187,21 @@ def test_mutable_action_and_runtime_image_references_are_rejected(tmp_path: Path
             "          cache-dir: .cache/trivy\n",
             "trivy_cache_path_invalid",
         ),
+        (
+            ".venv/bin/pip-audit --disable-pip --require-hashes --format json \\\n",
+            ".venv/bin/pip-audit --require-hashes --format json \\\n",
+            "pip_audit_resolution_invalid",
+        ),
+        (
+            "            --requirement requirements/watchdog-build.txt\n",
+            "",
+            "pip_audit_resolution_invalid",
+        ),
+        (
+            '      DOCKER_BUILDKIT: "1"\n',
+            '      DOCKER_BUILDKIT: "0"\n',
+            "runtime_buildkit_invalid",
+        ),
     ],
 )
 def test_ci_operational_controls_fail_closed(
@@ -211,10 +226,13 @@ def test_ci_operational_controls_fail_closed(
     "missing_pattern",
     [
         ".streamlit/secrets.toml",
+        "*.pem",
+        "*.key",
         "*.p12",
         "*.pfx",
         "*.jks",
         "*.keystore",
+        "node_modules",
     ],
 )
 def test_docker_context_requires_sensitive_file_exclusions(
@@ -223,10 +241,13 @@ def test_docker_context_requires_sensitive_file_exclusions(
 ) -> None:
     patterns = (
         ".streamlit/secrets.toml",
+        "*.pem",
+        "*.key",
         "*.p12",
         "*.pfx",
         "*.jks",
         "*.keystore",
+        "node_modules",
     )
     (tmp_path / ".dockerignore").write_text(
         "\n".join(pattern for pattern in patterns if pattern != missing_pattern) + "\n",
@@ -240,7 +261,10 @@ def test_docker_context_requires_sensitive_file_exclusions(
 
 def test_docker_context_rejects_late_secret_reinclusion(tmp_path: Path) -> None:
     (tmp_path / ".dockerignore").write_text(
-        (".streamlit/secrets.toml\n*.p12\n*.pfx\n*.jks\n*.keystore\n!certificates/release.p12\n"),
+        (
+            ".streamlit/secrets.toml\n*.pem\n*.key\n*.p12\n*.pfx\n*.jks\n*.keystore\n"
+            "node_modules\n!certificates/release.p12\n"
+        ),
         encoding="utf-8",
     )
 
@@ -393,6 +417,16 @@ def test_duplicate_workflow_keys_and_missing_release_attestations_fail_closed(
             "          cache-dir: .cache/trivy\n",
             "trivy_cache_path_invalid",
         ),
+        (
+            ".venv/bin/pip-audit --disable-pip --require-hashes --format json \\\n",
+            ".venv/bin/pip-audit --require-hashes --format json \\\n",
+            "pip_audit_resolution_invalid",
+        ),
+        (
+            "            --requirement requirements/watchdog-build.txt\n",
+            "",
+            "pip_audit_resolution_invalid",
+        ),
     ],
 )
 def test_release_requires_digest_bound_ghcr_publication_and_attestation(
@@ -415,6 +449,123 @@ def test_static_gate_scans_candidate_secrets_artifacts_and_architecture() -> Non
     assert "$(BIN)/python scripts/verify_supply_chain.py static" in static_target
     assert "$(BIN)/python scripts/release_audit.py" in static_target
     assert "--check-external" not in static_target
+
+
+def test_runtime_base_image_requires_the_exact_reviewed_subject(tmp_path: Path) -> None:
+    (tmp_path / "Dockerfile.runtime").write_text(
+        "FROM python:3.13.13-slim-bookworm@"
+        "sha256:355bfa66770995d7e9a0da4b3473b44d0cb451f6b56f5615ad9c39e3c4eca03f\n"
+        "COPY requirements/build.txt requirements/build.txt\n"
+        "COPY requirements/runtime.txt requirements/runtime.txt\n"
+        "RUN pip install --require-hashes --no-deps --no-build-isolation\n",
+        encoding="utf-8",
+    )
+
+    assert "runtime_base_image_unreviewed" in {finding.code for finding in verify_images(tmp_path)}
+
+
+def test_runtime_install_requires_the_verified_offline_wheelhouse(tmp_path: Path) -> None:
+    source = (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8")
+    requirements = tmp_path / "requirements"
+    requirements.mkdir()
+    (requirements / "runtime-built.txt").write_text(
+        (ROOT / "requirements" / "runtime-built.txt").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (tmp_path / "Dockerfile.runtime").write_text(
+        source.replace("--no-index", "--index-url https://pypi.org/simple", 1),
+        encoding="utf-8",
+    )
+
+    assert "runtime_install_not_offline" in {finding.code for finding in verify_images(tmp_path)}
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "expected_code"),
+    [
+        (
+            "SOURCE_DATE_EPOCH=1730470033",
+            "SOURCE_DATE_EPOCH=0",
+            "runtime_install_not_reproducible",
+        ),
+        (
+            "RUN --mount=from=builder,source=/tmp/runtime-wheels,"
+            "target=/tmp/runtime-wheels,ro \\\n",
+            "COPY --from=builder /tmp/runtime-wheels /tmp/runtime-wheels\nRUN ",
+            "runtime_wheelhouse_layer_retained",
+        ),
+    ],
+)
+def test_runtime_wheel_build_is_reproducible_and_does_not_retain_the_wheelhouse(
+    tmp_path: Path,
+    before: str,
+    after: str,
+    expected_code: str,
+) -> None:
+    requirements = tmp_path / "requirements"
+    requirements.mkdir()
+    (requirements / "runtime-built.txt").write_text(
+        (ROOT / "requirements" / "runtime-built.txt").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    source = (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8")
+    assert before in source
+    (tmp_path / "Dockerfile.runtime").write_text(
+        source.replace(before, after, 1),
+        encoding="utf-8",
+    )
+
+    assert expected_code in {finding.code for finding in verify_images(tmp_path)}
+
+
+def test_runtime_built_watchdog_requirement_is_exactly_hash_bound(tmp_path: Path) -> None:
+    (tmp_path / "Dockerfile.runtime").write_text(
+        (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    requirements = tmp_path / "requirements"
+    requirements.mkdir()
+    source = (ROOT / "requirements" / "runtime-built.txt").read_text(encoding="utf-8")
+    (requirements / "runtime-built.txt").write_text(
+        source.replace("4b510ffee66be0c7", "0b510ffee66be0c7", 1),
+        encoding="utf-8",
+    )
+
+    assert "runtime_built_requirement_invalid" in {
+        finding.code for finding in verify_images(tmp_path)
+    }
+
+
+def test_runtime_watchdog_build_backend_is_exactly_hash_bound(tmp_path: Path) -> None:
+    (tmp_path / "Dockerfile.runtime").write_text(
+        (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    requirements = tmp_path / "requirements"
+    requirements.mkdir()
+    source = (ROOT / "requirements" / "watchdog-build.txt").read_text(encoding="utf-8")
+    (requirements / "watchdog-build.txt").write_text(
+        source.replace("29b23c360f22f414", "09b23c360f22f414", 1),
+        encoding="utf-8",
+    )
+
+    assert "runtime_build_requirement_invalid" in {
+        finding.code for finding in verify_images(tmp_path)
+    }
+
+
+def test_runtime_stage_rejects_an_additional_network_install(tmp_path: Path) -> None:
+    source = (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8")
+    (tmp_path / "Dockerfile.runtime").write_text(
+        source.replace(
+            "USER 10001:10001\n",
+            "RUN python -m pip install unreviewed-package\nUSER 10001:10001\n",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    assert "runtime_commands_unreviewed" in {finding.code for finding in verify_images(tmp_path)}
 
 
 def test_release_rejects_local_config_digest_as_oci_manifest_evidence(
@@ -730,6 +881,46 @@ def test_empty_or_incomplete_vulnerability_reports_are_rejected(
     pip_report.write_text(json.dumps(pip_payload), encoding="utf-8")
     trivy_report = tmp_path / "trivy.json"
     trivy_report.write_text(json.dumps(trivy_payload), encoding="utf-8")
+    exceptions = tmp_path / "exceptions.json"
+    exceptions.write_text(
+        json.dumps({"schema_version": 1, "exceptions": []}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SupplyChainViolation) as raised:
+        verify_vulnerability_reports(
+            (pip_report, trivy_report),
+            exceptions,
+            root=tmp_path,
+            image_name=IMAGE_NAME,
+            image_digest=DIGEST,
+        )
+
+    assert "vulnerability_report_incomplete" in {finding.code for finding in raised.value.findings}
+
+
+def test_pip_audit_report_must_cover_runtime_and_build_inputs(tmp_path: Path) -> None:
+    _write_runtime_requirements(tmp_path, ("runtime-example", "1.2.3"))
+    requirement_template = (
+        "{name}=={version} \\\n"
+        "    --hash=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+    )
+    requirements = tmp_path / "requirements"
+    (requirements / "build.txt").write_text(
+        requirement_template.format(name="build-example", version="2.0.0"),
+        encoding="utf-8",
+    )
+    (requirements / "watchdog-build.txt").write_text(
+        requirement_template.format(name="backend-example", version="3.0.0"),
+        encoding="utf-8",
+    )
+    pip_report = tmp_path / "pip-audit.json"
+    pip_report.write_text(
+        json.dumps(_pip_audit_payload(("runtime-example", "1.2.3"))),
+        encoding="utf-8",
+    )
+    trivy_report = tmp_path / "trivy.json"
+    trivy_report.write_text(json.dumps(_trivy_payload()), encoding="utf-8")
     exceptions = tmp_path / "exceptions.json"
     exceptions.write_text(
         json.dumps({"schema_version": 1, "exceptions": []}),

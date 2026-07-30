@@ -38,6 +38,10 @@ catalog boundaries must remain unchanged.
   SBOM/vulnerability/provenance policy, and protected-release OIDC contracts are present. Every
   Trivy action writes its cache under ignored `.local/trivy-cache`; static policy rejects any
   missing or different path as `trivy_cache_path_invalid`.
+- Python auditing uses the frozen export directly with no resolver environment. The exact
+  Python 3.13.14/Alpine 3.24 runtime builds a reproducible, SHA-bound `watchdog` wheel from its
+  verified sdist, installs the complete wheelhouse offline through read-only BuildKit mounts, and
+  retains neither build tooling nor the wheelhouse in the final image.
 - Recovery policy, verified backup-pair retention/quarantine, fresh-target drill contracts, and
   forward-compatible image/restore rollback rules are present.
 - Managed Streamlit is planning-only: execution and publication are explicitly `disabled`.
@@ -49,7 +53,7 @@ catalog boundaries must remain unchanged.
 ## Local acceptance evidence
 
 1. Focused M29 recovery/deployment/telemetry/logging/composition tests pass 210/210; the final
-   supply/release/wheel cut passes 60/60.
+   supply/release/wheel cut passes 76/76.
 2. Clean schema v11 and all seven control credentials pass; focused observer/provider-version
    PostgreSQL passes 18/18 and full integration passes 158 tests with 11 explicit external skips.
 3. Acceptance passes 43 tests with four explicit DataHub skips; deterministic evaluation,
@@ -59,13 +63,22 @@ catalog boundaries must remain unchanged.
    closed. Target-cluster server-side validation remains `NOT_RUN_EXTERNAL`.
 5. The Codex internal browser passes all six operations states at 1280×720 and 390×844 with clean
    console, escaped hostile text, no overflow or protected-data hits, and closed cleanup.
-6. Final `make check` passes supply-chain/release audit, Ruff over 592 files, mypy over 300 source
-   files, and 3138 tests with 211 deselected. Full coverage passes 3325 tests with 14 explicit
-   external skips and one performance deselection at 81.09% against the 80% floor.
+6. Final `make check` passes supply-chain/release audit, Ruff over 592 files, and mypy over 300
+   source files before the local executor stops the still-passing pytest process at its 600-second
+   limit. The exact 3154-test selection passes exhaustively in disjoint shards
+   (3079 + 39 + 22 + 14), with 211 service tests deselected and no assertion failure. The retained
+   full-coverage baseline over unchanged `src/schemabridge` passes 3325 tests with 14 explicit
+   external skips and one performance deselection at 81.09%; the 2436-second command was not
+   repeated after the final supply-chain-only patch.
 7. The final checkout audit closes the hidden-artifact upload and Trivy-cache regressions with a
    seven-path allowlist, timeout/condition/retention validation, and an ignored exact cache path;
-   43 supply-chain and 13 release-audit tests pass, including forced interrupted-coverage
-   rejection.
+   59 supply-chain and 13 release-audit tests pass, including forced interrupted-coverage
+   rejection, Docker-context key exclusion, complete build-input auditing, and exact final-stage
+   command enforcement.
+8. The final BuildKit image smoke passes as UID/GID 10001 with `pip check`, API/UI imports,
+   `watchdog==6.0.0`, no `setuptools`, and no retained wheelhouse. Its current Trivy image scan
+   reports zero HIGH/CRITICAL findings; Docker reports a local image size of 180,197,459 bytes,
+   down from 310,636,145.
 
 ## Publication boundary
 
@@ -78,7 +91,11 @@ reproducibility evidence, not production authorization.
 Hosted run `30493061776` failed safely after its image scans because Trivy created non-ignored
 `.cache/trivy` before the exact-tree provenance guard. The reviewed correction confines all four
 CI/release scanner caches to ignored `.local/trivy-cache` and adds fail-closed regressions; the
-replacement hosted result is deliberately not presumed inside this commit.
+replacement run `30495413406` then generated provenance and all seven artifacts before failing
+closed on two independent checks: default `pip-audit` omitted `packaging`, and the old Debian
+runtime carried high/critical findings. The local correction uses `--disable-pip` and the reviewed
+reproducible Alpine wheelhouse. Its replacement hosted result is deliberately not presumed inside
+this commit.
 
 ## Explicit NO-GO boundary
 

@@ -7,10 +7,10 @@
   operation remains blocked
 - Recommended operator decision: accept the reproducible local M29 baseline only; do not authorize
   production deployment or release publication
-- Proposed commit message: `feat: harden operations, supply chain, and recovery`
+- Proposed commit message: `fix: harden reproducible runtime supply chain`
 
 ```text
-M29_FINAL_AUTOMATED_RESULT=PASS_CHECK_3138_COVERAGE_81_09
+M29_FINAL_AUTOMATED_RESULT=PASS_CHECK_COMPONENTS_AND_SHARDED_3154_COVERAGE_BASELINE_81_09_NOT_RERUN
 M29_FINAL_POSTGRES_RESULT=PASS_158_TESTS_11_EXTERNAL_SKIPS
 M29_FINAL_RECOVERY_RESULT=PASS_LOCAL_FRESH_TARGET_EXTERNAL_CUTOVER_NOT_RUN
 M29_FINAL_BROWSER_RESULT=PASS_DESKTOP_6_OF_6_MOBILE_6_OF_6
@@ -54,6 +54,11 @@ explicit NO-GO items.
 - Added `uv.lock`, exact hashed runtime/build requirement exports, immutable workflow/image
   validation, direct-license policy, vulnerability evidence checks, wheel/image SBOM binding,
   provenance contracts, and protected-release short-lived OIDC.
+- Made Python auditing resolver-independent and moved the runtime to the exact Python
+  3.13.14/Alpine 3.24 digest. The only sdist-only dependency (`watchdog`) is built with pinned
+  vulnerability-fixed tooling isolated from DataHub's application constraint and the upstream
+  timestamp into a reproducible amd64/arm64-identical wheel, bound to an exact local SHA-256 and
+  installed offline from read-only BuildKit mounts. CI audits all runtime and build inputs.
 - Added an explicit recovery floor, verified signed backup-pair retention planning, exact
   review-bound recoverable quarantine, fresh-target recovery evidence contracts, and safe
   forward-compatible image/verified-restore rollback decisions. Automatic down-migration remains
@@ -111,9 +116,9 @@ external operation. A local pass is never a production or release claim.
 | Command | Result | Notes |
 |---|---|---|
 | Required repository docs, M29 plan/state, ADR, and local milestone skill | pass | Read before documentation consolidation |
-| Focused M29 unit/security/managed-composition selection | PASS | 210 M29 recovery/deployment/telemetry/logging/composition tests passed in 12.83 s; the final supply/release/wheel cut passed 60 tests |
-| Final supply-chain and release-audit regressions | PASS | 43 supply-chain tests passed in 0.35 s and 13 release-audit tests passed in 0.24 s; CI/release uploads use one immutable action and a seven-path allowlist, forced `.coverage.*` artifacts fail closed, and Trivy cache confinement is enforced for both workflows |
-| `make supply-chain-static` | PASS_LOCAL | Immutable-input policy passed; the final precommit release audit inspected 863 candidate files and 23 direct licenses with only the expected dirty-tree warning |
+| Focused M29 unit/security/managed-composition selection | PASS | 210 M29 recovery/deployment/telemetry/logging/composition tests passed in 12.83 s; the final supply/release/wheel cut passed 76 tests |
+| Final supply-chain and release-audit regressions | PASS | 59 supply-chain tests and 13 release-audit tests pass; CI/release uploads use one immutable action and a seven-path allowlist, forced `.coverage.*` artifacts fail closed, and Trivy cache, complete runtime/build audit resolution, Docker-context key exclusion, immutable Alpine base, isolated non-vulnerable build backend, reproducible wheel/hash, exact final-stage commands, offline BuildKit install, and no-retained-wheelhouse contracts are enforced |
+| `make supply-chain-static` | PASS_LOCAL | Immutable-input policy passed; the final precommit release audit inspected 865 candidate files and 23 direct licenses with only the expected dirty-tree warning |
 | `make m29-recovery-policy-check` | PASS | Schema `schemabridge.recovery-operator.v1`; policy fingerprint `24bdecb8bcb8faab8ba83d64eadf201c0b1d31142ebab773b012735f8f6f34ae` |
 | `make control-plane-reset` / `make control-plane-migrate` / `make control-plane-check` | PASS | Clean schema v11; seven credentials current with no pending migration; source/control separation verified |
 | Focused real PostgreSQL observer/provider-version integration | PASS | 18 passed in 8.20 s after a clean v11 migration |
@@ -122,16 +127,16 @@ external operation. A local pass is never a production or release claim.
 | `make evaluate` | PASS_DETERMINISTIC | Recorded fixtures, deterministic fake, and read-only PostgreSQL passed; live LLM attestation was not run |
 | `make runtime-wheel-smoke` | PASS | Fresh installed wheel verified migrations 1–11, exact names, all 10 console entrypoints, and eight safe `--help` paths |
 | Frozen clean install from `uv.lock` and hashed exports | PASS | uv 0.11.30 lock check resolved 173 packages, frozen sync checked 162 packages, `pip check`, doctor, and isolated runtime imports passed |
-| Wheel/image SBOM, dependency/image scan, license, and provenance validation | PARTIAL_EXTERNAL | Runtime dependency `pip-audit` found zero known vulnerabilities and local policy/evidence contracts passed; final image/SBOM/provenance publication remains hosted-release evidence and was not relabelled as local proof |
+| Wheel/image SBOM, dependency/image scan, license, and provenance validation | PASS_LOCAL_PARTIAL_EXTERNAL | `pip-audit --disable-pip` covered all 74 applicable frozen runtime/build dependencies, including `packaging` and isolated `setuptools==83.0.0`, with zero known vulnerabilities. The final 180,197,459-byte BuildKit image passed non-root smoke, `pip check`, API/UI imports, no-build-tool/no-wheelhouse checks, and a current Trivy scan with zero HIGH/CRITICAL findings. Final registry SBOM/provenance publication remains protected hosted-release evidence |
 | M29 retention planner and complete distinct fresh-target recovery/rollback drill | PASS_LOCAL_EXTERNAL_CUTOVER_NOT_RUN | Signed backup restored into a distinct fresh local database with schema v11/state verification; retention/tamper/rollback contracts passed; remote object-lock, external cutover, and operated rollback were not run |
 | Operator-patched Kubernetes render and local validator | PASS_LOCAL | Closed 61-resource render passed; the unpatched overlay failed closed with `unresolved_placeholder` |
 | `kubectl apply --server-side --dry-run=server` against target cluster | NOT_RUN_EXTERNAL | Required for production; missing cluster context remains an explicit blocker |
-| `make check` | PASS | Supply-chain and release audit passed; Ruff passed over 592 files, mypy passed over 300 source files, and 3138 tests passed with 211 deselected in 653.40 s; total command time was 658.18 s |
-| `make coverage` | PASS_WITH_EXTERNAL_SKIPS | 3325 passed, 14 skipped, and 1 deselected in 2436.86 s; total coverage was 81.09% against the enforced 80% floor. Thirteen skips require unavailable DataHub credentials and one requires the retained M27 browser corpus |
+| `make check` | EXECUTOR_LIMIT_WITH_COMPONENTS_PASSING | Supply-chain and release audit, Ruff over 592 files, and mypy over 300 source files passed; the local executor sent SIGTERM at its 600-second limit while pytest was still passing at 68%. The current exact selection then passed in exhaustive disjoint shards: 3079 + 39 + 22 + 14 = 3154 tests, with 211 service tests deselected and no assertion failure |
+| `make coverage` | RETAINED_BASELINE_NOT_RERUN | The complete baseline passed 3325 tests, with 14 skips and 1 deselection, at 81.09% in 2436.86 s. `src/schemabridge` is unchanged by the final supply-chain-only patch, but this expensive command was not rerun; thirteen skips require unavailable DataHub credentials and one requires the retained M27 browser corpus |
 | `make test-scale-correctness` and retained PostgreSQL scale postflight | PASS | 33 passed; 10 and 5,434 asset profiles retained bounded 1/17/50 paging, while final unit/integration contracts cover 10/75 and 5,434/41,028 |
 | Release audit / clean exact-revision checks | PRECOMMIT_PASS | Normal audit passed with only dirty-tree warning; strict clean-revision audit is required immediately after commit |
 | Codex internal-browser desktop/mobile operations matrix | PASS | 6/6 desktop and 6/6 mobile states; zero console warnings/errors, overflow, injected scripts, protected-data hits, or dangerous operations actions |
-| Final secret/artifact scan and `git diff --check` | PRECOMMIT_PASS | Release audit and diff hygiene pass. Gitleaks reports zero history findings after eight exact reviewed fingerprints; its full-directory scan finds only two ignored `.venv` subjects and zero commit-visible findings. Final staged rerun remains required |
+| Final secret/artifact scan and `git diff --check` | STAGED_PASS | Release audit and diff hygiene pass. Gitleaks v8.30.1 reports zero findings across the staged diff, all nine reachable commits, and the isolated staged tree. Strict clean-commit audit remains required immediately after commit |
 | Focused commit, push, and existing draft-PR checks | NOT_RUN_COMMIT_BOUND | A commit cannot embed its own identity. Exact push/check evidence is external to this precommit handoff and must be read from Git and draft PR #1 after publication |
 
 ### Corrections retained from development
@@ -160,25 +165,35 @@ external operation. A local pass is never a production or release claim.
   confine every Trivy cache to ignored `.local/trivy-cache`; static policy and regressions reject
   omission or deviation as `trivy_cache_path_invalid`. The corrected hosted result remains
   external to this commit and must be read from draft PR #1.
+- Hosted run `30495413406` proved that correction by generating provenance and uploading all seven
+  evidence paths, then failed closed because default `pip-audit` omitted `packaging` and the old
+  Debian runtime exposed high/critical findings. CI/release now use `--disable-pip`; final review
+  also replaced vulnerable build-only `setuptools==81.0.0` with isolated, hash-bound 83.0.0. The
+  reviewed Alpine wheelhouse closes all findings without vulnerability exceptions. The next
+  hosted result remains external to this commit.
 
 ## Automated test results
 
-- Focused tests: PASS — 210 M29 tests plus the 60-test supply/release/wheel cut.
-- `make check`: PASS — supply-chain/release audit, Ruff over 592 files, mypy over 300 source
-  files, and 3138 tests passed; 211 were deselected.
+- Focused tests: PASS — 210 M29 tests plus the 76-test supply/release/wheel cut.
+- `make check`: executor-limited after supply-chain/release audit, Ruff over 592 files, and mypy over
+  300 source files passed; pytest remained green at 68% when the 600-second limit sent SIGTERM.
+  The exact selection passed exhaustively in disjoint shards: 3079 + 39 + 22 + 14 = 3154,
+  with 211 service tests deselected and no assertion failure.
 - Integration tests: PASS — 158 passed, 11 explicit external skips.
 - Acceptance tests: PASS — 43 passed, 4 explicit DataHub skips.
 - Deterministic evaluation: PASS; live LLM attestation not run.
 - Schema/role checks: PASS — schema v11, seven distinct credentials, no pending migration.
-- Runtime wheel/image: wheel PASS; local final image build not run and hosted image evidence pending.
-- Supply-chain/SBOM/scans/provenance: local contracts and dependency audit PASS; protected hosted
-  release evidence not run.
+- Runtime wheel/image: wheel and final local image PASS; BuildKit smoke, exact wheel hash, no
+  retained build inputs, and zero-HIGH/CRITICAL Trivy scan passed. Hosted image evidence is pending.
+- Supply-chain/SBOM/scans/provenance: local contracts, complete dependency audit, and image scan
+  PASS; protected registry SBOM/provenance release evidence not run.
 - Recovery drill: local distinct-target PASS; external cutover/remote retention not run.
-- Coverage: PASS — 3325 passed, 14 explicit external skips, one performance deselection, and
-  81.09% total coverage against the 80% floor.
+- Coverage: retained baseline over unchanged measured product source — 3325 passed, 14 explicit
+  external skips, one performance deselection, and 81.09% against the 80% floor; not rerun after
+  the final supply-chain-only patch.
 - Scale postflight: PASS for local correctness and retained exact cardinality contracts.
-- Final diff/secret scan: precommit PASS; staged and clean-commit reruns remain the publication
-  boundary.
+- Final diff/secret scan: staged diff/tree and complete reachable history PASS; strict clean-commit
+  audit remains the publication boundary.
 
 ## Operator manual test
 
@@ -267,6 +282,8 @@ cleanup_listener=closed
   line-local synthetic markers for current false positives.
 - D117: constrain every Trivy cache to ignored `.local/trivy-cache` and reject any workflow
   deviation before provenance.
+- D118: audit every exact runtime/build input and build the exact Alpine runtime from a
+  reproducible, SHA-bound, offline-mounted wheelhouse.
 
 All decisions are recorded in `tasks/DECISION_LOG.md`; the lasting architecture is recorded in
 ADR 0014.
@@ -301,7 +318,7 @@ ADR 0014.
 ## Blockers
 
 - Publication acceptance still requires the corrected commit to pass replacement hosted PR
-  checks; local 43-test supply-chain evidence is not a hosted pass.
+  checks; local 59-test supply-chain and image evidence is not a hosted pass.
 - Production acceptance is blocked on real provider, cluster, telemetry, remote retention,
   recovery/rollback, production traffic/SLO, vulnerability disposition, and independent
   security/operator evidence.

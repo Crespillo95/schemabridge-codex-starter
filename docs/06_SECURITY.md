@@ -1019,8 +1019,15 @@ granting a new source write, SQL, DataHub mutation, or automatic semantic-approv
   endpoints are bounded, mutation-free, unauthenticated only on internal policy-selected ports,
   and perform no source I/O.
 - CI inputs are immutable and least-privileged. Vulnerability reports must be structurally complete
-  and artifact-bound; an empty scanner result is not accepted as evidence. Release signing is
-  restricted to a protected published-release workflow using short-lived OIDC.
+  and artifact-bound; an empty scanner result is not accepted as evidence. Python auditing reads
+  the direct frozen runtime and build inputs without a resolver environment. The
+  vulnerability-corrected sdist backend is isolated in its own hash-bound input instead of
+  weakening DataHub's application dependency constraint. Runtime dependencies are built into an
+  offline wheelhouse; the sdist-derived wheel has a fixed source epoch and exact local hash, and
+  BuildKit mounts prevent retaining build inputs in the image. The Docker context excludes private
+  key formats and `node_modules`, while static policy rejects any changed or additional
+  final-stage command. Release signing is restricted to a protected published-release workflow
+  using short-lived OIDC.
 - Retention verifies every signed archive/manifest pair before making any decision, requires exact
   reviewed policy/plan fingerprints and an explicit confirmation to execute, rechecks the complete
   set, rejects links/tampering/orphans, and moves pairs to recoverable quarantine. Restore cannot
