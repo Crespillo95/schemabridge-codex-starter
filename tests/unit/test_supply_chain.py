@@ -14,6 +14,7 @@ from scripts.verify_supply_chain import (
     POSTGRES_CLIENT_APK_MATRIX,
     RUNTIME_ALPINE_COMPONENTS,
     RUNTIME_ALPINE_NOARCH_COMPONENTS,
+    RUNTIME_ALPINE_PLATFORM_VIRTUAL_COMPONENT,
     SupplyChainViolation,
     bind_existing_cyclonedx_sbom,
     build_cyclonedx_sbom,
@@ -90,7 +91,10 @@ def _linux_runtime_sbom(*, architecture: str = "aarch64") -> dict[str, object]:
         python_base_refs.append(purl)
 
     apk_refs: list[str] = []
-    for index, (name, version) in enumerate(sorted(RUNTIME_ALPINE_COMPONENTS), start=1):
+    runtime_alpine_components = RUNTIME_ALPINE_COMPONENTS | {
+        RUNTIME_ALPINE_PLATFORM_VIRTUAL_COMPONENT[architecture]
+    }
+    for index, (name, version) in enumerate(sorted(runtime_alpine_components), start=1):
         component_architecture = (
             "noarch" if (name, version) in RUNTIME_ALPINE_NOARCH_COMPONENTS else architecture
         )
@@ -148,6 +152,44 @@ def _sbom_component(payload: dict[str, object], name: str) -> dict[str, object]:
     matches = [item for item in components if isinstance(item, dict) and item.get("name") == name]
     assert len(matches) == 1
     return matches[0]
+
+
+def _replace_sbom_apk_identity(
+    payload: dict[str, object],
+    name: str,
+    *,
+    version: str | None = None,
+    architecture: str | None = None,
+) -> dict[str, object]:
+    component = _sbom_component(payload, name)
+    old_ref = component["purl"]
+    old_version = component["version"]
+    assert isinstance(old_ref, str)
+    assert isinstance(old_version, str)
+    old_architecture = old_ref.split("?arch=", maxsplit=1)[1].split("&", maxsplit=1)[0]
+    new_version = version if version is not None else old_version
+    new_architecture = architecture if architecture is not None else old_architecture
+    new_ref = old_ref.replace(
+        f"@{old_version}?arch={old_architecture}",
+        f"@{new_version}?arch={new_architecture}",
+        1,
+    )
+    component["version"] = new_version
+    component["purl"] = new_ref
+    component["bom-ref"] = new_ref
+
+    dependencies = payload["dependencies"]
+    assert isinstance(dependencies, list)
+    for dependency in dependencies:
+        assert isinstance(dependency, dict)
+        if dependency.get("ref") == old_ref:
+            dependency["ref"] = new_ref
+        depends_on = dependency.get("dependsOn")
+        assert isinstance(depends_on, list)
+        dependency["dependsOn"] = [
+            new_ref if reference == old_ref else reference for reference in depends_on
+        ]
+    return component
 
 
 def _write_runtime_requirements(root: Path, *requirements: tuple[str, str]) -> None:
@@ -1507,7 +1549,6 @@ def test_runtime_sbom_alpine_inventory_is_frozen_from_the_runtime_image() -> Non
     assert (
         frozenset(
             {
-                (".python-rundeps", "20260616.002547"),
                 ("alpine-baselayout", "3.7.2-r1"),
                 ("alpine-baselayout-data", "3.7.2-r1"),
                 ("alpine-keys", "2.6-r0"),
@@ -1545,6 +1586,14 @@ def test_runtime_sbom_alpine_inventory_is_frozen_from_the_runtime_image() -> Non
         )
         == RUNTIME_ALPINE_COMPONENTS
     )
+    assert RUNTIME_ALPINE_PLATFORM_VIRTUAL_COMPONENT == {
+        "aarch64": (".python-rundeps", "20260616.002547"),
+        "x86_64": (".python-rundeps", "20260616.002554"),
+    }
+    assert (
+        frozenset(RUNTIME_ALPINE_PLATFORM_VIRTUAL_COMPONENT.values())
+        == RUNTIME_ALPINE_NOARCH_COMPONENTS
+    )
     assert (
         frozenset(
             {
@@ -1577,6 +1626,12 @@ def test_runtime_sbom_requires_exact_components_and_binds_reviewed_apks(
         linux_runtime=True,
     )
 
+    virtual_component = _sbom_component(payload, ".python-rundeps")
+    assert (
+        virtual_component["version"] == RUNTIME_ALPINE_PLATFORM_VIRTUAL_COMPONENT[architecture][1]
+    )
+    assert "arch=noarch" in str(virtual_component["purl"])
+
     names = {
         "libpq": "libpq",
         "lz4": "lz4-libs",
@@ -1592,6 +1647,71 @@ def test_runtime_sbom_requires_exact_components_and_binds_reviewed_apks(
             "name": "schemabridge:apk-source-sha256",
             "value": digest,
         } in properties
+
+
+@pytest.mark.parametrize(
+    ("architecture", "other_architecture"),
+    [("aarch64", "x86_64"), ("x86_64", "aarch64")],
+)
+def test_runtime_sbom_rejects_virtual_component_from_the_other_platform(
+    architecture: str,
+    other_architecture: str,
+) -> None:
+    payload = _linux_runtime_sbom(architecture=architecture)
+    _replace_sbom_apk_identity(
+        payload,
+        ".python-rundeps",
+        version=RUNTIME_ALPINE_PLATFORM_VIRTUAL_COMPONENT[other_architecture][1],
+    )
+
+    with pytest.raises(SupplyChainViolation) as error:
+        verify_cyclonedx_sbom(
+            payload,
+            root=ROOT,
+            artifact_digest=DIGEST,
+            source_revision=REVISION,
+            linux_runtime=True,
+        )
+
+    assert "sbom_component_mismatch" in {finding.code for finding in error.value.findings}
+
+
+def test_runtime_sbom_rejects_platform_virtual_component_with_non_noarch_purl() -> None:
+    payload = _linux_runtime_sbom(architecture="x86_64")
+    _replace_sbom_apk_identity(
+        payload,
+        ".python-rundeps",
+        architecture="x86_64",
+    )
+
+    with pytest.raises(SupplyChainViolation) as error:
+        verify_cyclonedx_sbom(
+            payload,
+            root=ROOT,
+            artifact_digest=DIGEST,
+            source_revision=REVISION,
+            linux_runtime=True,
+        )
+
+    assert "sbom_apk_architecture_invalid" in {finding.code for finding in error.value.findings}
+
+
+def test_runtime_sbom_rejects_real_fetched_apk_version_drift() -> None:
+    payload = _linux_runtime_sbom(architecture="x86_64")
+    _replace_sbom_apk_identity(payload, "libpq", version="18.4-r1")
+
+    with pytest.raises(SupplyChainViolation) as error:
+        verify_cyclonedx_sbom(
+            payload,
+            root=ROOT,
+            artifact_digest=DIGEST,
+            source_revision=REVISION,
+            linux_runtime=True,
+        )
+
+    codes = {finding.code for finding in error.value.findings}
+    assert "sbom_component_mismatch" in codes
+    assert "sbom_apk_binding_mismatch" in codes
 
 
 def test_runtime_sbom_rejects_truncated_apk_inventory() -> None:

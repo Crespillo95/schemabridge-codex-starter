@@ -1114,6 +1114,10 @@ final install must be exactly one `apk add --no-cache --no-network` over a read-
 copying or retaining the APKs, allowing an untrusted package, or adding another network action is
 rejected. Runtime CycloneDX verification must find all five named Alpine package/version
 components, so successful file copies without package-manager inventory are not acceptable.
+The same verifier exercises both pinned base-image leaves and requires the virtual
+`.python-rundeps` record to be exactly `20260616.002547/noarch` on `aarch64` or
+`20260616.002554/noarch` on `x86_64`. Cross-platform substitution, a non-`noarch` purl, real APK
+version drift, extra packages, and missing graph or hash evidence are negative regressions.
 
 The release-workflow regression suite hashes and semantically validates the complete reviewed
 seven-job program. The hash is a tripwire, not the only defense: mutation tests rewrite a security

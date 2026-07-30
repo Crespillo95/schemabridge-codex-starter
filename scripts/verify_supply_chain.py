@@ -97,7 +97,6 @@ POSTGRES_CLIENT_APK_MATRIX = {
 }
 RUNTIME_ALPINE_COMPONENTS = frozenset(
     {
-        (".python-rundeps", "20260616.002547"),
         ("alpine-baselayout", "3.7.2-r1"),
         ("alpine-baselayout-data", "3.7.2-r1"),
         ("alpine-keys", "2.6-r0"),
@@ -133,6 +132,10 @@ RUNTIME_ALPINE_COMPONENTS = frozenset(
         ("zstd-libs", "1.5.7-r2"),
     }
 )
+RUNTIME_ALPINE_PLATFORM_VIRTUAL_COMPONENT = {
+    "aarch64": (".python-rundeps", "20260616.002547"),
+    "x86_64": (".python-rundeps", "20260616.002554"),
+}
 POSTGRES_CLIENT_ALPINE_COMPONENTS = frozenset(
     {
         ("libpq", "18.4-r0"),
@@ -142,7 +145,7 @@ POSTGRES_CLIENT_ALPINE_COMPONENTS = frozenset(
         ("zstd-libs", "1.5.7-r2"),
     }
 )
-RUNTIME_ALPINE_NOARCH_COMPONENTS = frozenset({(".python-rundeps", "20260616.002547")})
+RUNTIME_ALPINE_NOARCH_COMPONENTS = frozenset(RUNTIME_ALPINE_PLATFORM_VIRTUAL_COMPONENT.values())
 RUNTIME_PYTHON_BASE_COMPONENTS = frozenset(
     {
         ("pip", "26.1.2"),
@@ -3706,17 +3709,6 @@ def _verify_linux_runtime_components(
                 f"extra={sorted(python_components - expected_python)!r}",
             )
         )
-    observed_apk = set(apk_components)
-    if observed_apk != RUNTIME_ALPINE_COMPONENTS:
-        findings.append(
-            Finding(
-                "sbom_component_mismatch",
-                "sbom",
-                f"apk missing={sorted(RUNTIME_ALPINE_COMPONENTS - observed_apk)!r} "
-                f"extra={sorted(observed_apk - RUNTIME_ALPINE_COMPONENTS)!r}",
-            )
-        )
-
     selected_architectures = {
         architecture
         for architecture in apk_component_architectures.values()
@@ -3734,6 +3726,19 @@ def _verify_linux_runtime_components(
             )
         )
     else:
+        expected_apk = RUNTIME_ALPINE_COMPONENTS | {
+            RUNTIME_ALPINE_PLATFORM_VIRTUAL_COMPONENT[selected_architecture]
+        }
+        observed_apk = set(apk_components)
+        if observed_apk != expected_apk:
+            findings.append(
+                Finding(
+                    "sbom_component_mismatch",
+                    "sbom",
+                    f"apk missing={sorted(expected_apk - observed_apk)!r} "
+                    f"extra={sorted(observed_apk - expected_apk)!r}",
+                )
+            )
         for identity, architecture in apk_component_architectures.items():
             expected_architecture = (
                 "noarch" if identity in RUNTIME_ALPINE_NOARCH_COMPONENTS else selected_architecture

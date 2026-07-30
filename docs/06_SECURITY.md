@@ -1067,7 +1067,11 @@ granting a new source write, SQL, DataHub mutation, or automatic semantic-approv
   installed by `apk add --no-cache --no-network`. Default Alpine signature verification remains
   mandatory, `--allow-untrusted` is forbidden, and neither APK archives nor download tooling is
   retained. The Docker context excludes private key formats and `node_modules`, while static
-  policy rejects any changed or additional final-stage command.
+  policy rejects any changed or additional final-stage command. Runtime SBOM evidence accepts the
+  Python base image's virtual `.python-rundeps` only through an exact platform mapping:
+  `20260616.002547/noarch` on `aarch64` and `20260616.002554/noarch` on `x86_64`. Every real APK,
+  package hash, graph edge, architecture, and reviewed PostgreSQL download remains exact; arbitrary
+  virtual-package timestamps are rejected.
 - Release authority is split across exactly seven jobs. Protected GET-only `audit` runs first with
   `contents`/`packages`/`attestations` read permissions and the environment audit token, and either
   rejects dirty external state before build or validates an exact immutable published no-op.

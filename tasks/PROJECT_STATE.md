@@ -42,19 +42,28 @@ PostgreSQL-client matrix offline from a read-only BuildKit mount.
 
 The seven-job release-topology redesign and `make check` are closed locally. The workflow SHA-256
 is `9979c54be6ba39d1d7b606e6d882aa10e9868bb9d003482b30a780ee104d1f26`;
-Actionlint 1.7.12, ShellCheck 0.11.0, static policy, 154 adversarial release/supply-chain tests, and
+Actionlint 1.7.12, ShellCheck 0.11.0, static policy, 158 adversarial release/supply-chain tests, and
 independent review pass with zero local P0/P1/P2 findings. Current-byte coverage passes 3534 tests
 with 14 external skips and 1 deselected at 81.17%, superseding D115's 81.09% historical baseline.
-Worktree/staged/history secret scans pass; exact-revision scan, stage/commit/push, and hosted
-checks remain pending. No external provider, cluster, alert/SIEM delivery, immutable retention, external
-cutover/rollback, exclusive registry-writer control, protected release, or production operation
-has been accepted.
+Initial commit `09c3a2e0f47a7fbadb5297fa6bc4f9aca0d21950` and its 12-commit history pass
+the exact secret scan and are published on draft PR #1. The corrective candidate still requires
+its commit-bound scan, push, and hosted rerun. No external provider, cluster, alert/SIEM delivery,
+immutable retention, external cutover/rollback, exclusive registry-writer control, protected
+release, or production operation has been accepted.
 
 Historical hosted M29 findings remain useful development evidence. The first supply-chain run
 failed closed before provenance because Trivy created non-ignored `.cache/trivy` after its image
 scans. Both workflows now use ignored `.local/trivy-cache`, and static policy rejects any deviation
-as `trivy_cache_path_invalid`. A new hosted result for the current final bytes has not yet been
-recorded.
+as `trivy_cache_path_invalid`.
+
+Initial-final-byte run `30560980711` built and scanned the runtime image and generated evidence,
+then failed closed during evidence verification. The x86_64 leaf of the pinned Python
+multi-architecture base contains virtual `.python-rundeps=20260616.002554/noarch`; the initial
+verifier encoded arm64's `20260616.002547/noarch` as universal. D124 replaces that assumption with
+the exact closed pair and retains strict checks for every real package and the five fetched
+PostgreSQL APK bindings. The run was then cancelled, so its remaining `quality` and
+`postgres-integration` jobs are neither passes nor code failures. A corrective hosted result
+remains pending.
 
 Hosted run `30495413406` proved the cache correction by generating provenance and uploading all
 seven evidence paths, then failed closed on incomplete default `pip-audit` resolution and the old
@@ -582,7 +591,7 @@ evidence.
   All nine scenarios passed at desktop 1280x720 and mobile 390x844 with distinct tenant results,
   clean consoles, no overflow/XSS/protected-data hits, and exact state/database/role/port cleanup.
 
-## M29 final-byte remediation — local evidence partially closed; acceptance/release pending
+## M29 final-byte remediation — accepted locally; corrective hosted validation pending
 
 - The provider-neutral connector-secret application port has owner-only local and HTTPS
   Vault/OpenBao-compatible remote implementations. The remote path consumes a short-lived
@@ -632,7 +641,9 @@ evidence.
   writable mount, raw filesystem copy, or online final-stage resolution. Local image
   `sha256:db2a42ce187243c809a9fcc1272246fb914fbeefc9186b7a83b651014d015b79`
   passes runtime, linkage, entrypoint, SBOM, `pip-audit`, and Trivy policy checks. It was built
-  before commit and its OCI label names the prior HEAD, so it is not release evidence.
+  before commit and its OCI label names the prior HEAD, so it is not release evidence. Runtime
+  evidence accepts only the base image's exact virtual `.python-rundeps` pair:
+  `20260616.002547/noarch` for `aarch64` and `20260616.002554/noarch` for `x86_64`.
 - Recovery policy and tooling enforce the hourly/RPO/RTO floor, verify signed archive/manifest
   pairs before retention decisions, default to dry-run, reject links/tampering/orphans, and move
   expired verified pairs into recoverable owner-only quarantine only after exact review. Remote
@@ -653,9 +664,11 @@ evidence.
   days; 35-day retention is only an incident-analysis buffer.
 - Current focused, schema/service, release/supply-chain/static, integration, acceptance,
   deterministic evaluation, runtime-wheel, local-image, recovery, scale, final browser,
-  current-byte coverage, and `make check` evidence is recorded in `tasks/M29_HANDOFF.md`. Final
-  worktree/staged/history secret scans pass; exact-revision scan, stage/commit/push, and hosted
-  checks remain pending. Coverage is 81.17% and supersedes D115's historical 81.09%; D123 records final local acceptance.
+  current-byte coverage, and `make check` evidence is recorded in `tasks/M29_HANDOFF.md`. Initial
+  commit `09c3a2e0f47a7fbadb5297fa6bc4f9aca0d21950`, its exact revision scan, and draft-PR
+  publication pass. Hosted run `30560980711` exposed the D124 platform-virtual-package correction;
+  the corrective exact revision and hosted rerun remain pending. Coverage is 81.17% and supersedes
+  D115's historical 81.09%; D123 records final local acceptance.
   Production and release remain **NO-GO**; M30/M31 and external provider, cluster, operations, recovery,
   exclusive Release/GHCR writers, immutable Releases, security, and operator acceptance remain
   blocked.
@@ -1439,8 +1452,8 @@ M28 accepted evidence on 2026-07-28:
 M29 final-byte remediation status on 2026-07-30:
 
 - focused M29 unit/security/manifest/observability/backup/web evidence passes 316 tests in
-  17.74 seconds. The final release/supply-chain cut passes 154 tests, and
-  `make supply-chain-static` passes over 894 candidate files and 23 direct licenses
+  17.74 seconds. The final release/supply-chain cut passes 158 tests, and
+  `make supply-chain-static` passes over 888 candidate files and 23 direct licenses
   with only the expected dirty-tree warning;
 - a clean reset/migrate/check reports schema v12, all eight distinct control credentials, no
   pending migration, and verified source/control separation. The focused PostgreSQL
@@ -1473,15 +1486,17 @@ M29 final-byte remediation status on 2026-07-30:
   fingerprint `24bdecb8bcb8faab8ba83d64eadf201c0b1d31142ebab773b012735f8f6f34ae`;
   and
 - the seven-job release topology passes local Actionlint 1.7.12, ShellCheck 0.11.0, static policy,
-  154 adversarial tests, and independent review with P0/P1/P2 = 0 at workflow SHA-256
+  158 adversarial tests, and independent review with P0/P1/P2 = 0 at workflow SHA-256
   `9979c54be6ba39d1d7b606e6d882aa10e9868bb9d003482b30a780ee104d1f26`;
-  final `make check` passes 3335 tests with 214 deselected in 1234.82 seconds, Ruff over 608 files,
+  final `make check` passes 3339 tests with 214 deselected in 1503.89 seconds, Ruff over 608 files,
   and strict mypy over 308 files; and
 - current-byte coverage passes 3534 tests with 14 external skips and 1 deselected at 81.17% in
   4149.89 seconds, above the required 80%; and
-- worktree/staged/history secret scans pass; exact-revision scan, stage/commit/push, and hosted
-  checks remain pending. D123 records local acceptance. Static provider/cluster/release contracts
-  are not operated proof:
+- initial commit `09c3a2e0f47a7fbadb5297fa6bc4f9aca0d21950`, exact-revision/history secret
+  scans, and draft-PR publication pass. Hosted run `30560980711` failed closed on the
+  platform-specific virtual `.python-rundeps` identity and was then cancelled; D124's corrective
+  candidate and hosted rerun remain pending. D123 records local acceptance. Static
+  provider/cluster/release contracts are not operated proof:
   production and release remain NO-GO pending external provider, cluster, telemetry, retention,
   cutover/rollback, exclusive Release/GHCR writers, immutable Releases, protected release, and
   independent review evidence listed in the M29 handoff.
@@ -1695,11 +1710,13 @@ preflight — is complete and accepted locally. Its exact final automated and Co
 desktop/390x844 matrices are recorded in `tasks/M28_HANDOFF.md`.
 M29 — operations and supply-chain hardening — has closed its current focused, schema/service,
 release/supply-chain, quality, coverage, package, local-image, browser, recovery, evaluation,
-wheel, scale, and precommit secret-scan evidence and is accepted locally under D123. Exact-revision
-scan and publication remain pending. It remains a production/release NO-GO. Its checked-in contracts and
-local drills are not operated evidence; external rotation, cluster admission, active alert/SIEM
-delivery, immutable retention, external cutover/rollback, exclusive Release/GHCR writer control,
-immutable Releases, protected release provenance, M30, and M31 still require separate acceptance.
+wheel, scale, and secret-scan evidence and is accepted locally under D123. Initial commit
+`09c3a2e0f47a7fbadb5297fa6bc4f9aca0d21950` is published on draft PR #1; D124's
+platform-specific virtual-package correction still requires its exact-revision scan and hosted
+rerun. It remains a production/release NO-GO. Its checked-in contracts and local drills are not
+operated evidence; external rotation, cluster admission, active alert/SIEM delivery, immutable
+retention, external cutover/rollback, exclusive Release/GHCR writer control, immutable Releases,
+protected release provenance, M30, and M31 still require separate acceptance.
 M17/M18 release work remains independently blocked on a reviewed clean commit, strict
 `make release-clean`, exact-commit deployment, public/incognito and cold-start evidence, final
 media/links/checksums, and external reviewer sign-off.

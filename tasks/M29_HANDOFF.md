@@ -3,10 +3,12 @@
 ## Summary
 
 - Milestone: M29 — Operations, infrastructure, supply-chain, and recovery hardening
-- Status: complete locally; branch publication pending
+- Status: complete locally; initial branch commit published; corrective supply-chain commit and
+  hosted rerun pending
 - Recommended operator decision: accept the final-byte local M29 baseline; do not authorize
   production deployment or release publication
-- Proposed commit message: `fix: close M29 production-readiness audit gaps`
+- Proposed corrective commit message:
+  `fix(supply-chain): pin platform-specific python rundeps SBOM`
 
 ```text
 M29_FINAL_AUTOMATED_RESULT=PASS_LOCAL
@@ -77,7 +79,9 @@ approval remain explicit NO-GO items.
   `postgresql16-client`, and `zstd-libs` for amd64/arm64, verifies every reviewed SHA-256, and the
   final stage installs only those mounted files using `apk --no-network`. Static policy rejects
   changed versions/URLs/hashes, an extra APK, writable mounts, raw copying, and online final-stage
-  resolution.
+  resolution. The pinned Python base image's virtual `.python-rundeps` identity is accepted only
+  as `20260616.002547/noarch` for `aarch64` or `20260616.002554/noarch` for `x86_64`; real APKs
+  and the five fetched-package bindings remain exact.
 - Changed release publication into seven capability-separated jobs:
   `audit → prepare → candidate → scan → attest → promote → release`. The protected GET-only audit
   runs without checkout, repository code, or third-party actions; it either reverifies an exact
@@ -126,8 +130,8 @@ overlapping commands must not be summed.
 |---|---|---|
 | Required repository docs, M29 plan/state, ADR, and local milestone skill | PASS | Read before implementation/document consolidation |
 | Focused M29 unit/security/managed-composition tests | PASS | 316 passed in 17.74 s across backup, web, observability, Kubernetes, release-policy, and APK-policy regressions |
-| Final release/supply-chain adversarial tests | PASS | 154 passed |
-| `make supply-chain-static` | PASS_LOCAL | 894 candidate files and 23 direct licenses; only the expected dirty-tree warning |
+| Final release/supply-chain adversarial tests | PASS | 158 passed, including both platform leaves and cross-platform/version/architecture drift rejection |
+| `make supply-chain-static` | PASS_LOCAL | 888 candidate files and 23 direct licenses; only the expected dirty-tree warning |
 | `make control-plane-reset && make control-plane-migrate && make control-plane-check` | PASS | Clean schema v12; all eight distinct credentials present; source/control separation verified |
 | Focused real PostgreSQL backup/restore integration | PASS | 6 passed, 5 deselected in 5.96 s; includes backup write denial and distinct fresh-target restore behavior |
 | `make test-integration` | PASS_WITH_EXTERNAL_SKIPS | 161 passed, 11 skipped, 3327 deselected in 250.42 s; skips require unavailable DataHub credentials plus the retained M27 small fixture |
@@ -139,22 +143,22 @@ overlapping commands must not be summed.
 | Final local BuildKit image smoke, SBOM, and vulnerability policy | PASS_LOCAL_PRECOMMIT | Image `sha256:db2a42ce187243c809a9fcc1272246fb914fbeefc9186b7a83b651014d015b79`, 182236711 bytes; user 10001:10001; `pg_dump`/`pg_restore` 16.14; `pip check`, `ldd`, and all entrypoint smoke passed; exact 107-component SBOM; `pip-audit` found no known vulnerabilities and Trivy HIGH/CRITICAL policy passed |
 | Image revision/release identity review | LOCAL_ONLY_OLD_HEAD_LABEL | Built from stable product bytes before commit, but OCI revision is prior HEAD `9e8b69e1adce8e144b345d3b0d33482558804dc6`; this is not an exact-commit or release image |
 | `make m29-recovery-policy-check` | PASS_LOCAL | Fingerprint `24bdecb8bcb8faab8ba83d64eadf201c0b1d31142ebab773b012735f8f6f34ae` |
-| `make check` | PASS | 3335 passed, 214 deselected in 1234.82 s; Ruff format/lint over 608 files and strict mypy over 308 files passed |
+| `make check` | PASS | 3339 passed, 214 deselected in 1503.89 s; Ruff format/lint over 608 files and strict mypy over 308 files passed |
 | `make coverage` | PASS_WITH_EXTERNAL_SKIPS | 3534 passed, 14 skipped, 1 deselected in 4149.89 s; 81.17%, above the required 80%; skips are unavailable optional DataHub credentials and the retained M27 small browser fixture |
 | Scale correctness and PostgreSQL postflight | PASS | 25 passed in 3.16 s; PostgreSQL cut 8 passed, 4 deselected in 4.41 s; correctness policy passed |
 | Internal-browser desktop/mobile final-byte matrix | PASS_LOCAL | Development 6/6 desktop and 6/6 mobile; production unavailable at 1280x720 and 390x844; final clean reload had zero console warnings/errors, overflow, XSS, scripts, protected-data hits, or dangerous actions; listener 8511 closed and temporary state absent |
 | Final release-topology redesign/review | PASS_LOCAL | Seven jobs; workflow SHA-256 `9979c54be6ba39d1d7b606e6d882aa10e9868bb9d003482b30a780ee104d1f26`; Actionlint 1.7.12 and ShellCheck 0.11.0 passed (the sole Actionlint schema exclusion is GitHub's newer `concurrency.queue`); static/adversarial review found P0/P1/P2 = 0 |
-| Worktree/staged/history secret and artifact scans | PASS_PRECOMMIT | Gitleaks 8.30.1 with full redaction; 888-file worktree/index snapshots and all 11 existing commits; zero leaks; ignored runtime/cache paths were not force-added |
-| Exact-revision secret scan | PENDING_COMMIT_BOUND | Runs after the focused commit exists |
+| Initial published revision secret scan | PASS_INITIAL_REVISION | Gitleaks 8.30.1 with full redaction; commit `09c3a2e0f47a7fbadb5297fa6bc4f9aca0d21950` and all 12 then-existing commits; zero leaks |
+| Corrective candidate/exact-revision secret scan | PENDING_COMMIT_BOUND | Runs after the corrective commit exists |
 | `git diff --check` | PASS | Documentation postflight completed without whitespace errors |
-| Focused commit, push, and draft-PR checks | NOT_RUN_COMMIT_BOUND | Read exact evidence from Git/PR after publication |
+| Commit, push, and draft-PR checks | FOLLOW_UP_REQUIRED | Initial commit is published on draft PR #1; hosted run `30560980711` failed closed in `supply-chain`; the other jobs were then cancelled |
 
 ## Automated test results
 
 - Focused tests: **PASS** — 316 component tests in 17.74 seconds; the final
-  release/supply-chain cut passed 154 tests; focused backup/restore
+  release/supply-chain cut passed 158 tests; focused backup/restore
   PostgreSQL passed 6 with 5 deselected in 5.96 seconds.
-- `make check`: **PASS** — 3335 passed, 214 deselected in 1234.82 seconds; Ruff covered 608
+- `make check`: **PASS** — 3339 passed, 214 deselected in 1503.89 seconds; Ruff covered 608
   files and strict mypy covered 308 files.
 - Integration tests: **PASS_WITH_EXTERNAL_SKIPS** — 161 passed, 11 skipped, 3327 deselected in
   250.42 seconds. Skips are exact unavailable DataHub credentials plus the retained M27 small
@@ -172,7 +176,7 @@ overlapping commands must not be summed.
   entrypoint smoke passed. It was built from stable pre-commit product bytes and carries prior
   HEAD `9e8b69e1adce8e144b345d3b0d33482558804dc6` in its OCI revision label; it is not release
   evidence.
-- Supply-chain/SBOM/scans/provenance: **PASS_LOCAL** — 154 release/supply-chain tests; static audit over 894
+- Supply-chain/SBOM/scans/provenance: **PASS_LOCAL** — 158 release/supply-chain tests; static audit over 888
   candidates/23 licenses with the expected dirty warning; exact 107-component image SBOM;
   `pip-audit` reports no known vulnerabilities and Trivy HIGH/CRITICAL policy passes. Protected
   registry provenance/attestation remains **NOT_RUN_EXTERNAL**.
@@ -189,10 +193,16 @@ overlapping commands must not be summed.
 - Release topology: **PASS_LOCAL** — workflow SHA-256
   `9979c54be6ba39d1d7b606e6d882aa10e9868bb9d003482b30a780ee104d1f26`; seven-job state machine;
   Actionlint/ShellCheck/static/adversarial gates pass with no local P0/P1/P2 finding.
-- Secret/artifact hygiene: **PASS_PRECOMMIT** — Gitleaks 8.30.1 found zero leaks in the exact
-  worktree/index snapshots or all 11 existing commits; ignored runtime/caches were not staged.
-- Diff hygiene: **PASS**. Exact-revision secret scan, commit, push, and hosted checks are
-  **PENDING/NOT_RUN**.
+- Secret/artifact hygiene: **PASS_INITIAL_REVISION** — Gitleaks 8.30.1 found zero leaks in initial
+  published commit `09c3a2e0f47a7fbadb5297fa6bc4f9aca0d21950` or all 12 then-existing
+  commits; ignored runtime/caches were not staged. The corrective candidate and revision require
+  their own final scans.
+- Hosted CI: **FOLLOW_UP_REQUIRED** — run `30560980711` failed closed during evidence verification
+  because x86_64 reported the virtual `.python-rundeps=20260616.002554/noarch` while the initial
+  verifier encoded arm64's `20260616.002547/noarch`. The remaining `quality` and
+  `postgres-integration` jobs were subsequently cancelled and are not reported as pass or failure.
+- Diff hygiene: **PASS**. Corrective exact-revision scan, commit, push, and hosted rerun are
+  **PENDING**.
 
 ## Operator manual test
 
@@ -281,6 +291,9 @@ recorded zero console warnings or errors.
   explicit Operations-unavailable state without an operated source.
 - D123: accept the final-byte local M29 baseline, supersede the earlier release mechanics with the
   seven-job replay-safe state machine, and retain production/release NO-GO.
+- D124: bind the pinned base image's virtual `.python-rundeps` identity to an exact closed
+  per-platform map while preserving every real APK, hash, architecture, graph, and PostgreSQL
+  download binding.
 
 All decisions are recorded in `tasks/DECISION_LOG.md`.
 
@@ -311,8 +324,8 @@ All decisions are recorded in `tasks/DECISION_LOG.md`.
 
 ## Blockers
 
-- Publication acceptance requires a focused commit, exact clean-revision scan, push, and successful
-  hosted PR checks.
+- Publication acceptance requires the corrective focused commit, exact clean-revision scan, push,
+  and successful hosted PR checks.
 - Production acceptance is blocked on real provider, cluster, telemetry, remote retention,
   recovery/rollback, production traffic/SLO, vulnerability disposition, and independent
   security/operator evidence.
@@ -324,8 +337,8 @@ All decisions are recorded in `tasks/DECISION_LOG.md`.
 
 - Dependencies satisfied: **YES** for M29 local acceptance; **NO** for operated
   production and release.
-- Recommended next prompt: finish final secret scans; then stage/commit/push the exact bytes and
-  observe hosted checks.
+- Recommended next prompt: finish corrective secret scans; then commit/push the exact bytes and
+  observe the hosted rerun.
 - Required operator prerequisites: approved provider IAM and exact-version secrets; isolated
   workload/egress design; target Kubernetes admission context; TLS/PKI and identity configuration;
   metrics/alert/SIEM destinations and missing producers; encrypted immutable backup store and

@@ -4092,6 +4092,10 @@ remote `ADD`, or another downloader. Do not replace this with raw files copied f
 image: that removes the APK inventory required for complete SBOM and vulnerability inspection.
 After a build, reject the image if any of the five package/version records is absent, if an APK
 archive remains in the filesystem, or if `pg_dump`/`pg_restore` does not report PostgreSQL 16.14.
+For runtime SBOM evidence, also require the pinned Python base image's virtual
+`.python-rundeps` identity to match the concrete leaf: `20260616.002547/noarch` for `aarch64` or
+`20260616.002554/noarch` for `x86_64`. Do not replace this exact map with a timestamp wildcard.
+Reject cross-platform substitution, a non-`noarch` purl, or any change to a real Alpine package.
 
 Before enabling a release:
 

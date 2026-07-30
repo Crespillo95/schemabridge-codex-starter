@@ -1,7 +1,8 @@
 # Current task
 
 - Current milestone: M29 — Operations, infrastructure, supply-chain, and recovery hardening
-- Status: final-byte local acceptance complete; branch publication remains in progress
+- Status: final-byte local acceptance complete; initial branch commit published; hosted
+  supply-chain correction awaiting exact follow-up commit and rerun
 - Prompt: `prompts/M29_OPERATIONS_SUPPLY_CHAIN_HARDENING.md`
 - Plan: `plans/M29_OPERATIONS_SUPPLY_CHAIN_HARDENING.md`
 - ADR: `docs/adr/0014-operated-runtime-secrets-observability-and-supply-chain.md`
@@ -51,7 +52,9 @@ catalog boundaries remain unchanged.
   wheel. A separate fetch stage downloads exactly five versioned Alpine APKs for amd64/arm64 and
   verifies each reviewed SHA-256; the final stage installs them from a read-only BuildKit mount
   with `apk --no-network`. Raw filesystem copying, extra APKs, mutable coordinates, and online
-  final-stage resolution fail static policy.
+  final-stage resolution fail static policy. Runtime evidence accepts the base image's virtual
+  `.python-rundeps` through one exact platform map only: `20260616.002547/noarch` for `aarch64`
+  and `20260616.002554/noarch` for `x86_64`.
 - Release promotion is manually dispatched from an existing annotated SemVer tag through seven
   jobs: `audit → prepare → candidate → scan → attest → promote → release`. The protected GET-only
   audit runs without checkout, repository code, or third-party actions; it either verifies an
@@ -68,7 +71,8 @@ catalog boundaries remain unchanged.
 
 The final-byte focused, service, package, recovery, scale, browser, coverage, and local-image cuts
 below are current evidence. Current-byte coverage is 81.17% and supersedes D115's 81.09%
-historical baseline. D123 records local acceptance while retaining release and production NO-GO.
+historical baseline. D123 records local acceptance; D124 records the exact platform-specific
+virtual-package evidence correction while retaining release and production NO-GO.
 The local image was built from stable product bytes before commit and its OCI revision label still
 binds the prior HEAD
 `9e8b69e1adce8e144b345d3b0d33482558804dc6`; it is not an exact-commit or release artifact.
@@ -76,7 +80,7 @@ binds the prior HEAD
 | Gate | Status |
 |---|---|
 | Focused unit/security/manifest/observability/backup/web tests | **PASS** — 316 passed in 17.74 s |
-| Release/supply-chain focused and static gates | **PASS** — 154 passed; static audit 894 candidate files/23 licenses with only the expected dirty-tree warning |
+| Release/supply-chain focused and static gates | **PASS** — 158 passed; static audit 888 candidate files/23 licenses with only the expected dirty-tree warning |
 | Clean schema v12 and eight-credential PostgreSQL boundary | **PASS** — clean reset/migrate/check; source/control separation verified |
 | Focused backup/restore PostgreSQL cut | **PASS** — 6 passed, 5 deselected in 5.96 s |
 | Full integration suite | **PASS_WITH_EXTERNAL_SKIPS** — 161 passed, 11 skipped, 3327 deselected in 250.42 s |
@@ -88,13 +92,13 @@ binds the prior HEAD
 | Scale correctness/postflight | **PASS** — 25 passed in 3.16 s; PostgreSQL cut 8 passed, 4 deselected in 4.41 s |
 | Recovery policy | **PASS_LOCAL** — fingerprint `24bdecb8bcb8faab8ba83d64eadf201c0b1d31142ebab773b012735f8f6f34ae` |
 | Final release-topology redesign/review | **PASS_LOCAL** — 7 jobs; workflow SHA-256 `9979c54be6ba39d1d7b606e6d882aa10e9868bb9d003482b30a780ee104d1f26`; Actionlint 1.7.12, ShellCheck 0.11.0, static/adversarial review; P0/P1/P2 = 0 |
-| `make check` | **PASS** — 3335 passed, 214 deselected in 1234.82 s; Ruff 608 files; strict mypy 308 files |
+| `make check` | **PASS** — 3339 passed, 214 deselected in 1503.89 s; Ruff 608 files; strict mypy 308 files |
 | Current-byte coverage | **PASS_WITH_EXTERNAL_SKIPS** — 3534 passed, 14 skipped, 1 deselected in 4149.89 s; 81.17%, above the required 80% |
 | Documentation postflight `git diff --check` | **PASS** |
 | Internal-browser desktop/mobile final-byte validation and cleanup | **PASS_LOCAL** — exact matrix retained in `tasks/M29_HANDOFF.md` |
-| Worktree/staged/history secret and artifact scans | **PASS_PRECOMMIT** — Gitleaks 8.30.1, fully redacted; 888-file worktree/index snapshots and all 11 existing commits; zero leaks |
-| Exact-revision secret scan | **PENDING_COMMIT_BOUND** |
-| Focused commit, push, and hosted PR checks | **NOT_RUN** |
+| Initial published revision secret scan | **PASS_INITIAL_REVISION** — commit `09c3a2e0f47a7fbadb5297fa6bc4f9aca0d21950` plus all 12 then-existing commits; zero leaks |
+| Corrective candidate/exact-revision secret scan | **PENDING_COMMIT_BOUND** |
+| Commit, push, and hosted PR checks | **FOLLOW_UP_REQUIRED** — initial commit is on draft PR #1; run `30560980711` failed closed only in `supply-chain`; remaining jobs were then cancelled |
 
 The local image runs as 10001:10001 and passes `pg_dump`/`pg_restore` 16.14, `pip check`, `ldd`,
 all entrypoint smoke, an exact 107-component SBOM, a zero-known-vulnerability `pip-audit`, and the
@@ -105,10 +109,17 @@ evidence.
 
 ## Publication boundary
 
-The exact commit and hosted status must be read from Git history and draft PR #1 after publication.
-A commit cannot embed its own identity. The staged candidate and exact clean revision must pass the
-secret/artifact/history and strict release scans; hosted PR checks are independent reproducibility
-evidence, not production authorization.
+Initial branch commit `09c3a2e0f47a7fbadb5297fa6bc4f9aca0d21950` is published on draft PR
+#1. Hosted run `30560980711` built, scanned, and generated evidence, then failed closed because the
+x86_64 base-image leaf exposes `.python-rundeps=20260616.002554/noarch` while the initial verifier
+encoded the arm64 identity `20260616.002547/noarch`. The remaining `quality` and
+`postgres-integration` jobs were cancelled after that true supply-chain failure; they are neither
+passes nor code failures. D124's exact two-platform mapping is the corrective candidate.
+
+The final exact commit and hosted status must be read from Git history and draft PR #1 after
+publication because a commit cannot embed its own identity. The staged candidate and exact clean
+revision must pass the secret/artifact/history and strict release scans; hosted PR checks are
+independent reproducibility evidence, not production authorization.
 
 The protected release workflow is also not sufficient by itself. The external repository
 inspection found no `production-release` environment, unprotected `main`, zero rulesets, and

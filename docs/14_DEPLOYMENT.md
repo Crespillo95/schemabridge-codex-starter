@@ -377,6 +377,10 @@ hash-verifies those unchanged signed APKs. The final Python/Alpine stage install
 `apk add --no-cache --no-network` through a read-only BuildKit mount, which preserves Alpine
 signature verification and package inventory while retaining neither the APK archives nor a
 PostgreSQL image stage. Raw client-library copies are not an accepted deployment topology.
+The evidence verifier binds the base image's virtual `.python-rundeps` component separately from
+that five-APK closure: only `20260616.002547/noarch` for `aarch64` and
+`20260616.002554/noarch` for `x86_64` are valid. All non-virtual Alpine components and downloaded
+PostgreSQL package bindings remain identical and fail closed on drift.
 
 `make runtime-wheel-smoke` builds the current wheel, installs its runtime extras into an empty
 virtual environment and working directory, verifies that migrations are packaged, and composes

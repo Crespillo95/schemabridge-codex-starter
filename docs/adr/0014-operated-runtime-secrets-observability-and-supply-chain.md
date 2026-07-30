@@ -233,6 +233,11 @@ read-only BuildKit mount and installs them using `apk add --no-cache --no-networ
 Alpine signature verification. No APK archive, resolver cache, downloader, or PostgreSQL image
 stage remains in the runtime; package metadata remains available to CycloneDX and vulnerability
 scanners.
+The pinned Python base is multi-architecture and creates one virtual `.python-rundeps` identity
+per platform leaf. Evidence therefore permits only the closed pair
+`aarch64=20260616.002547/noarch` and `x86_64=20260616.002554/noarch`; no wildcard or range is
+allowed. This exception is limited to that virtual metapackage and leaves the real APK inventory,
+hash, architecture, dependency-graph, and five PostgreSQL download bindings exact.
 
 Retain M23's signed transaction-consistent backup as the integrity primitive. Add scheduled
 encrypted immutable remote retention, a conservative verified-pair retention planner, and a

@@ -1,7 +1,7 @@
 # M29: Operations, infrastructure, supply-chain, and recovery hardening
 
-- Status: final-byte local acceptance closed; branch publication and external production/release
-  operation remain pending
+- Status: final-byte local acceptance closed; initial branch commit published; corrective hosted
+  supply-chain validation and external production/release operation remain pending
 - Started: 2026-07-29
 - Timebox: four sequential phases; no phase is accepted independently
 - Recommended Codex: GPT-5.6 Sol — Extra High (xhigh)
@@ -236,8 +236,8 @@ Branch/rule lookup, reference absence, authentication, transport, archive parsin
 attestation, and digest checks fail closed. Exclusive Release/GHCR write authority, protected
 environment/reviewer policy, and target operation remain external prerequisites.
 
-Current final-byte local evidence now closes the 316-test focused M29 cut; the 154-test
-release/supply-chain cut and 894-file/23-license static audit; clean schema-v12/eight-credential
+Current final-byte local evidence now closes the 316-test focused M29 cut; the 158-test
+release/supply-chain cut and 888-file/23-license static audit; clean schema-v12/eight-credential
 source/control separation; the focused backup/restore cut; full integration and acceptance;
 deterministic 11-table/465-row evaluation with `live_llm=not_run`; the installed wheel through
 migrations 1–12 and all entrypoints; local recovery policy and fresh-target evidence; scale
@@ -245,11 +245,11 @@ postflight; the final internal-browser matrix; and the local BuildKit image/SBOM
 smoke. The image is local pre-commit evidence built from stable product bytes: its OCI revision
 label still identifies the prior HEAD, so it is not an exact-commit or release artifact.
 
-Exact closed results are 316 focused component tests in 17.74 seconds; 154 final
+Exact closed results are 316 focused component tests in 17.74 seconds; 158 final
 release/supply-chain tests; backup/restore 6 passed and 5 deselected in 5.96 seconds; integration
 161 passed, 11 skipped, and 3327 deselected in 250.42 seconds; acceptance 43 passed, 4 skipped,
 and 3452 deselected in 48.51 seconds; scale 25 passed in 3.16 seconds plus 8 passed and
-4 deselected in 4.41 seconds; final `make check` 3335 passed and 214 deselected in 1234.82 seconds
+4 deselected in 4.41 seconds; final `make check` 3339 passed and 214 deselected in 1503.89 seconds
 with Ruff over 608 files and strict mypy over 308 files; current-byte coverage 3534 passed,
 14 skipped, and 1 deselected at 81.17% in 4149.89 seconds; and recovery fingerprint
 `24bdecb8bcb8faab8ba83d64eadf201c0b1d31142ebab773b012735f8f6f34ae`.
@@ -262,10 +262,13 @@ HIGH/CRITICAL policy. Its OCI revision is prior HEAD
 
 The final release topology is **PASS_LOCAL** at workflow SHA-256
 `9979c54be6ba39d1d7b606e6d882aa10e9868bb9d003482b30a780ee104d1f26`:
-Actionlint 1.7.12, ShellCheck 0.11.0, static policy, 154 adversarial tests, and independent review
+Actionlint 1.7.12, ShellCheck 0.11.0, static policy, 158 adversarial tests, and independent review
 all pass with zero local P0/P1/P2 findings. Current-byte coverage passes at 81.17%, superseding
-D115's 81.09% historical baseline. Worktree, staged-candidate, and existing-history secret scans
-pass; exact-revision scan, commit/push, and hosted checks remain **PENDING**. D123 records local
+D115's 81.09% historical baseline. Initial commit
+`09c3a2e0f47a7fbadb5297fa6bc4f9aca0d21950`, its exact revision/history scans, and draft-PR
+publication pass. Run `30560980711` failed closed on the pinned base image's distinct x86_64
+virtual `.python-rundeps` timestamp and was then cancelled; D124 binds the exact arm64/x86_64 pair.
+The corrective revision scan, push, and hosted rerun remain **PENDING**. D123 records local
 acceptance. No
 target-provider rotation/revocation, cluster-side admission, real alert/SIEM delivery, immutable
 remote retention, external cutover/rollback, protected release attestation, production
@@ -406,8 +409,9 @@ therefore remain **NO-GO**, and M30/M31 remain blocked.
       actual evidence.
 - [x] The precommit Git secret/artifact/history scan is clean and the candidate contains no keys,
       local runtime artifacts, backups, tokens, logs, caches, or generated private evidence.
-- [ ] The exact focused M29 commit is pushed and passes the strict clean-revision scan plus hosted
-      PR checks.
+- [ ] The exact corrective M29 commit is pushed and passes the strict clean-revision scan plus
+      hosted PR checks. The initial commit and scan passed; run `30560980711` exposed D124 and was
+      cancelled after the true supply-chain failure.
 
 ## Implementation sequence
 

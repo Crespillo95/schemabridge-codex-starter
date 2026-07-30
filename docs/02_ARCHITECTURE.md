@@ -1168,6 +1168,11 @@ archive hash without unpacking or repackaging it. The final Python/Alpine stage 
 APKs read-only and runs `apk add --no-cache --no-network`; `apk` verifies the Alpine package
 signatures, package metadata remains visible to SBOM/vulnerability scanners, and no APK archive or
 download stage is retained in the runtime image.
+Runtime SBOM verification also binds the Python base image's virtual `.python-rundeps` component
+to the selected platform exactly: `20260616.002547/noarch` for Alpine `aarch64` and
+`20260616.002554/noarch` for Alpine `x86_64`. This closed mapping reflects the two leaves of the
+same pinned multi-architecture base-image digest; it does not relax the exact inventory, hash,
+architecture, graph, or five downloaded PostgreSQL APK bindings.
 
 Recovery remains a separate capability: signed
 archive/manifest pairs are fully reverified, retention is bound to exact reviewed policy and plan
