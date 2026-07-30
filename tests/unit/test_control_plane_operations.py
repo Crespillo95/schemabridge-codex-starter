@@ -17,6 +17,7 @@ from schemabridge.adapters.control_plane.postgres_operations import (
     PostgresControlPlaneRestore,
     _load_and_verify_manifest,
     _postgres_environment,
+    _require_backup_posture,
     _signed_manifest,
 )
 from schemabridge.application.ports.control_plane_operations import (
@@ -31,6 +32,43 @@ ROOT = Path(__file__).resolve().parents[2]
 DSN = "postgresql://runtime:do-not-print@control.example:5432/control"
 KEY = b"control-audit-key-0123456789-abcdef"
 NOW = datetime(2026, 7, 23, 15, 0, tzinfo=UTC)
+
+
+class _PostureCursor:
+    def __init__(self, row: tuple[object, ...] | None) -> None:
+        self._row = row
+
+    def fetchone(self) -> tuple[object, ...] | None:
+        return self._row
+
+
+class _PostureConnection:
+    def __init__(self, row: tuple[object, ...] | None) -> None:
+        self._row = row
+        self.queries: list[str] = []
+
+    def execute(self, query: str) -> _PostureCursor:
+        self.queries.append(query)
+        return _PostureCursor(self._row)
+
+
+def _safe_backup_posture() -> tuple[object, ...]:
+    return (
+        "schemabridge_backup",
+        "schemabridge_backup",
+        "control",
+        True,
+        False,
+        False,
+        False,
+        False,
+        False,
+        False,
+        True,
+        True,
+        True,
+        900_000,
+    )
 
 
 def _artifacts(
@@ -62,7 +100,14 @@ def _artifacts(
     return archive, manifest_path, manifest
 
 
-def test_database_password_is_process_environment_only_and_repr_is_redacted() -> None:
+def test_database_password_is_process_environment_only_and_repr_is_redacted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "SCHEMABRIDGE_CONTROL_AUDIT_SIGNING_KEY",
+        "must-never-reach-postgres-tools",
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "must-never-reach-postgres-tools")
     environment, fingerprint = _postgres_environment(
         DSN + "?sslmode=verify-full&sslrootcert=%2Fsafe%2Fca.pem"
     )
@@ -79,11 +124,76 @@ def test_database_password_is_process_environment_only_and_repr_is_redacted() ->
     )
 
     assert environment["PGPASSWORD"] == "do-not-print"
+    assert set(environment) == {
+        "PATH",
+        "PGHOST",
+        "PGPORT",
+        "PGUSER",
+        "PGDATABASE",
+        "PGCONNECT_TIMEOUT",
+        "PGPASSWORD",
+        "PGSSLMODE",
+        "PGSSLROOTCERT",
+    }
+    assert "SCHEMABRIDGE_CONTROL_AUDIT_SIGNING_KEY" not in environment
+    assert "OPENAI_API_KEY" not in environment
     assert len(fingerprint) == 64
     assert "do-not-print" not in repr(backup)
     assert "postgresql://" not in repr(backup)
     assert "other-secret" not in repr(restore)
     assert "postgresql://" not in repr(restore)
+
+
+def test_backup_posture_accepts_only_the_exact_observed_read_identity() -> None:
+    connection = _PostureConnection(_safe_backup_posture())
+
+    _require_backup_posture(
+        connection,  # type: ignore[arg-type]
+        expected_database="control",
+        max_statement_timeout_ms=900_000,
+    )
+
+    assert len(connection.queries) == 1
+    assert "pg_catalog.pg_auth_members" in connection.queries[0]
+    assert "current_setting('transaction_read_only')" in connection.queries[0]
+
+
+@pytest.mark.parametrize(
+    ("position", "unsafe_value"),
+    [
+        (0, "schemabridge_migrator"),
+        (1, "schemabridge_migrator"),
+        (2, "another_control_database"),
+        (3, False),
+        (4, True),
+        (5, True),
+        (6, True),
+        (7, True),
+        (8, True),
+        (9, True),
+        (10, False),
+        (11, False),
+        (12, False),
+        (13, 0),
+        (13, 900_001),
+    ],
+)
+def test_backup_posture_rejects_every_unsafe_observed_fact(
+    position: int,
+    unsafe_value: object,
+) -> None:
+    row = list(_safe_backup_posture())
+    row[position] = unsafe_value
+
+    with pytest.raises(ControlPlaneOperationError) as raised:
+        _require_backup_posture(
+            _PostureConnection(tuple(row)),  # type: ignore[arg-type]
+            expected_database="control",
+            max_statement_timeout_ms=900_000,
+        )
+
+    assert raised.value.code is ControlPlaneOperationErrorCode.BACKUP_FAILED
+    assert str(raised.value) == "control-plane backup identity posture is invalid"
 
 
 def test_signed_manifest_and_archive_verify_exactly(tmp_path: Path) -> None:

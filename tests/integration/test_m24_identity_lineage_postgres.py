@@ -174,7 +174,7 @@ def lineage_database() -> Iterator[_DatabaseUrls]:
     )
     try:
         migrated = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert migrated.inspection.current_version == 11
+        assert migrated.inspection.current_version == 12
         yield urls
     finally:
         with psycopg.connect(admin_dsn, autocommit=True) as connection:

@@ -42,6 +42,14 @@ The domain never imports an adapter. The application never constructs a concrete
 worker, and catalog-indexer entrypoints request an already composed runtime from it and never
 instantiate concrete adapters themselves.
 
+Browser-authentication preflight follows the same dependency rule. The framework-free contract is
+owned by `application/ports/browser_auth.py`; `adapters/identity/streamlit_auth.py` implements it
+for Streamlit's private TOML structure. `bootstrap.py` composes that adapter into
+`StreamlitRuntimeOptions`, and the Streamlit entrypoint supplies `st.secrets` only through the
+composed port. The adapter imports neither bootstrap nor an entrypoint, bootstrap imports no
+Streamlit entrypoint, and the entrypoint imports no concrete auth adapter. This prevents the former
+bootstrap↔entrypoint cycle while keeping private auth parsing outside the UI.
+
 ## Modules
 
 ### Domain
@@ -1064,29 +1072,65 @@ relation and exposes only version-bearing capability loaders. It deliberately do
 v9/v10 rows from `route_revision`; an unversioned historical route is non-executable until an
 operator performs a newly approved rotation.
 
-Control-plane schema v10 introduces the exact `schemabridge_observer` principal, and schema v11
-adds immutable connector-provider version pins. The observer has default and transaction read-only
-enforcement plus `SELECT` only on the security-barrier
+Control-plane schema v10 introduces the exact `schemabridge_observer` principal, schema v11 adds
+immutable connector-provider version pins, and schema v12 introduces the distinct
+`schemabridge_backup` principal. The observer has default and transaction read-only enforcement
+plus `SELECT` only on the security-barrier
 `schemabridge_control.operational_queue_snapshot` aggregate and migration identity. It cannot read
 queue records, identifiers, SQL, parameters, routes, bindings, audit payloads, or source data, and
 it owns no mutation, routine-execution, role-switching, or schema-creation capability.
+The backup role may select the complete control schema needed by `pg_dump`, but receives no
+runtime, source, migration, role-management, or schema-write authority. Migration v12 fails
+closed unless that existing principal is exactly a login with `NOSUPERUSER`, `NOCREATEDB`,
+`NOCREATEROLE`, `NOREPLICATION`, `NOBYPASSRLS`, and `NOINHERIT`; it also rejects any membership
+that can inherit authority or use `SET ROLE`, role-and-database-specific read-only/timeout
+overrides, `default_transaction_read_only` other than `on`, and a missing, zero, or
+greater-than-15-minute `statement_timeout`. It does not repair an unsafe role.
+
+Every real backup repeats the check from observed PostgreSQL state rather than trusting the DSN
+username. Inside one `REPEATABLE READ READ ONLY` transaction it requires
+`SESSION_USER = CURRENT_USER = schemabridge_backup`, the exact DSN database,
+`transaction_read_only=on`, the same role posture and safe memberships, and a positive timeout no
+greater than both 15 minutes and the configured backup command timeout. The snapshot and
+`pg_dump` are not reached on failure. The subprocess receives only `PATH` plus the required
+allowlisted `PG*` connection variables; unrelated process secrets are not inherited, and
+connection errors are collapsed to sanitized operator codes.
 
 The observer refreshes the four closed queue aggregates into one process-local OpenMetrics
 registry. API, execution worker, catalog indexer, profile worker, and reconciler each own a
 separate bounded internal metrics listener; the API business listener never exposes `/metrics`.
-All six scrape targets emit readiness without source I/O. Structured JSON events and SIEM batches
-use closed schemas and low-cardinality enums; unknown fields and sensitive payload classes are
-rejected before serialization. Alert, SLO, dashboard, SIEM, and runbook files form one
-self-validating versioned bundle.
+All six scrape targets emit readiness without source I/O. Structured JSON events use closed
+schemas and low-cardinality enums; unknown fields and sensitive payload classes are rejected
+before serialization. Only the eight metric families with a composed producer enter the active
+dashboard. The active alert contract contains exactly six producer-backed rules and its PromQL is
+validated against the canonical token sequence, not merely by referenced metric name. The active
+SLO file is the canonical reviewed declaration for exactly `api_availability`, `api_latency`, and
+`queue_freshness`. Its validator fixes each ID/category/indicator type, exact field set, ordered
+metric tuple and outcome vocabulary, requires positive thresholds, and verifies that each
+objective and error budget are complementary. Mutation tests reject changed PromQL operators,
+functions, thresholds or vector matching, trailing syntax, SLO fields/outcomes, or an uncomposed
+metric even when the same metric families remain. The exact active alert group is delivered as a
+`PrometheusRule`.
+
+Uncomposed backup/release/capacity/integrity and SIEM contracts remain explicitly inactive design
+artifacts; they cannot page or imply delivery until their producers/export lifecycle are composed.
+There is currently no OTLP exporter or collector delivery path. Consequently no workload has an
+OpenTelemetry collector egress rule and TCP/4317 is absent from the M29 NetworkPolicies; adding
+that path is a validation failure until a real bounded exporter, destination authentication, loss
+handling, and operated evidence are composed.
 
 The Kubernetes M29 base composes seven long-running workloads with distinct service accounts,
 immutable external Secret references, projected capability identities only where needed,
 restricted pod security, resource limits, topology spread, PDBs, TLS ingress, default-deny
 networking, six internal metrics Services/ServiceMonitors, and capability-specific egress-plane
-selectors. Migration and backup remain reviewed one-shot operator workflows rather than fake
-Deployments. The production overlay intentionally contains blocking placeholders and is not
-deployable until the target operator supplies reviewed image digests, trust roots, hosts, external
-Secret names, provider roles, and cluster selectors.
+selectors. Migration remains a reviewed one-shot operator workflow rather than a fake Deployment.
+Backup is an hourly bounded CronJob using only `schemabridge_backup`, an exact versioned external
+Secret, and an externally provisioned PVC; the pod needs no secret-manager or backup-store egress.
+The CSI/provider boundary must independently prove encryption and immutable retention. Restore
+remains a reviewed explicit command to a distinct empty target, with external cutover. The
+production overlay intentionally contains blocking placeholders and is not deployable until the
+target operator supplies reviewed image digests, trust roots, hosts, external Secret names,
+provider roles, backup storage, and cluster selectors.
 
 The managed web composition is intentionally planning-only at its mutation boundary. It must set
 `SCHEMABRIDGE_JUDGE_EXECUTION=disabled` and
@@ -1098,6 +1142,12 @@ Streamlit does not yet submit to that API. Publication has no equivalent durable
 publisher worker yet. Both browser actions therefore remain explicit NO-GO capabilities rather
 than silently using recorded data or a synchronous writer.
 
+The managed web process is wrapped by `schemabridge-web`. Before starting it validates the typed
+configuration, exact projected OIDC document and workload token, and current control schema.
+Startup/readiness repeat those checks and require one bounded exact response from the fixed
+loopback Streamlit health listener. Managed Operations never substitutes showcase samples for
+runtime truth: without an operated data source it renders an explicit unavailable state.
+
 Dependency and build inputs are locked and hash exported. Strict workflow validation rejects
 mutable action/image references, YAML aliases/merge keys/duplicates, broad permissions, unsafe
 triggers, incomplete vulnerability reports, or attestations that do not cover the reviewed wheel,
@@ -1107,11 +1157,134 @@ amd64/arm64 wheel using pinned build tooling and the upstream source epoch, then
 exact SHA-256 with the complete frozen wheelhouse through read-only BuildKit mounts; the runtime
 has no resolver network, build backend, or retained wheelhouse. The vulnerability-fixed build
 backend is isolated in an exact hashed input because DataHub constrains its unrelated application
-dependency range; audit evidence covers both application and build inputs. Recovery remains a
-separate capability: signed
+dependency range; audit evidence covers both application and build inputs.
+
+The backup client is an independently closed Alpine 3.24 package set, not a raw binary copy from a
+PostgreSQL image. `TARGETARCH` selects only `amd64` → `x86_64` or `arm64` → `aarch64`; each branch
+contains the complete official Alpine URL and a distinct expected SHA-256 for
+`postgresql16-client=16.14-r0`, `libpq=18.4-r0`, `lz4-libs=1.10.0-r1`,
+`zstd-libs=1.5.7-r2`, and `postgresql-common=1.3-r0`. A controlled download stage verifies every
+archive hash without unpacking or repackaging it. The final Python/Alpine stage mounts those signed
+APKs read-only and runs `apk add --no-cache --no-network`; `apk` verifies the Alpine package
+signatures, package metadata remains visible to SBOM/vulnerability scanners, and no APK archive or
+download stage is retained in the runtime image.
+
+Recovery remains a separate capability: signed
 archive/manifest pairs are fully reverified, retention is bound to exact reviewed policy and plan
 fingerprints, and expired pairs move into a recoverable owner-only quarantine. Restore targets must
 be distinct and empty; cutover remains external and automatic down-migration remains forbidden.
+
+Release promotion is a seven-job manual state machine over an existing annotated stable SemVer tag
+whose value must equal `v$project_version`; prereleases are rejected. Protected GET-only `audit`
+runs before every build, sees drafts and authoritative rules through its environment token, and
+either proves a clean new dispatch or validates an exact already-published immutable no-op.
+Read-only `prepare` then validates the peeled remote tag, exact hosted CI, public/basic tag-ruleset
+metadata, and the exact protected default-branch HEAD, builds and locally gates once, and uploads a
+run-scoped prepared artifact without an environment or audit token. Protected inline-only
+`candidate` has package-write authority; read-only `scan` supplies one ephemeral GHCR pull
+credential to pinned Trivy and emits the canonical payload; protected `attest`, `promote`, and
+`release` retain their separated attestation, package-promotion, and contents authorities.
+`audit`, `candidate`, `attest`, `promote`, and `release` use `production-release`, so a complete new
+publication requires five sequential approvals.
+
+That exact-HEAD contract has an external operating prerequisite: for every new publication, an
+administrator opens a recorded release change window and freezes all pushes and merges to `main`
+before dispatch until `release` completes its immediate post-publication read-back. The evidence
+binds the source SHA, change-window/ticket identity, responsible administrator, and independent
+reviewer; each protected approval confirms that the freeze remains active. A historical
+already-published `audit` no-op is read-only and does not need this mutation window. If `main`
+moves during a new publication, the next boundary fails closed and any registry, attestation, or
+draft state already written becomes incident evidence: it is inventoried and preserved, never
+deleted, clobbered, overwritten, or bypassed by rewriting `main` or the tag.
+
+The recorded window has a hard maximum of seven calendar days from `audit` start through the
+successful post-publication read-back. Operators must not dispatch unless all five approvals can
+finish inside that bound. Reaching the bound stops further approvals and enters the same preserved
+partial-state incident procedure. The two run-scoped artifacts are retained for 35 days only to
+leave a bounded 28-day investigation/recovery buffer; retention never authorizes a rerun,
+redispatch, or late publication.
+
+GitHub creates each job's `GITHUB_TOKEN` when that job starts; an environment step cannot delay
+token issuance within the job. The boundary therefore uses minimal separate jobs, gives privileged
+jobs no checkout, dependency setup, or repository-code execution, and makes each job's first
+inline shell step begin exactly with `set -euo pipefail` and verify the exact upstream artifact
+ID/digest/hash set, source identity, peeled tag, remote default-branch HEAD, and current rules
+before any external mutation. `set +e` and `|| true` error bypasses are forbidden. The sentinel is
+checked only after that boundary verification: it confirms that the protected environment was
+approved, but is not represented as preceding artifact or policy verification.
+
+Each mutation-capable privileged boundary downloads its predecessor archive through the GitHub artifact API and
+validates the reported byte size and digest before extraction. A fixed standard-library ZIP
+validator then requires the exact flat file allowlist and count; rejects absolute, nested,
+dot-segment, backslash, NUL, duplicate, encrypted, symlink, device, and hostile external-attribute
+entries; verifies CRCs; and enforces per-entry, total-size, and compression-ratio ceilings. Only
+after that validation may the job extract into a fresh directory, where every result must be a
+regular non-symlink file. Before `sha256sum --check`, each checksum file is size-bounded and parsed
+as an exact unique lowercase-SHA256/two-space/canonical-basename allowlist; paths and omissions are
+rejected.
+
+The authoritative tag policy is read through
+`GET /repos/{owner}/{repo}/rulesets?includes_parents=true&targets=tag` followed by an exact
+`GET /repos/{owner}/{repo}/rulesets/{id}?includes_parents=true`. Exactly one active tag ruleset
+must target `refs/tags/v*`, exclude nothing, expose `bypass_actors: []`, and enforce update,
+deletion, and non-fast-forward protection. GitHub exposes `bypass_actors` only with ruleset-write
+visibility, while authoritative draft/asset inspection requires contents-write visibility.
+Accordingly, the environment secret `SCHEMABRIDGE_RELEASE_AUDIT_TOKEN` has repository
+Administration write and Contents write scopes. It is a repository-scoped fine-grained PAT whose
+expiry exceeds the maximum planned approval window plus an operator-recorded safety buffer; it is
+rotated/revoked under the release credential procedure. A static GitHub App installation token is
+unsupported because this workflow does not mint a fresh token per job. The workflow nevertheless
+uses the PAT exclusively for explicit read-only `GET` requests, never logs it, and never supplies
+it to `prepare`. Privileged
+boundaries require GitHub immutable Releases to be
+enabled before any publication mutation and require the remote default-branch HEAD to remain
+exactly `SOURCE_REVISION`.
+
+Internal artifact names remain run-scoped, while every downstream failed-job rerun consumes the
+actual artifact ID, name, and digest emitted by its declared upstream producer. The registry
+candidate is the stable semantic reference `candidate-${{ github.sha }}`, and public evidence
+excludes run IDs and run attempts. File and OCI attestations may be duplicated by a rerun, but
+every bundle must bind the same exact subject, source repository, revision, and tag. A newly
+dispatched workflow requires an externally clean candidate, SemVer image tag, draft, and Release
+state, established authoritatively by `audit` before build; it also rejects a newer stable Release
+before any downstream job. If the same `candidate` job is retried after its push, it may adopt only
+the bounded remote manifest whose config digest equals the sealed prepared image. Divergence is an
+incident; state is never regenerated, deleted, or clobbered.
+
+Release builds run on the explicitly selected but still mutable `ubuntu-24.04` hosted-runner
+image. `SOURCE_DATE_EPOCH=1730470033` normalizes timestamps only; it does not freeze the runner,
+kernel, BuildKit, Docker daemon, or toolchain and is not a bit-for-bit rebuild guarantee. The
+workflow therefore never relies on a complete redispatch to reproduce canonical artifacts.
+`DOCKER_BUILD_RECORD_UPLOAD=false` also prevents the build action from adding an unreviewed build
+record artifact. `release-metadata.json` identifies the temporal scanner snapshot rather than
+claiming reproducibility: pip-audit 2.10.1 with explicit PyPI service/source and observation time,
+plus Trivy 0.69.3, its pinned action revision, DB schema/update/download times, and exact
+metadata/`trivy.db` hashes.
+
+The Release has one canonical body and exactly ten digest-checked public assets:
+`direct-licenses.json`, `pip-audit.json`, `provenance.intoto.json`,
+`release-assets.sha256`, `release-body.md`, `release-metadata.json`,
+`runtime-image.cdx.json`, `schemabridge-0.1.0-py3-none-any.whl`, `trivy-image.json`, and
+`wheel.cdx.json`. The GitHub UI body must be byte-for-byte identical to `release-body.md`; that
+file's digest is present in `release-assets.sha256`, release metadata, and its own attestation.
+Immediately after publishing, `release` re-fetches the exact Release ID and latest Release and
+requires the exact tag, target/source, title, body, ten assets, `draft=false`, `immutable=true`,
+and no newer stable release. A later full dispatch for an already-published tag ends in `audit` as
+a strictly read-only no-op after re-downloading, size/digest checking, and attestation-verifying
+the exact immutable body/assets plus OCI digest. Historical verification intentionally does not
+require that tag still to be latest, no newer stable version, or current `main`, and performs no
+edit, reconciliation, upload, or `--latest` mutation.
+One repository-global FIFO publication queue
+(`queue: max`, `cancel-in-progress: false`) serializes stable releases.
+
+Repository workflow policy can constrain in-repository permissions, but no GitHub API proves the
+global absence of competing GHCR `PUT` or GitHub Release contents writers across humans, PATs,
+Apps, repositories, and workflows. Before dispatch, an externally administered writer audit must
+be current and a custom deployment-protection rule must gate the environment on that evidence.
+Missing or stale evidence is a release NO-GO. Immutable Releases, the exact tag ruleset, and the
+empty-bypass result are likewise re-read by fresh `audit` and at every mutation-capable boundary
+rather than inferred from repository YAML. The exact historical published no-op relies on its
+immutable hosted/OCI attestations and does not require current rules.
 
 These components are production-shaped local contracts, not proof of an operated provider or
 cluster. Production remains NO-GO until exact external secret rotation/revocation, server-side

@@ -59,12 +59,14 @@ supply-chain = ["pip-audit==2.10.1"]
 schemabridge = "schemabridge.entrypoints.cli.main:app"
 schemabridge-api = "schemabridge.entrypoints.http.main:main"
 schemabridge-ai-policy = "schemabridge.entrypoints.ai_policy.main:main"
+schemabridge-backup = "schemabridge.entrypoints.backup.main:main"
 schemabridge-catalog = "schemabridge.entrypoints.catalog.main:main"
 schemabridge-connector-route = "schemabridge.entrypoints.connector_route.main:main"
 schemabridge-observer = "schemabridge.entrypoints.observer.main:main"
 schemabridge-semantic-change = "schemabridge.entrypoints.semantic_change.main:main"
 schemabridge-semantic-profile-worker = "schemabridge.entrypoints.semantic_profile_worker.main:main"
 schemabridge-semantic-reconciler = "schemabridge.entrypoints.semantic_reconciler.main:main"
+schemabridge-web = "schemabridge.entrypoints.streamlit.main:main"
 schemabridge-worker = "schemabridge.entrypoints.worker.main:main"
 
 [tool.hatch.build.targets.wheel]

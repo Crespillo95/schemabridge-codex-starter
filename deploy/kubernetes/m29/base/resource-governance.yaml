@@ -14,7 +14,7 @@ spec:
     limits.ephemeral-storage: 24Gi
     services: "8"
     configmaps: "20"
-    secrets: "12"
+    secrets: "13"
     persistentvolumeclaims: "4"
 ---
 apiVersion: v1

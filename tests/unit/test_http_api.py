@@ -471,6 +471,25 @@ def test_readiness_failure_is_problem_json_without_dependency_detail() -> None:
     assert secret not in response.text
 
 
+def test_readiness_metric_returns_to_ready_after_a_transient_failure() -> None:
+    readiness = _Readiness(RuntimeError("private dependency detail"))
+    telemetry = RuntimeOperationalTelemetry(
+        service="api",
+        environment="staging",
+        stream=io.StringIO(),
+    )
+
+    with _client(readiness=readiness, telemetry=telemetry) as client:
+        failed = client.get("/health/ready")
+        assert failed.status_code == 503
+        assert 'schemabridge_process_ready{service="api"} 0.0' in (telemetry.render_openmetrics())
+
+        readiness.error = None
+        recovered = client.get("/health/ready")
+        assert recovered.status_code == 200
+        assert 'schemabridge_process_ready{service="api"} 1.0' in (telemetry.render_openmetrics())
+
+
 def test_unknown_route_and_method_use_the_bounded_problem_contract() -> None:
     with _client() as client:
         missing = client.get("/does-not-exist")

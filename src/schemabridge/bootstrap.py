@@ -86,6 +86,12 @@ from schemabridge.application.ports.background_jobs import (
     BackgroundJobApiStorePort,
     BackgroundJobStorePort,
 )
+from schemabridge.application.ports.browser_auth import (
+    BrowserAuthConfigurationError,
+    BrowserAuthConfigurationValidatorPort,
+    BrowserOidcRequirements,
+    ValidatedBrowserAuthConfiguration,
+)
 from schemabridge.application.ports.candidates import CandidateEvidencePort
 from schemabridge.application.ports.catalog import CatalogReadPort
 from schemabridge.application.ports.connectors import ExecutionTargetResolverPort
@@ -282,6 +288,7 @@ if TYPE_CHECKING:
 _DEMO_EVALUATION_DATABASE_URL = (
     "postgresql://schemabridge_reader:schemabridge_reader@127.0.0.1:55433/schemabridge"
 )
+_MANAGED_STREAMLIT_SECRETS_ROOT = Path("/opt/schemabridge/.streamlit")
 ControlPlaneCredential = Literal[
     "runtime",
     "reconciler",
@@ -290,6 +297,7 @@ ControlPlaneCredential = Literal[
     "worker",
     "catalog",
     "observer",
+    "backup",
 ]
 
 
@@ -317,6 +325,52 @@ class StreamlitRuntimeOptions:
     oidc_provider: str | None
     oidc_audience: str | None
     oidc_issuer: str | None
+    auth_configuration_validator: BrowserAuthConfigurationValidatorPort | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
+    oidc_requirements: BrowserOidcRequirements | None = field(
+        default=None,
+        repr=False,
+    )
+
+    def require_auth_configuration(
+        self,
+        secrets: Mapping[str, object],
+    ) -> ValidatedBrowserAuthConfiguration:
+        """Validate private OIDC material through the composed adapter only."""
+
+        if (
+            self.auth_mode != "oidc"
+            or self.auth_configuration_validator is None
+            or self.oidc_requirements is None
+        ):
+            raise BrowserAuthConfigurationError("OIDC preflight requires OIDC mode")
+        return self.auth_configuration_validator.validate(
+            secrets,
+            self.oidc_requirements,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class WebProcessRuntime:
+    """Fail-closed web process preflight plus the fixed Streamlit invocation."""
+
+    readiness_check: Callable[[], None] = field(repr=False)
+    listener_readiness_check: Callable[[], None] = field(repr=False)
+    streamlit_argv: tuple[str, ...]
+
+    def require_ready(self) -> None:
+        """Repeat every managed web readiness dependency check."""
+
+        self.readiness_check()
+
+    def require_probe_ready(self) -> None:
+        """Repeat preflight and then require the fixed local Streamlit listener."""
+
+        self.require_ready()
+        self.listener_readiness_check()
 
 
 @dataclass(frozen=True, slots=True)
@@ -492,6 +546,26 @@ def build_streamlit_runtime_options(
     _reject_operator_credentials_in_managed_web(resolved)
     if resolved.auth_mode == "oidc" and importlib.util.find_spec("authlib") is None:
         raise RuntimeError("OIDC authentication support is unavailable; install schemabridge[ui]")
+    auth_configuration_validator: BrowserAuthConfigurationValidatorPort | None = None
+    oidc_requirements: BrowserOidcRequirements | None = None
+    if resolved.auth_mode == "oidc":
+        from schemabridge.adapters.identity.streamlit_auth import (
+            StreamlitAuthConfigurationValidator,
+        )
+
+        if (
+            resolved.oidc_provider is None
+            or resolved.oidc_audience is None
+            or resolved.oidc_issuer is None
+        ):
+            raise RuntimeError("OIDC runtime metadata is incomplete")
+        auth_configuration_validator = StreamlitAuthConfigurationValidator()
+        oidc_requirements = BrowserOidcRequirements(
+            profile=resolved.runtime_profile,
+            provider=resolved.oidc_provider,
+            audience=resolved.oidc_audience,
+            issuer=resolved.oidc_issuer,
+        )
     return StreamlitRuntimeOptions(
         profile=resolved.runtime_profile,
         auth_mode=resolved.auth_mode,
@@ -502,6 +576,84 @@ def build_streamlit_runtime_options(
         oidc_provider=resolved.oidc_provider,
         oidc_audience=resolved.oidc_audience,
         oidc_issuer=resolved.oidc_issuer,
+        auth_configuration_validator=auth_configuration_validator,
+        oidc_requirements=oidc_requirements,
+    )
+
+
+def build_web_process_runtime(
+    *,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+) -> WebProcessRuntime:
+    """Compose a web process that refuses managed startup until auth and schema are ready."""
+
+    resolved = settings or get_settings()
+    if resolved.runtime_component != "web":
+        raise RuntimeError("the web entrypoint requires the web runtime component")
+    runtime = build_streamlit_runtime_options(resolved)
+    root = (repository_root or Path.cwd()).resolve()
+    from schemabridge.adapters.web.streamlit_health import StreamlitLoopbackHealth
+
+    loopback_health = StreamlitLoopbackHealth()
+
+    def local_readiness() -> None:
+        return None
+
+    readiness_check: Callable[[], None] = local_readiness
+    if runtime.profile in {"staging", "production"}:
+        from schemabridge.adapters.connectors.remote_secrets import (
+            ProjectedServiceAccountIdentity,
+        )
+        from schemabridge.adapters.identity.streamlit_secrets import (
+            ProjectedStreamlitSecrets,
+        )
+
+        token_file = resolved.workload_identity_token_file
+        identity_root = resolved.workload_identity_root
+        audience = resolved.workload_identity_audience
+        if (
+            runtime.auth_mode != "oidc"
+            or token_file is None
+            or identity_root is None
+            or audience is None
+        ):
+            raise DatabaseConfigurationError("managed web readiness configuration is incomplete")
+        auth_reader = ProjectedStreamlitSecrets(
+            secrets_file=_MANAGED_STREAMLIT_SECRETS_ROOT / "secrets.toml",
+            mount_root=_MANAGED_STREAMLIT_SECRETS_ROOT,
+        )
+        workload_identity = ProjectedServiceAccountIdentity(
+            token_file=token_file,
+            mount_root=identity_root,
+            audience=audience,
+        )
+
+        def managed_readiness() -> None:
+            raw_secrets = auth_reader.read()
+            runtime.require_auth_configuration(raw_secrets)
+            workload_identity.read()
+            require_current_control_plane_schema(
+                credential_kind="runtime",
+                repository_root=root,
+                settings=resolved,
+            )
+
+        readiness_check = managed_readiness
+
+    return WebProcessRuntime(
+        readiness_check=readiness_check,
+        listener_readiness_check=loopback_health.require_ready,
+        streamlit_argv=(
+            "streamlit",
+            "run",
+            "streamlit_app.py",
+            "--server.address=0.0.0.0",
+            "--server.port=7860",
+            "--server.headless=true",
+            "--server.fileWatcherType=none",
+            "--browser.gatherUsageStats=false",
+        ),
     )
 
 
@@ -755,6 +907,7 @@ def require_current_control_plane_schema(
         "worker",
         "catalog",
         "observer",
+        "backup",
     ] = "runtime",
     repository_root: Path | None = None,
     settings: Settings | None = None,
@@ -1159,7 +1312,7 @@ def build_control_plane_backup(
     repository_root: Path | None = None,
     settings: Settings | None = None,
 ) -> ControlPlaneBackupPort:
-    """Compose backup only with the dedicated migrator credential and audit key."""
+    """Compose backup only with the dedicated read-only backup credential and audit key."""
 
     from schemabridge.adapters.control_plane.postgres_operations import (
         PostgresControlPlaneBackup,
@@ -1170,12 +1323,12 @@ def build_control_plane_backup(
     _require_supported_control_plane_schema(resolved)
     migrations_path = resolve_control_plane_migrations_path(root)
     build_control_plane_migrator(
-        credential_kind="migrator",
+        credential_kind="backup",
         repository_root=root,
         settings=resolved,
     )
     return PostgresControlPlaneBackup(
-        dsn=_control_plane_dsn(resolved, "migrator"),
+        dsn=_control_plane_dsn(resolved, "backup"),
         migrations_path=migrations_path,
         audit_signing_keys=_control_audit_keys(resolved),
         active_audit_key_version=resolved.control_audit_key_version,
@@ -1227,6 +1380,7 @@ def _control_plane_dsn(settings: Settings, credential_kind: ControlPlaneCredenti
         "worker": settings.control_worker_database_url,
         "catalog": settings.control_catalog_database_url,
         "observer": settings.control_observer_database_url,
+        "backup": settings.control_backup_database_url,
     }[credential_kind]
     if configured is None:
         variable = {
@@ -1237,6 +1391,7 @@ def _control_plane_dsn(settings: Settings, credential_kind: ControlPlaneCredenti
             "worker": "SCHEMABRIDGE_CONTROL_WORKER_DATABASE_URL",
             "catalog": "SCHEMABRIDGE_CONTROL_CATALOG_DATABASE_URL",
             "observer": "SCHEMABRIDGE_CONTROL_OBSERVER_DATABASE_URL",
+            "backup": "SCHEMABRIDGE_CONTROL_BACKUP_DATABASE_URL",
         }[credential_kind]
         raise DatabaseConfigurationError(f"{variable} is required")
     return configured.get_secret_value()

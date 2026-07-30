@@ -45,13 +45,6 @@ panels:
     unit: transitions
     related_alerts:
       - SchemaBridgeUnsafeJobTransitions
-  - id: cancellation-latency
-    title: Cancellation latency
-    metric: schemabridge_job_cancellation_latency_seconds
-    visualization: timeseries
-    unit: seconds
-    related_alerts:
-      - SchemaBridgeCancellationLatency
   - id: source-operations
     title: Source operations by outcome
     metric: schemabridge_source_operations_total
@@ -59,79 +52,9 @@ panels:
     unit: operations
     related_alerts:
       - SchemaBridgeSourceFailureRate
-  - id: runtime-controls
-    title: Runtime control failures
-    metric: schemabridge_runtime_control_failures_total
-    visualization: timeseries
-    unit: failures
-    related_alerts:
-      - SchemaBridgeRuntimeSecurityControlFailure
-  - id: backup-age
-    title: Verified backup age
-    metric: schemabridge_backup_age_seconds
-    visualization: stat
-    unit: seconds
-    related_alerts:
-      - SchemaBridgeBackupStale
-  - id: restore-drill-age
-    title: Verified restore drill age
-    metric: schemabridge_restore_drill_age_seconds
-    visualization: stat
-    unit: seconds
-    related_alerts:
-      - SchemaBridgeRestoreDrillStale
-  - id: integrity
-    title: Integrity failures
-    metric: schemabridge_integrity_failures_total
-    visualization: timeseries
-    unit: failures
-    related_alerts:
-      - SchemaBridgeIntegrityFailure
-  - id: release-policy
-    title: Release policy checks
-    metric: schemabridge_release_policy_checks_total
-    visualization: timeseries
-    unit: checks
-    related_alerts:
-      - SchemaBridgeReleasePolicyFailure
-  - id: capacity
-    title: Runtime capacity utilization
-    metric: schemabridge_capacity_utilization_ratio
-    visualization: timeseries
-    unit: ratio
-    related_alerts:
-      - SchemaBridgeCapacitySaturation
   - id: process-readiness
-    title: Process readiness
+    title: Process-local last readiness check
     metric: schemabridge_process_ready
     visualization: stat
     unit: boolean
-    related_alerts:
-      - SchemaBridgeProcessNotReady
-  - id: process-restarts
-    title: Process restarts
-    metric: schemabridge_process_restarts_total
-    visualization: timeseries
-    unit: restarts
-    related_alerts:
-      - SchemaBridgeProcessRestartLoop
-  - id: telemetry-delivery
-    title: Telemetry export outcomes
-    metric: schemabridge_telemetry_exports_total
-    visualization: timeseries
-    unit: batches
-    related_alerts:
-      - SchemaBridgeTelemetryLoss
-  - id: reconciliation-age
-    title: Semantic reconciliation age
-    metric: schemabridge_reconciliation_age_seconds
-    visualization: stat
-    unit: seconds
-    related_alerts:
-      - SchemaBridgeReconciliationStale
-  - id: backup-runs
-    title: Verified backup runs
-    metric: schemabridge_backup_runs_total
-    visualization: timeseries
-    unit: runs
     related_alerts: []

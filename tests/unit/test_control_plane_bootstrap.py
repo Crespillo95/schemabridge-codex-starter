@@ -172,7 +172,7 @@ def test_migrator_builder_uses_pinned_release_version_and_hides_dsn() -> None:
         settings=settings,
     )
 
-    assert migrator.known_migrations()[-1].version == 11  # type: ignore[attr-defined]
+    assert migrator.known_migrations()[-1].version == 12  # type: ignore[attr-defined]
     assert "do-not-print" not in repr(migrator)
 
 
@@ -195,23 +195,33 @@ def test_migrator_builder_rejects_configured_schema_version_drift() -> None:
 
 
 def test_backup_and_restore_builders_keep_operator_credentials_out_of_repr() -> None:
-    settings = _postgres_settings(
+    backup_settings = _postgres_settings(
+        SCHEMABRIDGE_COMPONENT="backup",
+        SCHEMABRIDGE_CONTROL_DATABASE_URL=None,
+        SCHEMABRIDGE_IDENTITY_MIGRATION_KEY=None,
+        SCHEMABRIDGE_CONTROL_BACKUP_DATABASE_URL=(
+            "postgresql://schemabridge_backup:backup-secret@control.example.test/control"
+        ),
+    )
+    restore_settings = _postgres_settings(
         SCHEMABRIDGE_COMPONENT="operator",
+        SCHEMABRIDGE_CONTROL_DATABASE_URL=None,
         SCHEMABRIDGE_CONTROL_MIGRATOR_DATABASE_URL=(
-            "postgresql://migrator:backup-secret@control.example.test/control"
+            "postgresql://migrator:migration-secret@control.example.test/control"
         ),
         SCHEMABRIDGE_CONTROL_RESTORE_DATABASE_URL=(
             "postgresql://migrator:restore-secret@fresh-control.example.test/control_restore"
         ),
     )
 
-    backup = build_control_plane_backup(repository_root=ROOT, settings=settings)
+    backup = build_control_plane_backup(repository_root=ROOT, settings=backup_settings)
     restore = build_control_plane_restore(
         repository_root=ROOT,
-        settings=settings,
+        settings=restore_settings,
     )
 
     assert isinstance(backup, PostgresControlPlaneBackup)
     assert isinstance(restore, PostgresControlPlaneRestore)
     assert "backup-secret" not in repr(backup)
+    assert "migration-secret" not in repr(restore)
     assert "restore-secret" not in repr(restore)

@@ -26,6 +26,7 @@ RuntimeComponent: TypeAlias = Literal[
     "catalog",
     "reconciler",
     "observer",
+    "backup",
     "operator",
 ]
 AuthMode: TypeAlias = Literal["local-demo", "oidc"]
@@ -293,6 +294,10 @@ class Settings(BaseSettings):
         default=None,
         alias="SCHEMABRIDGE_CONTROL_OBSERVER_DATABASE_URL",
     )
+    control_backup_database_url: SecretStr | None = Field(
+        default=None,
+        alias="SCHEMABRIDGE_CONTROL_BACKUP_DATABASE_URL",
+    )
     control_restore_database_url: SecretStr | None = Field(
         default=None,
         alias="SCHEMABRIDGE_CONTROL_RESTORE_DATABASE_URL",
@@ -305,7 +310,7 @@ class Settings(BaseSettings):
         alias="SCHEMABRIDGE_CONTROL_PLANE_SCHEMA",
     )
     control_plane_schema_version: int = Field(
-        default=11,
+        default=12,
         ge=1,
         le=10_000,
         alias="SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION",
@@ -792,12 +797,13 @@ class Settings(BaseSettings):
         if (
             self.environment in {"staging", "production"}
             and self.runtime_component
-            not in {"worker", "catalog", "reconciler", "observer", "operator"}
+            not in {"worker", "catalog", "reconciler", "observer", "backup", "operator"}
             and self.auth_mode != "oidc"
         ):
             raise ValueError(f"{self.environment} requires SCHEMABRIDGE_AUTH_MODE=oidc")
         if (
-            self.runtime_component in {"worker", "catalog", "reconciler", "observer", "operator"}
+            self.runtime_component
+            in {"worker", "catalog", "reconciler", "observer", "backup", "operator"}
             and self.auth_mode != "local-demo"
         ):
             raise ValueError(
@@ -860,6 +866,7 @@ class Settings(BaseSettings):
             "catalog",
             "reconciler",
             "observer",
+            "backup",
             "operator",
         }:
             self._validate_oidc_metadata()
@@ -1107,7 +1114,8 @@ class Settings(BaseSettings):
         if active and not postgres:
             raise ValueError("active semantic registry selection requires PostgreSQL control plane")
         if (
-            self.runtime_component in {"api", "worker", "catalog", "reconciler", "observer"}
+            self.runtime_component
+            in {"api", "worker", "catalog", "reconciler", "observer", "backup"}
             and not postgres
         ):
             raise ValueError(
@@ -1152,6 +1160,11 @@ class Settings(BaseSettings):
                 "SCHEMABRIDGE_CONTROL_OBSERVER_DATABASE_URL",
                 self.control_observer_database_url,
             ),
+            "backup": (
+                "backup database",
+                "SCHEMABRIDGE_CONTROL_BACKUP_DATABASE_URL",
+                self.control_backup_database_url,
+            ),
             "operator": (
                 "migrator database",
                 "SCHEMABRIDGE_CONTROL_MIGRATOR_DATABASE_URL",
@@ -1192,6 +1205,11 @@ class Settings(BaseSettings):
             raise ValueError(
                 "observer control database URL must use the schemabridge_observer role"
             )
+        if (
+            self.runtime_component == "backup"
+            and unquote(control_username or "") != "schemabridge_backup"
+        ):
+            raise ValueError("backup control database URL must use the schemabridge_backup role")
         control_users = {control_username}
         for label, operator_url in (
             ("runtime database", self.control_database_url),
@@ -1201,6 +1219,7 @@ class Settings(BaseSettings):
             ("worker database", self.control_worker_database_url),
             ("catalog database", self.control_catalog_database_url),
             ("observer database", self.control_observer_database_url),
+            ("backup database", self.control_backup_database_url),
         ):
             if operator_url is None or operator_url is selected_control_url:
                 continue
@@ -1243,6 +1262,15 @@ class Settings(BaseSettings):
         if self.runtime_component == "catalog":
             self._validate_catalog_configuration(managed=managed)
         if self.runtime_component in {"api", "worker", "catalog", "observer"}:
+            self._reject_cross_component_credentials()
+            return
+        if self.runtime_component == "backup":
+            if self.control_audit_signing_key is None:
+                raise ValueError("backup requires SCHEMABRIDGE_CONTROL_AUDIT_SIGNING_KEY")
+            _validate_strong_secret(
+                self.control_audit_signing_key.get_secret_value(),
+                "SCHEMABRIDGE_CONTROL_AUDIT_SIGNING_KEY",
+            )
             self._reject_cross_component_credentials()
             return
         if self.runtime_component == "operator":
@@ -1397,6 +1425,7 @@ class Settings(BaseSettings):
             "api": set(),
             "reconciler": set(),
             "observer": set(),
+            "backup": set(),
             "operator": set(),
         }[self.runtime_component]
         if required and self.connector_secret_capability not in allowed_capabilities:
@@ -1416,6 +1445,7 @@ class Settings(BaseSettings):
                 self.control_worker_database_url,
                 self.control_catalog_database_url,
                 self.control_observer_database_url,
+                self.control_backup_database_url,
                 self.control_operator_actor_id,
                 self.control_operator_roles or None,
                 self.database_url,
@@ -1429,7 +1459,7 @@ class Settings(BaseSettings):
                 raise ValueError("web component received a forbidden cross-component credential")
             return
         if self.runtime_component == "observer":
-            forbidden: tuple[object | None, ...] = (
+            observer_forbidden: tuple[object | None, ...] = (
                 self.control_database_url,
                 self.control_reconciler_database_url,
                 self.control_migrator_database_url,
@@ -1437,6 +1467,7 @@ class Settings(BaseSettings):
                 self.control_api_database_url,
                 self.control_worker_database_url,
                 self.control_catalog_database_url,
+                self.control_backup_database_url,
                 self.control_operator_actor_id,
                 self.control_operator_roles or None,
                 self.openai_api_key,
@@ -1464,13 +1495,13 @@ class Settings(BaseSettings):
                 self.workload_identity_root,
                 self.workload_identity_audience,
             )
-            if any(value is not None for value in forbidden):
+            if any(value is not None for value in observer_forbidden):
                 raise ValueError(
                     "observer component received a forbidden cross-component credential"
                 )
             return
         if self.runtime_component == "reconciler":
-            forbidden = (
+            reconciler_forbidden = (
                 self.control_database_url,
                 self.control_migrator_database_url,
                 self.control_restore_database_url,
@@ -1478,6 +1509,7 @@ class Settings(BaseSettings):
                 self.control_worker_database_url,
                 self.control_catalog_database_url,
                 self.control_observer_database_url,
+                self.control_backup_database_url,
                 self.identity_migration_key,
                 self.openai_api_key,
                 self.query_studio_signing_key,
@@ -1494,10 +1526,52 @@ class Settings(BaseSettings):
                 self.inventory_cursor_signing_key,
                 self.connector_secret_directory,
             )
-            if any(value is not None for value in forbidden):
+            if any(value is not None for value in reconciler_forbidden):
                 raise ValueError(
                     "reconciler component received a forbidden cross-component credential"
                 )
+            return
+        if self.runtime_component == "backup":
+            backup_forbidden: tuple[object | None, ...] = (
+                self.control_database_url,
+                self.control_reconciler_database_url,
+                self.control_migrator_database_url,
+                self.control_restore_database_url,
+                self.control_api_database_url,
+                self.control_worker_database_url,
+                self.control_catalog_database_url,
+                self.control_observer_database_url,
+                self.control_operator_actor_id,
+                self.control_operator_roles or None,
+                self.openai_api_key,
+                self.query_studio_signing_key,
+                self.identity_migration_key,
+                self.database_url,
+                self.datahub_gms_token,
+                self.oidc_issuer,
+                self.oidc_audience,
+                self.oidc_provider,
+                self.oidc_allowed_groups or None,
+                self.oidc_allowed_tenants or None,
+                self.pseudonymization_key,
+                self.api_local_bearer_token,
+                self.api_oidc_jwks_url,
+                self.inventory_cursor_signing_key,
+                self.connector_secret_directory,
+                self.connector_secret_provider_url,
+                self.connector_secret_role,
+                self.connector_secret_kv_mount,
+                self.connector_secret_capability,
+                self.connector_secret_ca_bundle,
+                self.workload_identity_token_file,
+                self.workload_identity_root,
+                self.workload_identity_audience,
+                self.semantic_registry_secret_role,
+                self.semantic_registry_secret_binding_ref,
+                self.semantic_registry_secret_version,
+            )
+            if any(value is not None for value in backup_forbidden):
+                raise ValueError("backup component received a forbidden cross-component credential")
             return
         if self.runtime_component == "operator":
             operator_forbidden: tuple[object | None, ...] = (
@@ -1537,6 +1611,7 @@ class Settings(BaseSettings):
             self.control_migrator_database_url,
             self.control_restore_database_url,
             self.control_observer_database_url,
+            self.control_backup_database_url,
             self.control_operator_actor_id,
             self.control_operator_roles or None,
             self.openai_api_key,

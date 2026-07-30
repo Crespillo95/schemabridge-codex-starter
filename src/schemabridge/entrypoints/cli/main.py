@@ -346,7 +346,7 @@ def control_plane_backup(
     ],
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
-    """Create a transaction-consistent signed backup with the migrator credential."""
+    """Create a transaction-consistent signed backup with the dedicated backup credential."""
 
     try:
         archive, manifest_path, manifest = build_control_plane_backup().create_backup(destination)
@@ -429,6 +429,7 @@ def control_plane_check(
             "worker": build_control_plane_migrator(credential_kind="worker").require_current(),
             "catalog": build_control_plane_migrator(credential_kind="catalog").require_current(),
             "observer": build_control_plane_migrator(credential_kind="observer").require_current(),
+            "backup": build_control_plane_migrator(credential_kind="backup").require_current(),
         }
         separation = build_source_control_database_separation().execute()
     except (ControlPlaneMigrationError, DatabaseConfigurationError) as error:

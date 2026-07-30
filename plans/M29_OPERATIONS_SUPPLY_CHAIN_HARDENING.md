@@ -1,6 +1,7 @@
 # M29: Operations, infrastructure, supply-chain, and recovery hardening
 
-- Status: reproducible local baseline accepted; external production/release operation not accepted
+- Status: final-byte local acceptance closed; branch publication and external production/release
+  operation remain pending
 - Started: 2026-07-29
 - Timebox: four sequential phases; no phase is accepted independently
 - Recommended Codex: GPT-5.6 Sol — Extra High (xhigh)
@@ -159,10 +160,22 @@ comment. Docker base images remain digest-pinned. The supply-chain gate fails fo
 - missing SBOM components, artifact digest, source revision, or provenance subject;
 - a release artifact built from a dirty or non-exact revision.
 
-CI builds the wheel and runtime image once, generates CycloneDX SBOMs, scans dependencies and the
-image, records immutable digests, and emits attestable provenance. Publication/signing uses
-short-lived GitHub OIDC and environment approval; no registry or signing key is committed.
-Pull-request CI verifies the same deterministic bytes but does not claim a production signature.
+CI builds the wheel and runtime image, generates CycloneDX SBOMs, scans dependencies and the image,
+records immutable digests, and emits attestable provenance. Release promotion is manually
+dispatched from an existing annotated SemVer tag through seven capability-separated jobs:
+`audit → prepare → candidate → scan → attest → promote → release`. The protected `audit` job is
+GET-only, checks out no repository code, executes no repository script, and uses no third-party
+action. Its environment-only, repository-scoped audit token verifies the exact annotated tag,
+current protected `main`, required push CI, ruleset, immutable-Release setting, and absence of
+newer public Release/GHCR state before any build or mutation. An exact previously published
+immutable Release is a bounded no-op only after its image, attestations, metadata, body, and
+exactly ten public assets are reverified; all downstream jobs are skipped. A fresh path builds
+once, publishes or resumes only an exact candidate, scans and attests the remote manifest,
+promotes the same digest, and publishes the Release only as its terminal step. Five independent
+approvals and all post-readback checks must complete within seven calendar days of `audit`; the
+35-day artifact retention exists only as a further 28-day incident-analysis buffer. Signing uses
+short-lived GitHub OIDC; no registry or signing key is committed. Pull-request CI does not claim a
+production signature.
 
 ## Backup, retention, recovery, and rollback
 
@@ -185,26 +198,75 @@ Default policy for the production profile is hourly backup, RPO <= 60 minutes, R
 35-day daily retention plus 12 monthly recovery points. A target operator may choose stricter
 values, never weaker values without a recorded risk acceptance.
 
-## Implementation status — 2026-07-29
+## Implementation status — 2026-07-30
 
-The working tree now contains the local M29 vertical slices: exact-version remote connector,
-DataHub-catalog, and semantic-registry secret resolution; control schemas v10/v11 and the
-aggregate-only observer; structured telemetry, bounded metrics, alert/SLO/dashboard/SIEM
-contracts; a distinct-identity/default-deny Kubernetes reference profile; frozen dependency and
-hashed runtime/build inputs with supply-chain validation; verified-pair retention and recovery
-policy tooling; a six-state operations view; and managed-web refusal of synchronous execution and
-publication.
+The working tree contains the local M29 vertical slices plus the final audit remediations:
+exact-version remote connector, DataHub-catalog, and semantic-registry secret resolution; control
+schemas v10/v11/v12 and eight distinct control credentials; the aggregate-only observer; a
+dedicated scheduled-backup identity and entrypoint; a 63-resource Kubernetes reference profile;
+producer-backed active observability; frozen dependency and supply-chain inputs; verified-pair
+retention and recovery policy tooling; and a fail-closed managed-web process boundary.
 
-The reproducible local gates now pass: schema v11 and the seven-role boundary, focused/full
-PostgreSQL cuts, deterministic acceptance/evaluation, installed wheel, frozen dependency and
-supply-chain policy, local distinct-target recovery, scale contracts, and the final internal
-browser matrix. The monolithic quality command passed supply-chain/release audit, Ruff, and mypy
-before the local command executor stopped it at its 600-second limit with pytest still passing at
-68%. Its exact 3154-test selection then passed in exhaustive disjoint shards
-(3079 + 39 + 22 + 14), with 211 service tests deselected; no assertion failed. The retained full
-coverage baseline over unchanged `src/schemabridge` is 3325 tests with 14 explicit external skips
-at 81.09%; that 2436-second command was not repeated after this supply-chain-only patch. Missing
-DataHub credentials and the retained M27 browser fixture remain explicit external skips. No
+Schema v12 grants `schemabridge_backup` complete read-only control-schema access without
+migrator/runtime/source authority. The hourly CronJob uses that identity, a versioned backup secret,
+an external PVC, and only the `control-backup` egress capability. `pg_dump` and `pg_restore` receive
+an allowlisted process environment containing only `PATH` and required `PG*` values. The runtime
+image fetches exactly five versioned Alpine APKs for amd64/arm64 with reviewed SHA-256 values and
+installs them from a read-only BuildKit mount with `apk --no-network`; it neither copies an
+untracked filesystem closure nor resolves packages in the final stage.
+
+Only eight metric families with a real composed producer are active. The active bundle contains six
+alerts, three SLOs, and eight dashboard panels, and the Kubernetes PrometheusRule carries exactly
+those active alert groups. SIEM and every uncomposed backup/release/integrity/capacity contract are
+kept under `deploy/observability/inactive/`; they are validated design inputs, not delivery,
+paging, or health evidence. Managed `schemabridge-web` preflights configuration, authentication,
+and schema before launching Streamlit. Startup/readiness repeat those checks and require the exact
+bounded loopback Streamlit health response. Staging/production Operations reports unavailable
+without an operated data source and never substitutes synthetic healthy/degraded states.
+
+Release promotion is now a seven-job replay-safe prepublication state machine:
+`audit → prepare → candidate → scan → attest → promote → release`. The protected, GET-only
+`audit` job runs without checkout, repository code, or third-party actions. It either proves an
+exact historical immutable publication and skips all mutation-capable jobs, or admits a fresh
+current-`main` build only after branch/ruleset, CI, immutable-Release, monotonic Release/GHCR, and
+reference-absence checks pass. Candidate resumption is digest exact; scan credentials are isolated
+and always cleaned; all ten public assets, including `release-body.md`, plus image and attestations
+are reverified after publication. The five-approval publication window is bounded to seven days.
+Branch/rule lookup, reference absence, authentication, transport, archive parsing, checksum,
+attestation, and digest checks fail closed. Exclusive Release/GHCR write authority, protected
+environment/reviewer policy, and target operation remain external prerequisites.
+
+Current final-byte local evidence now closes the 316-test focused M29 cut; the 154-test
+release/supply-chain cut and 894-file/23-license static audit; clean schema-v12/eight-credential
+source/control separation; the focused backup/restore cut; full integration and acceptance;
+deterministic 11-table/465-row evaluation with `live_llm=not_run`; the installed wheel through
+migrations 1–12 and all entrypoints; local recovery policy and fresh-target evidence; scale
+postflight; the final internal-browser matrix; and the local BuildKit image/SBOM/vulnerability
+smoke. The image is local pre-commit evidence built from stable product bytes: its OCI revision
+label still identifies the prior HEAD, so it is not an exact-commit or release artifact.
+
+Exact closed results are 316 focused component tests in 17.74 seconds; 154 final
+release/supply-chain tests; backup/restore 6 passed and 5 deselected in 5.96 seconds; integration
+161 passed, 11 skipped, and 3327 deselected in 250.42 seconds; acceptance 43 passed, 4 skipped,
+and 3452 deselected in 48.51 seconds; scale 25 passed in 3.16 seconds plus 8 passed and
+4 deselected in 4.41 seconds; final `make check` 3335 passed and 214 deselected in 1234.82 seconds
+with Ruff over 608 files and strict mypy over 308 files; current-byte coverage 3534 passed,
+14 skipped, and 1 deselected at 81.17% in 4149.89 seconds; and recovery fingerprint
+`24bdecb8bcb8faab8ba83d64eadf201c0b1d31142ebab773b012735f8f6f34ae`.
+The local image is
+`sha256:db2a42ce187243c809a9fcc1272246fb914fbeefc9186b7a83b651014d015b79`,
+182236711 bytes, user 10001:10001, with `pg_dump`/`pg_restore` 16.14, `pip check`, `ldd`, all
+entrypoint smoke, exact 107-component SBOM, zero-known-vulnerability `pip-audit`, and passing Trivy
+HIGH/CRITICAL policy. Its OCI revision is prior HEAD
+`9e8b69e1adce8e144b345d3b0d33482558804dc6`.
+
+The final release topology is **PASS_LOCAL** at workflow SHA-256
+`9979c54be6ba39d1d7b606e6d882aa10e9868bb9d003482b30a780ee104d1f26`:
+Actionlint 1.7.12, ShellCheck 0.11.0, static policy, 154 adversarial tests, and independent review
+all pass with zero local P0/P1/P2 findings. Current-byte coverage passes at 81.17%, superseding
+D115's 81.09% historical baseline. Worktree, staged-candidate, and existing-history secret scans
+pass; exact-revision scan, commit/push, and hosted checks remain **PENDING**. D123 records local
+acceptance. No
 target-provider rotation/revocation, cluster-side admission, real alert/SIEM delivery, immutable
 remote retention, external cutover/rollback, protected release attestation, production
 traffic/SLO, or external security/operator review has been operated. Production and release
@@ -238,11 +300,12 @@ therefore remain **NO-GO**, and M30/M31 remain blocked.
       no automatic tokens, no application API RBAC, and no wildcard permissions.
 - [x] Namespace default deny, per-component ingress/egress, DNS/telemetry exceptions, TLS ingress,
       source/control/provider TLS, immutable images, PDB/topology spread, and resource bounds pass
-      the closed 61-resource local render and static validator.
+      the closed 63-resource local render contract, including the backup CronJob and exact
+      PrometheusRule.
 - [ ] The same network, TLS, identity, image, admission, disruption, topology, and resource
       controls pass server-side validation and enforcement in the target cluster.
-- [x] Local cross-capability and cross-tenant secret/source attempts fail under the seven-role and
-      exact-route test matrix.
+- [x] Local cross-capability and cross-tenant secret/source attempts fail under the
+      eight-credential control boundary and exact-route test matrix.
 - [ ] Target-provider IAM and workload isolation prove that no workload can enumerate all tenant
       credentials.
 
@@ -251,17 +314,20 @@ therefore remain **NO-GO**, and M30/M31 remain blocked.
 - [x] API and every worker process emit schema-versioned JSON events with bounded correlation and
       stable codes; hostile or sensitive input cannot become a log field.
 - [x] Health/ready/metrics paths are bounded, credential-free, mutation-free, and source-I/O-free.
-- [x] Closed OpenMetrics names/labels cover the required availability, queue, lease, retry,
-      dead-letter, timeout, capacity, secret, backup, and release signals without high cardinality.
-- [x] Versioned alert rules validate and every page-level alert links to an exact runbook.
-- [x] The provider-neutral SIEM adapter is buffered, bounded, detects loss, and cannot log or retry
-      a sensitive payload.
+- [x] The active OpenMetrics surface is limited to eight closed, low-cardinality families with an
+      explicit runtime or observer producer.
+- [x] Six active producer-backed alerts validate, are mirrored exactly by the PrometheusRule, and
+      link to exact active runbooks.
+- [x] The provider-neutral SIEM and uncomposed signal contracts remain schema-validated under the
+      inactive bundle and cannot be mistaken for active delivery or paging.
+- [ ] Every currently inactive signal has a lifecycle-owned producer/exporter and operated
+      delivery before it is moved into the active bundle.
 - [ ] TLS-authenticated delivery, rejection, retry, loss detection, and resolution are operated
       against the production SIEM destination.
-- [x] SLO/error-budget definitions and dashboard panels use the same metric/rule names and label
-      local evidence honestly.
-- [x] Internal-browser desktop and mobile operations views show healthy, degraded, secret outage,
-      queue backlog, stale backup, and failed release states with safe diagnostics, clean console,
+- [x] Three active SLOs and eight active dashboard panels use only producer-backed metric names and
+      label local evidence honestly.
+- [x] Internal-browser final-byte validation covers local/demo scenarios plus the managed
+      Operations-unavailable state at desktop and mobile with safe diagnostics, clean console,
       escaped hostile text, and no horizontal overflow.
 
 ### Supply chain
@@ -278,6 +344,10 @@ therefore remain **NO-GO**, and M30/M31 remain blocked.
       `watchdog` reproducibly into the exact SHA-bound local requirement. Static policy rejects a
       mutable base, missing epoch/hash/BuildKit contract, any changed/additional final-stage
       command, networked runtime install, or retained wheelhouse layer.
+- [x] The PostgreSQL client closure is an exact five-APK amd64/arm64 matrix with reviewed versions,
+      URLs, and SHA-256 values; the final image installs it only from a read-only mount with
+      `apk --no-network`, and static policy rejects extra APKs, mutable coordinates, raw copying,
+      or networked final-stage resolution.
 - [x] Fixture-backed wheel/runtime-image SBOM and evidence-contract validation covers exact
       direct/runtime dependencies and rejects source/artifact digest mismatches; it is not a final
       local image build claim.
@@ -287,8 +357,9 @@ therefore remain **NO-GO**, and M30/M31 remain blocked.
       direct-license inventory has no unknown/prohibited package, and local
       image-scan/exception schemas fail closed.
 - [x] The final local BuildKit image passes non-root runtime smoke, `pip check`, API/UI imports,
-      no-build-tool/no-wheelhouse checks, and a current Trivy scan with zero HIGH/CRITICAL
-      findings. This is local candidate evidence, not a registry or protected-release claim.
+      `pg_dump`/`pg_restore`, no-build-tool/no-wheelhouse/no-staged-APK checks, and a current Trivy
+      scan with zero HIGH/CRITICAL findings. This will be local candidate evidence, not a registry
+      or protected-release claim.
 - [ ] The final registry image scan and any dated, owned vulnerability disposition pass in the
       protected hosted release.
 - [x] Provenance policy binds repository, revision, builder, workflow, artifact, and SBOM digests;
@@ -304,6 +375,9 @@ therefore remain **NO-GO**, and M30/M31 remain blocked.
       cutover authority are explicit and placeholder-free in the operated profile.
 - [x] Retention keeps required hourly/daily/monthly points, verifies signed manifest/archive
       pairs, rejects symlinks/tampering, and has a dry-run default.
+- [x] Schema v12, `schemabridge_backup`, the sanitized scheduled entrypoint, the hourly CronJob,
+      exact versioned inputs, subprocess environment allowlist, and read-only/write-denial
+      contracts are explicit in the local implementation.
 - [x] A complete fresh-target backup/restore drill passes exact checksum, schema, state,
       audit-chain, pointer/history/outbox/quarantine checks and records sanitized timing evidence.
 - [x] Restore never targets the active/source database; failed verification cannot cut over.
@@ -319,12 +393,10 @@ therefore remain **NO-GO**, and M30/M31 remain blocked.
 ### Final gates and handoff
 
 - [x] Focused unit, security, manifest, observability, supply-chain, retention, recovery, and
-      browser-runtime tests pass.
+      browser-runtime tests pass on the final bytes.
 - [x] Real PostgreSQL integration/acceptance, deterministic evaluation, runtime wheel, release
-      audit, frozen install, local SBOM/scan/provenance policy, recovery drill, all `make check`
-      components via exhaustive sharding, scale postflight, and `git diff --check` pass locally.
-      The retained 81.09% coverage baseline targets unchanged `src/schemabridge`; the full
-      2436-second coverage command was not repeated after the final supply-chain-only patch.
+      audit, frozen install, local SBOM/scan/provenance policy, recovery drill, `make check`, scale
+      postflight, and `git diff --check` pass locally on the final bytes.
 - [ ] Final registry-image SBOM, scan, protected provenance/attestation, and target-environment
       evidence pass against the exact clean release revision.
 - [x] Internal-browser final validation runs after the last UI/operator-byte change and records

@@ -1,7 +1,7 @@
 # Current task
 
 - Current milestone: M29 — Operations, infrastructure, supply-chain, and recovery hardening
-- Status: reproducible local baseline accepted; publication tracked in draft PR #1
+- Status: final-byte local acceptance complete; branch publication remains in progress
 - Prompt: `prompts/M29_OPERATIONS_SUPPLY_CHAIN_HARDENING.md`
 - Plan: `plans/M29_OPERATIONS_SUPPLY_CHAIN_HARDENING.md`
 - ADR: `docs/adr/0014-operated-runtime-secrets-observability-and-supply-chain.md`
@@ -9,102 +9,120 @@
 
 ## Objective
 
-Implement and operate the exact M29 gates for remote exact-version secrets, projected workload
-identity, TLS/default-deny networking, structured redacted telemetry, bounded metrics/SLOs/alerts/
-SIEM, frozen dependencies, pinned CI, SBOM/vulnerability/provenance evidence, signed backup
-retention, fresh-target recovery, and rollback.
+Finish and verify the exact M29 gates for remote exact-version secrets, projected workload
+identity, TLS/default-deny networking, truthful producer-backed observability, frozen dependencies,
+prepublication release evidence, dedicated scheduled backup, fresh-target recovery, and rollback.
 
 M28 remains the accepted local query/routing baseline. Its source-read-only, typed-intent,
 deterministic SQL compiler/AST guard, semantic approval, route, tenant, fanout, cost, and dynamic
-catalog boundaries must remain unchanged.
+catalog boundaries remain unchanged.
 
 ## Implemented locally
 
-- One provider-neutral port now supports strict owner-only local evidence and HTTPS
-  Vault/OpenBao-compatible exact-version remote resolution. Managed components require remote
-  mode and reject global/local credential fallbacks.
-- Provider secret versions are independent from public route revisions. Schema v11 stores four
-  immutable version pins and deliberately leaves historical unversioned routes non-executable
-  until a newly approved rotation.
-- Schema v10 adds the read-only `schemabridge_observer` role and an aggregate-only queue view.
-  API, execution, catalog, profile, reconciler, and observer processes have bounded metrics;
-  structured logs, SLOs, alerts, dashboards, SIEM, and safe operations projections use closed
-  schemas.
-- The M29 Kubernetes base defines separate workload identities, projected tokens only where
-  required, restricted containers, resource/topology controls, TLS ingress, default-deny
-  networking, and isolated scrape paths. The production overlay retains blocking operator
-  placeholders by design.
-- `uv.lock`, hashed runtime/build exports, immutable workflow/image validation,
-  SBOM/vulnerability/provenance policy, and protected-release OIDC contracts are present. Every
-  Trivy action writes its cache under ignored `.local/trivy-cache`; static policy rejects any
-  missing or different path as `trivy_cache_path_invalid`.
-- Python auditing uses the frozen export directly with no resolver environment. The exact
-  Python 3.13.14/Alpine 3.24 runtime builds a reproducible, SHA-bound `watchdog` wheel from its
-  verified sdist, installs the complete wheelhouse offline through read-only BuildKit mounts, and
-  retains neither build tooling nor the wheelhouse in the final image.
-- Recovery policy, verified backup-pair retention/quarantine, fresh-target drill contracts, and
-  forward-compatible image/restore rollback rules are present.
-- Managed Streamlit is planning-only: execution and publication are explicitly `disabled`.
+- One provider-neutral port supports strict owner-only local evidence and HTTPS
+  Vault/OpenBao-compatible exact-version remote resolution. Managed components require remote mode
+  and reject global/local credential fallback.
+- Schema v10 adds the aggregate-only `schemabridge_observer`; schema v11 stores four immutable
+  provider-version pins without inventing legacy values; schema v12 adds the dedicated
+  `schemabridge_backup` identity. The current control boundary has eight distinct credentials:
+  runtime, API, worker, catalog, reconciler, migrator, observer, and backup.
+- `schemabridge-backup` creates one signed control-plane backup with the read-only backup
+  credential. Its subprocess receives only allowlisted `PATH` and required `PG*` values, never the
+  ambient OpenAI, audit, web, OIDC, DataHub, or connector-secret environment.
+- The 63-resource Kubernetes base contains seven long-running Deployments, an hourly
+  non-overlapping backup CronJob, the exact active PrometheusRule, nine ServiceAccounts, restricted
+  containers, resource/topology controls, TLS ingress, default-deny networking, and isolated
+  capability paths. The production overlay retains blocking operator placeholders by design.
+- Exactly eight metric families with composed producers are active. The active bundle contains six
+  alerts, three SLOs, and eight dashboard panels. SIEM and every remaining uncomposed signal,
+  rule, SLO, panel, and runbook live under `deploy/observability/inactive/` as validated design
+  contracts, not monitoring, paging, or delivery evidence.
+- Managed `schemabridge-web` preflights typed configuration, authentication, and exact schema before
+  launching Streamlit. Startup/readiness repeat preflight and require the fixed bounded loopback
+  health response. Staging/production Operations reports unavailable without an operated data
+  source and never falls back to synthetic status.
+- Managed Streamlit remains planning-only: execution and publication are explicitly `disabled`.
   Execution still requires the authenticated API/job/worker lane, for which no Streamlit client
   exists; publication still lacks a durable approval queue and dedicated publisher worker.
-- A separate operator component keeps migration/backup/restore commands outside the web runtime
-  and does not inherit developer `.env` capability.
+- `uv.lock`, hashed runtime/build exports, immutable workflow/image validation,
+  SBOM/vulnerability/provenance policy, and protected-release OIDC contracts are present. Every
+  Trivy action uses ignored `.local/trivy-cache`.
+- The runtime keeps the exact Python 3.13.14/Alpine 3.24 base and reproducible SHA-bound `watchdog`
+  wheel. A separate fetch stage downloads exactly five versioned Alpine APKs for amd64/arm64 and
+  verifies each reviewed SHA-256; the final stage installs them from a read-only BuildKit mount
+  with `apk --no-network`. Raw filesystem copying, extra APKs, mutable coordinates, and online
+  final-stage resolution fail static policy.
+- Release promotion is manually dispatched from an existing annotated SemVer tag through seven
+  jobs: `audit → prepare → candidate → scan → attest → promote → release`. The protected GET-only
+  audit runs without checkout, repository code, or third-party actions; it either verifies an
+  exact historical immutable publication and skips every downstream job, or admits one fresh
+  current-`main` build after branch/ruleset, CI, immutable-Release, monotonic publication, and
+  reference-absence checks. Candidate resumption, scan, attestations, same-digest promotion, and
+  the exact ten-asset Release are independently reverified. Five approvals and post-readback are
+  bounded to seven days; the 35-day retention is only an incident-analysis buffer.
+- Recovery policy, verified backup-pair retention/quarantine, fresh-target drill contracts, and
+  forward-compatible image/verified-restore rollback rules remain present. Automatic
+  down-migration and automatic cutover remain forbidden.
 
-## Local acceptance evidence
+## Final-byte validation status
 
-1. Focused M29 recovery/deployment/telemetry/logging/composition tests pass 210/210; the final
-   supply/release/wheel cut passes 76/76.
-2. Clean schema v11 and all seven control credentials pass; focused observer/provider-version
-   PostgreSQL passes 18/18 and full integration passes 158 tests with 11 explicit external skips.
-3. Acceptance passes 43 tests with four explicit DataHub skips; deterministic evaluation,
-   installed wheel migrations 1–11/all ten entrypoints, frozen uv install, `pip check`, recovery,
-   and scale contracts pass.
-4. The operator-patched 61-resource manifest passes locally and the unpatched template fails
-   closed. Target-cluster server-side validation remains `NOT_RUN_EXTERNAL`.
-5. The Codex internal browser passes all six operations states at 1280×720 and 390×844 with clean
-   console, escaped hostile text, no overflow or protected-data hits, and closed cleanup.
-6. Final `make check` passes supply-chain/release audit, Ruff over 592 files, and mypy over 300
-   source files before the local executor stops the still-passing pytest process at its 600-second
-   limit. The exact 3154-test selection passes exhaustively in disjoint shards
-   (3079 + 39 + 22 + 14), with 211 service tests deselected and no assertion failure. The retained
-   full-coverage baseline over unchanged `src/schemabridge` passes 3325 tests with 14 explicit
-   external skips and one performance deselection at 81.09%; the 2436-second command was not
-   repeated after the final supply-chain-only patch.
-7. The final checkout audit closes the hidden-artifact upload and Trivy-cache regressions with a
-   seven-path allowlist, timeout/condition/retention validation, and an ignored exact cache path;
-   59 supply-chain and 13 release-audit tests pass, including forced interrupted-coverage
-   rejection, Docker-context key exclusion, complete build-input auditing, and exact final-stage
-   command enforcement.
-8. The final BuildKit image smoke passes as UID/GID 10001 with `pip check`, API/UI imports,
-   `watchdog==6.0.0`, no `setuptools`, and no retained wheelhouse. Its current Trivy image scan
-   reports zero HIGH/CRITICAL findings; Docker reports a local image size of 180,197,459 bytes,
-   down from 310,636,145.
+The final-byte focused, service, package, recovery, scale, browser, coverage, and local-image cuts
+below are current evidence. Current-byte coverage is 81.17% and supersedes D115's 81.09%
+historical baseline. D123 records local acceptance while retaining release and production NO-GO.
+The local image was built from stable product bytes before commit and its OCI revision label still
+binds the prior HEAD
+`9e8b69e1adce8e144b345d3b0d33482558804dc6`; it is not an exact-commit or release artifact.
+
+| Gate | Status |
+|---|---|
+| Focused unit/security/manifest/observability/backup/web tests | **PASS** — 316 passed in 17.74 s |
+| Release/supply-chain focused and static gates | **PASS** — 154 passed; static audit 894 candidate files/23 licenses with only the expected dirty-tree warning |
+| Clean schema v12 and eight-credential PostgreSQL boundary | **PASS** — clean reset/migrate/check; source/control separation verified |
+| Focused backup/restore PostgreSQL cut | **PASS** — 6 passed, 5 deselected in 5.96 s |
+| Full integration suite | **PASS_WITH_EXTERNAL_SKIPS** — 161 passed, 11 skipped, 3327 deselected in 250.42 s |
+| Full acceptance suite | **PASS_WITH_EXTERNAL_SKIPS** — 43 passed, 4 skipped, 3452 deselected in 48.51 s |
+| Deterministic evaluation | **PASS** — 11 tables/465 rows; `live_llm=not_run` |
+| Installed-wheel smoke | **PASS** — migrations 1–12 and all current entrypoints |
+| Operator-patched 63-resource local contract | **PASS_LOCAL** — covered by the focused manifest/render validation; target admission remains external |
+| Final local BuildKit image/SBOM/vulnerability smoke | **PASS_LOCAL_PRECOMMIT** — image `sha256:db2a42ce187243c809a9fcc1272246fb914fbeefc9186b7a83b651014d015b79`, 182236711 bytes |
+| Scale correctness/postflight | **PASS** — 25 passed in 3.16 s; PostgreSQL cut 8 passed, 4 deselected in 4.41 s |
+| Recovery policy | **PASS_LOCAL** — fingerprint `24bdecb8bcb8faab8ba83d64eadf201c0b1d31142ebab773b012735f8f6f34ae` |
+| Final release-topology redesign/review | **PASS_LOCAL** — 7 jobs; workflow SHA-256 `9979c54be6ba39d1d7b606e6d882aa10e9868bb9d003482b30a780ee104d1f26`; Actionlint 1.7.12, ShellCheck 0.11.0, static/adversarial review; P0/P1/P2 = 0 |
+| `make check` | **PASS** — 3335 passed, 214 deselected in 1234.82 s; Ruff 608 files; strict mypy 308 files |
+| Current-byte coverage | **PASS_WITH_EXTERNAL_SKIPS** — 3534 passed, 14 skipped, 1 deselected in 4149.89 s; 81.17%, above the required 80% |
+| Documentation postflight `git diff --check` | **PASS** |
+| Internal-browser desktop/mobile final-byte validation and cleanup | **PASS_LOCAL** — exact matrix retained in `tasks/M29_HANDOFF.md` |
+| Worktree/staged/history secret and artifact scans | **PASS_PRECOMMIT** — Gitleaks 8.30.1, fully redacted; 888-file worktree/index snapshots and all 11 existing commits; zero leaks |
+| Exact-revision secret scan | **PENDING_COMMIT_BOUND** |
+| Focused commit, push, and hosted PR checks | **NOT_RUN** |
+
+The local image runs as 10001:10001 and passes `pg_dump`/`pg_restore` 16.14, `pip check`, `ldd`,
+all entrypoint smoke, an exact 107-component SBOM, a zero-known-vulnerability `pip-audit`, and the
+Trivy HIGH/CRITICAL policy. Recovery policy fingerprint is
+`24bdecb8bcb8faab8ba83d64eadf201c0b1d31142ebab773b012735f8f6f34ae`.
+These are local pre-commit results, not hosted registry, provenance, release, or production
+evidence.
 
 ## Publication boundary
 
-The exact branch commit and hosted status are intentionally external to this precommit task record
-because a commit cannot embed its own identity. Publication evidence must be read from Git history
-and draft PR #1. The candidate must pass the staged secret/artifact/history scan and strict
-clean-revision audit before it can be treated as release input. Hosted PR checks remain independent
-reproducibility evidence, not production authorization.
+The exact commit and hosted status must be read from Git history and draft PR #1 after publication.
+A commit cannot embed its own identity. The staged candidate and exact clean revision must pass the
+secret/artifact/history and strict release scans; hosted PR checks are independent reproducibility
+evidence, not production authorization.
 
-Hosted run `30493061776` failed safely after its image scans because Trivy created non-ignored
-`.cache/trivy` before the exact-tree provenance guard. The reviewed correction confines all four
-CI/release scanner caches to ignored `.local/trivy-cache` and adds fail-closed regressions; the
-replacement run `30495413406` then generated provenance and all seven artifacts before failing
-closed on two independent checks: default `pip-audit` omitted `packaging`, and the old Debian
-runtime carried high/critical findings. The local correction uses `--disable-pip` and the reviewed
-reproducible Alpine wheelhouse. Its replacement hosted result is deliberately not presumed inside
-this commit. Run `30520807060` then passed the rebuilt image, vulnerability policy, and evidence
-generation before exposing one compatibility boundary: pinned Trivy emitted CycloneDX 1.6 while
-the verifier accepted only 1.5. The verifier now accepts the explicit reviewed 1.5/1.6 set without
-weakening component, digest, source, lock, or provenance checks; its replacement result remains
-external to this precommit record.
+The protected release workflow is also not sufficient by itself. The external repository
+inspection found no `production-release` environment, unprotected `main`, zero rulesets, and
+Immutable Releases disabled. Before any dispatch, an operator must create and prove the exact
+environment, independent reviewers with self-review/bypass disabled, eligible tag restrictions,
+the environment-only sentinel/audit credential, exclusive GitHub Release and GHCR write authority
+for this protected workflow, protected `main`, and Immutable Releases. YAML cannot substitute for
+those controls.
 
 ## Explicit NO-GO boundary
 
-No external provider rotation/revocation, target-cluster admission/network enforcement,
-production alert/SIEM delivery, immutable remote retention, operated external fresh-target
-cutover/rollback, protected release attestation, production traffic/SLO, M30/M31, or independent
-security/operator approval has been accepted. Static manifests, local metrics, unit tests, and
-unsigned local artifacts cannot substitute for those operations.
+No external provider rotation/revocation, target-cluster admission/network enforcement, production
+alert/SIEM delivery, inactive-signal producer operation, encrypted immutable remote retention,
+external fresh-target cutover/rollback, exclusive registry-writer enforcement, protected release
+attestation, production traffic/SLO, M30/M31, or independent security/operator approval has been
+accepted. Static manifests, local metrics, unit tests, and unsigned local artifacts cannot
+substitute for those operations.

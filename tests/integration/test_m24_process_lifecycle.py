@@ -193,7 +193,7 @@ def lifecycle_databases() -> Iterator[_LifecycleDatabases]:
             current.migrator,
             MIGRATIONS,
         ).migrate()
-        assert current_result.inspection.current_version == 11
+        assert current_result.inspection.current_version == 12
 
         with tempfile.TemporaryDirectory(prefix="schemabridge-m24-behind-") as directory:
             behind_migrations = Path(directory)

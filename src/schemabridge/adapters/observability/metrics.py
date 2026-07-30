@@ -49,13 +49,10 @@ def _label(name: str, *values: str) -> MetricLabel:
 
 _SERVICES = (
     "api",
-    "backup",
     "catalog",
-    "migrator",
     "observer",
     "profile",
     "reconciler",
-    "web",
     "worker",
 )
 _QUEUES = ("execution", "catalog", "profile", "reconciliation")
@@ -67,20 +64,20 @@ OPERATIONAL_METRICS = (
         name="schemabridge_http_requests_total",
         help_text="Completed allowlisted business HTTP requests by service and outcome.",
         kind=MetricKind.COUNTER,
-        labels=(_label("service", "api", "web"), _label("outcome", *_OUTCOMES)),
+        labels=(_label("service", "api"), _label("outcome", *_OUTCOMES)),
     ),
     MetricDefinition(
         name="schemabridge_http_request_duration_seconds",
         help_text="Completed allowlisted business HTTP request latency in seconds.",
         kind=MetricKind.HISTOGRAM,
-        labels=(_label("service", "api", "web"), _label("outcome", *_OUTCOMES)),
+        labels=(_label("service", "api"), _label("outcome", *_OUTCOMES)),
         buckets=_DURATION_BUCKETS,
     ),
     MetricDefinition(
         name="schemabridge_http_authorization_denials_total",
         help_text="Authorization denials for allowlisted business HTTP requests.",
         kind=MetricKind.COUNTER,
-        labels=(_label("service", "api", "web"),),
+        labels=(_label("service", "api"),),
     ),
     MetricDefinition(
         name="schemabridge_queue_depth",
@@ -102,7 +99,6 @@ OPERATIONAL_METRICS = (
             _label("queue", *_QUEUES),
             _label(
                 "transition",
-                "lease_reclaimed",
                 "retry_scheduled",
                 "dead_lettered",
                 "authorization_stale",
@@ -122,7 +118,7 @@ OPERATIONAL_METRICS = (
         help_text="Bounded source operations by capability and stable outcome.",
         kind=MetricKind.COUNTER,
         labels=(
-            _label("capability", "preflight", "execution", "catalog", "profile"),
+            _label("capability", "execution", "catalog", "profile"),
             _label("outcome", *_OUTCOMES, "timeout"),
         ),
     ),
@@ -193,6 +189,77 @@ OPERATIONAL_METRICS = (
         labels=(_label("outcome", "success", "error"),),
     ),
 )
+
+
+@dataclass(frozen=True, slots=True)
+class ComposedMetricProducer:
+    """One metric family and the runtime components that really produce it."""
+
+    metric: str
+    producer: str
+    services: tuple[str, ...]
+
+
+COMPOSED_OPERATIONAL_METRIC_PRODUCERS = (
+    ComposedMetricProducer(
+        "schemabridge_http_requests_total",
+        "runtime_telemetry",
+        ("api",),
+    ),
+    ComposedMetricProducer(
+        "schemabridge_http_request_duration_seconds",
+        "runtime_telemetry",
+        ("api",),
+    ),
+    ComposedMetricProducer(
+        "schemabridge_http_authorization_denials_total",
+        "runtime_telemetry",
+        ("api",),
+    ),
+    ComposedMetricProducer(
+        "schemabridge_queue_depth",
+        "observer_snapshot",
+        ("observer",),
+    ),
+    ComposedMetricProducer(
+        "schemabridge_queue_oldest_age_seconds",
+        "observer_snapshot",
+        ("observer",),
+    ),
+    ComposedMetricProducer(
+        "schemabridge_job_transitions_total",
+        "runtime_telemetry",
+        ("catalog", "profile", "reconciler", "worker"),
+    ),
+    ComposedMetricProducer(
+        "schemabridge_source_operations_total",
+        "runtime_telemetry",
+        ("catalog", "profile", "worker"),
+    ),
+    ComposedMetricProducer(
+        "schemabridge_process_ready",
+        "runtime_telemetry",
+        ("api", "catalog", "observer", "profile", "reconciler", "worker"),
+    ),
+)
+COMPOSED_OPERATIONAL_METRIC_NAMES = frozenset(
+    item.metric for item in COMPOSED_OPERATIONAL_METRIC_PRODUCERS
+)
+UNCOMPOSED_OPERATIONAL_METRIC_NAMES = (
+    frozenset(item.name for item in OPERATIONAL_METRICS) - COMPOSED_OPERATIONAL_METRIC_NAMES
+)
+if len(COMPOSED_OPERATIONAL_METRIC_NAMES) != len(COMPOSED_OPERATIONAL_METRIC_PRODUCERS):
+    raise RuntimeError("composed operational metric producers must be unique")
+if not frozenset(item.name for item in OPERATIONAL_METRICS) >= COMPOSED_OPERATIONAL_METRIC_NAMES:
+    raise RuntimeError("composed operational metrics must be registered")
+if any(
+    not item.services
+    or len(item.services) != len(set(item.services))
+    or not set(item.services) <= set(_SERVICES)
+    or item.producer not in {"observer_snapshot", "runtime_telemetry"}
+    for item in COMPOSED_OPERATIONAL_METRIC_PRODUCERS
+):
+    raise RuntimeError("composed operational metric producer contract is invalid")
 
 
 @dataclass(slots=True)
@@ -317,11 +384,13 @@ class OpenMetricsRegistry:
             state.total += float(value)
 
     def render(self) -> str:
-        """Render a deterministic OpenMetrics 1.0 text document."""
+        """Render only sampled families in a deterministic OpenMetrics document."""
 
         lines: list[str] = []
         with self._lock:
             for definition in sorted(self._definitions.values(), key=lambda item: item.name):
+                if not self._has_samples(definition.name):
+                    continue
                 lines.append(f"# HELP {definition.name} {_escape_help(definition.help_text)}")
                 lines.append(f"# TYPE {definition.name} {definition.kind.value}")
                 if definition.kind is MetricKind.COUNTER:
@@ -332,6 +401,14 @@ class OpenMetricsRegistry:
                     self._render_histograms(lines, definition)
         lines.append("# EOF")
         return "\n".join(lines) + "\n"
+
+    def _has_samples(self, name: str) -> bool:
+        return any(
+            key_name == name
+            for key_name, _series in (
+                tuple(self._counters) + tuple(self._gauges) + tuple(self._histograms)
+            )
+        )
 
     def _sample_contract(
         self,

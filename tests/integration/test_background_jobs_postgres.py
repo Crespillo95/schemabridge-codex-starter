@@ -101,6 +101,7 @@ class _DatabaseUrls:
     reconciler: str
     catalog: str
     observer: str
+    backup: str
 
 
 @pytest.fixture
@@ -126,7 +127,8 @@ def job_database() -> Iterator[_DatabaseUrls]:
                     schemabridge_api,
                     schemabridge_worker,
                     schemabridge_catalog,
-                    schemabridge_observer
+                    schemabridge_observer,
+                    schemabridge_backup
                 """
             ).format(sql.Identifier(database))
         )
@@ -140,6 +142,7 @@ def job_database() -> Iterator[_DatabaseUrls]:
         reconciler=_role_dsn("schemabridge_reconciler", database),
         catalog=_role_dsn("schemabridge_catalog", database),
         observer=_role_dsn("schemabridge_observer", database),
+        backup=_role_dsn("schemabridge_backup", database),
     )
     try:
         with tempfile.TemporaryDirectory(prefix="schemabridge-m24-v1-") as directory:
@@ -157,8 +160,8 @@ def job_database() -> Iterator[_DatabaseUrls]:
             PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).require_current()
         assert stale_schema.value.code is ControlPlaneMigrationErrorCode.SCHEMA_NOT_CURRENT
         upgraded = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert upgraded.applied_versions == (2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
-        assert upgraded.inspection.current_version == 11
+        assert upgraded.applied_versions == (2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+        assert upgraded.inspection.current_version == 12
         yield urls
     finally:
         with psycopg.connect(admin_dsn, autocommit=True) as connection:
@@ -1398,6 +1401,13 @@ def test_api_worker_and_existing_roles_have_exact_negative_privileges(
             "lease_update": False,
             "cancel_update": False,
             "pointer_select": False,
+        },
+        job_database.backup: {
+            "job_select": True,
+            "job_insert_column": False,
+            "lease_update": False,
+            "cancel_update": False,
+            "pointer_select": True,
         },
     }
     for dsn, expected in privilege_expectations.items():

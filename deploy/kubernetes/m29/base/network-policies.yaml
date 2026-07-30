@@ -50,16 +50,6 @@ spec:
         - protocol: TCP
           port: 53
     - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: observability
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: opentelemetry-collector
-      ports:
-        - protocol: TCP
-          port: 4317
-    - to:
         - podSelector:
             matchLabels:
               app.kubernetes.io/component: api
@@ -149,16 +139,6 @@ spec:
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: observability
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: opentelemetry-collector
-      ports:
-        - protocol: TCP
-          port: 4317
-    - to:
-        - namespaceSelector:
-            matchLabels:
               schemabridge.io/egress-plane: "true"
           podSelector:
             matchLabels:
@@ -211,16 +191,6 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: observability
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: opentelemetry-collector
-      ports:
-        - protocol: TCP
-          port: 4317
     - to:
         - namespaceSelector:
             matchLabels:
@@ -291,16 +261,6 @@ spec:
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: observability
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: opentelemetry-collector
-      ports:
-        - protocol: TCP
-          port: 4317
-    - to:
-        - namespaceSelector:
-            matchLabels:
               schemabridge.io/egress-plane: "true"
           podSelector:
             matchLabels:
@@ -359,16 +319,6 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: observability
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: opentelemetry-collector
-      ports:
-        - protocol: TCP
-          port: 4317
     - to:
         - namespaceSelector:
             matchLabels:
@@ -439,16 +389,6 @@ spec:
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: observability
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: opentelemetry-collector
-      ports:
-        - protocol: TCP
-          port: 4317
-    - to:
-        - namespaceSelector:
-            matchLabels:
               schemabridge.io/egress-plane: "true"
           podSelector:
             matchLabels:
@@ -500,16 +440,6 @@ spec:
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: observability
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: opentelemetry-collector
-      ports:
-        - protocol: TCP
-          port: 4317
-    - to:
-        - namespaceSelector:
-            matchLabels:
               schemabridge.io/egress-plane: "true"
           podSelector:
             matchLabels:
@@ -555,32 +485,10 @@ spec:
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: observability
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: opentelemetry-collector
-      ports:
-        - protocol: TCP
-          port: 4317
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              schemabridge.io/egress-plane: "true"
-          podSelector:
-            matchLabels:
-              schemabridge.io/egress-capability: secret-manager
-        - namespaceSelector:
-            matchLabels:
               schemabridge.io/egress-plane: "true"
           podSelector:
             matchLabels:
               schemabridge.io/egress-capability: control-backup
-        - namespaceSelector:
-            matchLabels:
-              schemabridge.io/egress-plane: "true"
-          podSelector:
-            matchLabels:
-              schemabridge.io/egress-capability: backup-store
       ports:
         - protocol: TCP
           port: 443

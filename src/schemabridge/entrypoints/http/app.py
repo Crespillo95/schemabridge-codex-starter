@@ -990,6 +990,13 @@ def create_http_app(
                 code="not_ready",
                 title="The service is not ready.",
             )
+        _emit_safe_operational_event(
+            telemetry,
+            event="service.health",
+            outcome="succeeded",
+            duration_ms=0,
+            correlation_id=_request_id(request),
+        )
         return HealthResponse(status="ready")
 
     @app.post(

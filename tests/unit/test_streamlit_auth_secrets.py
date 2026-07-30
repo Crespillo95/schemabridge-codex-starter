@@ -1,31 +1,27 @@
 from __future__ import annotations
 
-from dataclasses import replace
-
 import pytest
 
-from schemabridge.bootstrap import StreamlitRuntimeOptions
-from schemabridge.entrypoints.streamlit.auth_config import (
-    StreamlitAuthConfigurationError,
-    validate_streamlit_auth_configuration,
+from schemabridge.adapters.identity.streamlit_auth import (
+    StreamlitAuthConfigurationValidator,
 )
+from schemabridge.application.ports.browser_auth import (
+    BrowserAuthConfigurationError,
+    BrowserOidcRequirements,
+)
+from schemabridge.bootstrap import StreamlitRuntimeOptions
 
 
-def _runtime(
+def _requirements(
     *,
     profile: str = "production",
     issuer: str = "https://identity.example.test",
-) -> StreamlitRuntimeOptions:
-    return StreamlitRuntimeOptions(
+) -> BrowserOidcRequirements:
+    return BrowserOidcRequirements(
         profile=profile,  # type: ignore[arg-type]
-        auth_mode="oidc",
-        catalog_kind="recorded",
-        registry_kind="recorded",
-        publication_kind="fake",
-        execution_kind="recorded",
-        oidc_provider="corporate",
-        oidc_audience="schemabridge",
-        oidc_issuer=issuer,
+        provider="corporate",
+        audience="schemabridge",
+        issuer=issuer,
     )
 
 
@@ -51,7 +47,10 @@ def _secrets(
 
 
 def test_managed_oidc_secret_preflight_accepts_coherent_https_configuration() -> None:
-    validated = validate_streamlit_auth_configuration(_secrets(), _runtime())
+    validated = StreamlitAuthConfigurationValidator().validate(
+        _secrets(),
+        _requirements(),
+    )
 
     assert validated.provider == "corporate"
     assert "secret" not in repr(validated).casefold()
@@ -81,8 +80,11 @@ def test_managed_oidc_secret_preflight_accepts_coherent_https_configuration() ->
 def test_managed_oidc_secret_preflight_fails_closed_without_echoing_values(
     secrets: dict[str, object],
 ) -> None:
-    with pytest.raises(StreamlitAuthConfigurationError) as failure:
-        validate_streamlit_auth_configuration(secrets, _runtime())
+    with pytest.raises(BrowserAuthConfigurationError) as failure:
+        StreamlitAuthConfigurationValidator().validate(
+            secrets,
+            _requirements(),
+        )
 
     message = str(failure.value)
     assert "replace-with" not in message
@@ -91,27 +93,40 @@ def test_managed_oidc_secret_preflight_fails_closed_without_echoing_values(
 
 
 def test_development_allows_only_loopback_http_oidc() -> None:
-    runtime = _runtime(profile="development", issuer="http://127.0.0.1:9100")
+    requirements = _requirements(
+        profile="development",
+        issuer="http://127.0.0.1:9100",
+    )
     local = _secrets(
         redirect_uri="http://127.0.0.1:8501/oauth2callback",
         metadata_url="http://127.0.0.1:9100/.well-known/openid-configuration",
     )
 
-    validate_streamlit_auth_configuration(local, runtime)
+    validator = StreamlitAuthConfigurationValidator()
+    validator.validate(local, requirements)
 
-    with pytest.raises(StreamlitAuthConfigurationError):
-        validate_streamlit_auth_configuration(
+    with pytest.raises(BrowserAuthConfigurationError):
+        validator.validate(
             _secrets(
                 redirect_uri="http://dev.example.test/oauth2callback",
                 metadata_url="http://127.0.0.1:9100/.well-known/openid-configuration",
             ),
-            runtime,
+            requirements,
         )
 
 
 def test_preflight_rejects_non_oidc_runtime() -> None:
-    with pytest.raises(StreamlitAuthConfigurationError):
-        validate_streamlit_auth_configuration(
-            _secrets(),
-            replace(_runtime(), auth_mode="local-demo"),
-        )
+    runtime = StreamlitRuntimeOptions(
+        profile="development",
+        auth_mode="local-demo",
+        catalog_kind="recorded",
+        registry_kind="recorded",
+        publication_kind="fake",
+        execution_kind="recorded",
+        oidc_provider=None,
+        oidc_audience=None,
+        oidc_issuer=None,
+    )
+
+    with pytest.raises(BrowserAuthConfigurationError):
+        runtime.require_auth_configuration(_secrets())

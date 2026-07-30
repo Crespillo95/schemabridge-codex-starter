@@ -58,6 +58,21 @@ CREATE ROLE schemabridge_observer
   NOINHERIT
   PASSWORD 'schemabridge_observer';
 
+CREATE ROLE schemabridge_backup
+  LOGIN
+  NOSUPERUSER
+  NOCREATEDB
+  NOCREATEROLE
+  NOREPLICATION
+  NOBYPASSRLS
+  NOINHERIT
+  PASSWORD 'schemabridge_backup';
+
+ALTER ROLE schemabridge_backup
+  SET default_transaction_read_only = on;
+ALTER ROLE schemabridge_backup
+  SET statement_timeout = '15min';
+
 GRANT schemabridge_observer TO schemabridge_migrator
   WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
 
@@ -70,4 +85,5 @@ GRANT CONNECT ON DATABASE schemabridge_control
      schemabridge_api,
      schemabridge_worker,
      schemabridge_catalog,
-     schemabridge_observer;
+     schemabridge_observer,
+     schemabridge_backup;

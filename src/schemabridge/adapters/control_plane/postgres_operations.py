@@ -39,8 +39,42 @@ from schemabridge.domain.control_plane_operations import (
 
 _MAX_MANIFEST_BYTES = 65_536
 _MAX_BACKUP_SECONDS = 3_600
+_MAX_BACKUP_STATEMENT_TIMEOUT_MS = 900_000
 _SCHEMA = "schemabridge_control"
+_BACKUP_ROLE = "schemabridge_backup"
 _ALLOWED_DSN_OPTIONS = frozenset({"sslmode", "sslrootcert"})
+
+_BACKUP_POSTURE_QUERY = """
+SELECT
+    SESSION_USER::TEXT,
+    CURRENT_USER::TEXT,
+    current_database()::TEXT,
+    role.rolcanlogin,
+    role.rolsuper,
+    role.rolcreatedb,
+    role.rolcreaterole,
+    role.rolreplication,
+    role.rolbypassrls,
+    role.rolinherit,
+    NOT EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_auth_members AS membership
+        WHERE membership.member = role.oid
+          AND (
+              membership.inherit_option
+              OR membership.set_option
+          )
+    ),
+    current_setting('default_transaction_read_only')::BOOLEAN,
+    current_setting('transaction_read_only')::BOOLEAN,
+    (
+        SELECT setting::BIGINT
+        FROM pg_catalog.pg_settings
+        WHERE name = 'statement_timeout'
+    )
+FROM pg_catalog.pg_roles AS role
+WHERE role.rolname = CURRENT_USER
+"""
 
 
 class CommandRunner(Protocol):
@@ -79,10 +113,14 @@ class PostgresControlPlaneBackup:
         destination: Path,
     ) -> tuple[Path, Path, ControlPlaneBackupManifest]:
         directory = _secure_destination(destination)
-        inspection = PostgresControlPlaneMigrator(
-            self.dsn,
-            self.migrations_path,
-        ).require_current()
+        try:
+            inspection = PostgresControlPlaneMigrator(
+                self.dsn,
+                self.migrations_path,
+                application_name="schemabridge-control-backup",
+            ).require_current()
+        except ControlPlaneMigrationError as error:
+            raise ControlPlaneMigrationError(error.code, str(error)) from None
         if not inspection.applied:
             raise _operation_error(
                 ControlPlaneOperationErrorCode.BACKUP_FAILED,
@@ -101,6 +139,14 @@ class PostgresControlPlaneBackup:
                 application_name="schemabridge-control-backup",
             ) as connection:
                 connection.execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
+                _require_backup_posture(
+                    connection,
+                    expected_database=environment["PGDATABASE"],
+                    max_statement_timeout_ms=min(
+                        _MAX_BACKUP_STATEMENT_TIMEOUT_MS,
+                        self.timeout_seconds * 1_000,
+                    ),
+                )
                 snapshot_row = connection.execute("SELECT pg_export_snapshot()").fetchone()
                 if snapshot_row is None or not isinstance(snapshot_row[0], str):
                     raise _operation_error(
@@ -165,26 +211,26 @@ class PostgresControlPlaneBackup:
             _unlink_generated(archive)
             _unlink_generated(manifest_path)
             raise
-        except FileNotFoundError as error:
+        except FileNotFoundError:
             _unlink_generated(temporary_archive)
             raise _operation_error(
                 ControlPlaneOperationErrorCode.TOOL_UNAVAILABLE,
                 "control-plane backup tool is unavailable",
-            ) from error
+            ) from None
         except (
             ControlPlaneMigrationError,
             OSError,
             psycopg.Error,
             subprocess.SubprocessError,
             ValueError,
-        ) as error:
+        ):
             _unlink_generated(temporary_archive)
             _unlink_generated(archive)
             _unlink_generated(manifest_path)
             raise _operation_error(
                 ControlPlaneOperationErrorCode.BACKUP_FAILED,
                 "control-plane backup failed",
-            ) from error
+            ) from None
 
 
 @dataclass(frozen=True, slots=True)
@@ -354,6 +400,58 @@ def _schema_identity(connection: psycopg.Connection[Any]) -> tuple[int, str]:
     ):
         raise ValueError("control-plane schema identity is invalid")
     return row[0], row[1]
+
+
+def _require_backup_posture(
+    connection: psycopg.Connection[Any],
+    *,
+    expected_database: str,
+    max_statement_timeout_ms: int,
+) -> None:
+    row = connection.execute(_BACKUP_POSTURE_QUERY).fetchone()
+    if row is None or len(row) != 14:
+        raise _operation_error(
+            ControlPlaneOperationErrorCode.BACKUP_FAILED,
+            "control-plane backup identity posture is invalid",
+        )
+    (
+        session_user,
+        current_user,
+        current_database,
+        can_login,
+        is_superuser,
+        can_create_database,
+        can_create_role,
+        can_replicate,
+        can_bypass_rls,
+        inherits,
+        memberships_are_safe,
+        default_read_only,
+        transaction_read_only,
+        statement_timeout_ms,
+    ) = row
+    if (
+        session_user != _BACKUP_ROLE
+        or current_user != _BACKUP_ROLE
+        or current_database != expected_database
+        or can_login is not True
+        or is_superuser is not False
+        or can_create_database is not False
+        or can_create_role is not False
+        or can_replicate is not False
+        or can_bypass_rls is not False
+        or inherits is not False
+        or memberships_are_safe is not True
+        or default_read_only is not True
+        or transaction_read_only is not True
+        or isinstance(statement_timeout_ms, bool)
+        or not isinstance(statement_timeout_ms, int)
+        or not 1 <= statement_timeout_ms <= max_statement_timeout_ms
+    ):
+        raise _operation_error(
+            ControlPlaneOperationErrorCode.BACKUP_FAILED,
+            "control-plane backup identity posture is invalid",
+        )
 
 
 def _state_digest(
@@ -569,7 +667,7 @@ def _postgres_environment(dsn: str) -> tuple[dict[str, str], str]:
     if not database or "/" in database or not username:
         raise ValueError("control-plane database URL is invalid")
     environment = {
-        **os.environ,
+        "PATH": os.environ.get("PATH", os.defpath),
         "PGHOST": parsed.hostname,
         "PGPORT": str(port),
         "PGUSER": username,

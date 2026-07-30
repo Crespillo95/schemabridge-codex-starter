@@ -6,7 +6,11 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from schemabridge.application.m29_operations import M29OperationsState
-from schemabridge.entrypoints.streamlit import m29_operations, m29_operations_scenario
+from schemabridge.entrypoints.streamlit import (
+    m29_operations,
+    m29_operations_page,
+    m29_operations_scenario,
+)
 
 _APP_SOURCE = """
 from schemabridge.entrypoints.streamlit.m29_operations_scenario import (
@@ -14,6 +18,20 @@ from schemabridge.entrypoints.streamlit.m29_operations_scenario import (
 )
 
 render_m29_operations_scenario()
+"""
+_MANAGED_APP_SOURCE = """
+from schemabridge.entrypoints.streamlit.m29_operations_page import (
+    render_m29_operations_page,
+)
+
+render_m29_operations_page("production")
+"""
+_LOCAL_ROUTED_APP_SOURCE = """
+from schemabridge.entrypoints.streamlit.m29_operations_page import (
+    render_m29_operations_page,
+)
+
+render_m29_operations_page("development")
 """
 
 
@@ -98,6 +116,31 @@ def test_m29_panel_renders_every_state_without_runtime_exceptions(
     assert "operated production environment" in rendered
 
 
+def test_managed_operations_is_explicitly_unavailable_without_synthetic_health() -> None:
+    app = AppTest.from_string(_MANAGED_APP_SOURCE, default_timeout=10).run()
+
+    assert not app.exception
+    assert not app.selectbox
+    assert not app.metric
+    assert not app.success
+    rendered = _rendered_text(app)
+    assert "Operational status unavailable" in rendered
+    assert "not connected to an approved live operations data source" in rendered
+    assert (
+        "No workload, queue, secret, backup, release, or telemetry health is inferred" in rendered
+    )
+    assert "Healthy" not in rendered
+    assert "Deterministic local evidence" not in rendered
+
+
+def test_local_operations_router_preserves_the_showcase() -> None:
+    app = AppTest.from_string(_LOCAL_ROUTED_APP_SOURCE, default_timeout=10).run()
+
+    assert not app.exception
+    assert app.selectbox(key="m29-operations-state")
+    assert "Deterministic local evidence" in _rendered_text(app)
+
+
 def test_m29_panel_escapes_hostile_text_and_has_no_unsafe_html_surface() -> None:
     app = AppTest.from_string(_APP_SOURCE, default_timeout=10).run()
 
@@ -108,8 +151,9 @@ def test_m29_panel_escapes_hostile_text_and_has_no_unsafe_html_surface() -> None
     assert "<script" not in captions
 
     renderer_source = inspect.getsource(m29_operations)
+    page_source = inspect.getsource(m29_operations_page)
     scenario_source = inspect.getsource(m29_operations_scenario)
-    combined = renderer_source + scenario_source
+    combined = renderer_source + page_source + scenario_source
     for forbidden in (
         "unsafe_allow_html",
         "st.markdown",

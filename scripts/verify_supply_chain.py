@@ -37,6 +37,133 @@ RUNTIME_BASE_IMAGE = (
     "python:3.13.14-alpine3.24"
     "@sha256:399babc8b49529dabfd9c922f2b5eea81d611e4512e3ed250d75bd2e7683f4b0"
 )
+POSTGRES_CLIENT_APK_MATRIX = {
+    "amd64": (
+        (
+            "libpq",
+            "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/libpq-18.4-r0.apk",
+            "145d0d57ce40baaf2d7191e66dc18b8872822642939a0264fd4fc1c73d6599f1",
+        ),
+        (
+            "lz4",
+            "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/lz4-libs-1.10.0-r1.apk",
+            "3ad4912ab8ecf5f6236fdb751f88243006b3a8f152684e455b781e16284dd298",
+        ),
+        (
+            "postgresql_common",
+            "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/postgresql-common-1.3-r0.apk",
+            "749d8a88b56c84b415372655435600c749345113e21ce8fe9964f7e22345cbff",
+        ),
+        (
+            "postgresql_client",
+            "https://dl-cdn.alpinelinux.org/alpine/v3.24/community/x86_64/"
+            "postgresql16-client-16.14-r0.apk",
+            "21409f4ee297e6805a6688ba7fc91c20f66f972e79865db42b550348b20381d5",
+        ),
+        (
+            "zstd",
+            "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/zstd-libs-1.5.7-r2.apk",
+            "23c6065b0049b2406441564bcf0032515a43f78e80d76fcb85535a3803ef5d4e",
+        ),
+    ),
+    "arm64": (
+        (
+            "libpq",
+            "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/libpq-18.4-r0.apk",
+            "d6e4808216810535808523980a78608569be2318cf05e6034ffb03f519e91a56",
+        ),
+        (
+            "lz4",
+            "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/lz4-libs-1.10.0-r1.apk",
+            "af6cbe553adda941e04ac40cf0123455b714d65392472389113e7d6dcebbd8d8",
+        ),
+        (
+            "postgresql_common",
+            "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/postgresql-common-1.3-r0.apk",
+            "ecddbd6272f5034f30d78ff59634c07f862a13a2ad3d29078c0e7985b827fc73",
+        ),
+        (
+            "postgresql_client",
+            "https://dl-cdn.alpinelinux.org/alpine/v3.24/community/aarch64/"
+            "postgresql16-client-16.14-r0.apk",
+            "d1a0095b8a4a42bd46136bec4117a64fc1f5282a0c46a01ff5642ad14bada995",
+        ),
+        (
+            "zstd",
+            "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/zstd-libs-1.5.7-r2.apk",
+            "2bb5136c89f5b0bbe1554c8915a3b520d5aa63ae2a51d4d821eb81698db5a818",
+        ),
+    ),
+}
+RUNTIME_ALPINE_COMPONENTS = frozenset(
+    {
+        (".python-rundeps", "20260616.002547"),
+        ("alpine-baselayout", "3.7.2-r1"),
+        ("alpine-baselayout-data", "3.7.2-r1"),
+        ("alpine-keys", "2.6-r0"),
+        ("alpine-release", "3.24.1-r0"),
+        ("apk-tools", "3.0.6-r0"),
+        ("busybox", "1.37.0-r31"),
+        ("busybox-binsh", "1.37.0-r31"),
+        ("ca-certificates", "20260611-r0"),
+        ("ca-certificates-bundle", "20260611-r0"),
+        ("gdbm", "1.26-r0"),
+        ("libapk", "3.0.6-r0"),
+        ("libbz2", "1.0.8-r6"),
+        ("libcrypto3", "3.5.7-r0"),
+        ("libffi", "3.5.2-r1"),
+        ("libncursesw", "6.6_p20260516-r0"),
+        ("libpanelw", "6.6_p20260516-r0"),
+        ("libpq", "18.4-r0"),
+        ("libssl3", "3.5.7-r0"),
+        ("libuuid", "2.42-r0"),
+        ("lz4-libs", "1.10.0-r1"),
+        ("musl", "1.2.6-r2"),
+        ("musl-utils", "1.2.6-r2"),
+        ("ncurses-terminfo-base", "6.6_p20260516-r0"),
+        ("postgresql-common", "1.3-r0"),
+        ("postgresql16-client", "16.14-r0"),
+        ("readline", "8.3.3-r1"),
+        ("scanelf", "1.3.9-r1"),
+        ("sqlite-libs", "3.53.2-r0"),
+        ("ssl_client", "1.37.0-r31"),
+        ("tzdata", "2026b-r0"),
+        ("xz-libs", "5.8.3-r0"),
+        ("zlib", "1.3.2-r0"),
+        ("zstd-libs", "1.5.7-r2"),
+    }
+)
+POSTGRES_CLIENT_ALPINE_COMPONENTS = frozenset(
+    {
+        ("libpq", "18.4-r0"),
+        ("lz4-libs", "1.10.0-r1"),
+        ("postgresql-common", "1.3-r0"),
+        ("postgresql16-client", "16.14-r0"),
+        ("zstd-libs", "1.5.7-r2"),
+    }
+)
+RUNTIME_ALPINE_NOARCH_COMPONENTS = frozenset({(".python-rundeps", "20260616.002547")})
+RUNTIME_PYTHON_BASE_COMPONENTS = frozenset(
+    {
+        ("pip", "26.1.2"),
+        ("schemabridge", "0.1.0"),
+    }
+)
+_POSTGRES_CLIENT_COMPONENT_BY_VARIABLE = {
+    "libpq": ("libpq", "18.4-r0"),
+    "lz4": ("lz4-libs", "1.10.0-r1"),
+    "postgresql_common": ("postgresql-common", "1.3-r0"),
+    "postgresql_client": ("postgresql16-client", "16.14-r0"),
+    "zstd": ("zstd-libs", "1.5.7-r2"),
+}
+_APK_PURL = re.compile(
+    r"^pkg:apk/alpine/(?P<name>[^@?]+)@(?P<version>[^?]+)"
+    r"\?arch=(?P<architecture>aarch64|x86_64|noarch)&distro=3\.24\.1$"
+)
+_PYPI_PURL = re.compile(r"^pkg:pypi/(?P<name>[^@?]+)@(?P<version>[^?]+)$")
+_APK_ARCHITECTURE_TO_DOCKER = {"aarch64": "arm64", "x86_64": "amd64"}
+_APK_SOURCE_URL_PROPERTY = "schemabridge:apk-source-url"
+_APK_SOURCE_SHA256_PROPERTY = "schemabridge:apk-source-sha256"
 WATCHDOG_SOURCE_DATE_EPOCH = "1730470033"
 WATCHDOG_BUILD_REQUIREMENT = (
     "setuptools==83.0.0 \\\n"
@@ -60,55 +187,55 @@ _FROM = re.compile(r"^\s*FROM\s+([^\s]+)", re.IGNORECASE)
 _DIRECT_NAME = re.compile(r"^\s*([A-Za-z0-9_.-]+)")
 _ATTEST_ACTION = "actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373"
 _BUILD_PUSH_ACTION = "docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a"
-_LOGIN_ACTION = "docker/login-action@dbcb813823bdd20940b903addbd779551569679f"
 _SETUP_BUILDX_ACTION = "docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c"
 _TRIVY_ACTION = "aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1"
 _UPLOAD_ARTIFACT_ACTION = "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"
-_RELEASE_IMAGE_NAME_OUTPUT = "${{ steps.image_name.outputs.name }}"
-_RELEASE_IMAGE_REFERENCE = "${{ steps.image_name.outputs.name }}@${{ steps.build.outputs.digest }}"
-_RELEASE_IMAGE_TAG = "${{ steps.image_name.outputs.name }}:${{ github.sha }}"
-_RELEASE_MANIFEST_DIGEST = "${{ steps.build.outputs.digest }}"
-_RELEASE_IMAGE_NAME_SCRIPT = (
-    "set -euo pipefail\n"
-    'if [[ ! "$REPOSITORY_SLUG" =~ '
-    "^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then\n"
-    "  exit 1\n"
-    "fi\n"
-    'image_name="ghcr.io/${REPOSITORY_SLUG,,}"\n'
-    'printf \'name=%s\\n\' "$image_name" >> "$GITHUB_OUTPUT"\n'
-)
-_RELEASE_APPROVAL_SCRIPT = (
-    "set -euo pipefail\n"
-    'if [[ ! "$RELEASE_APPROVAL_SENTINEL" =~ ^[A-Za-z0-9._-]{32,128}$ ]]; then\n'
-    "  exit 1\n"
-    "fi\n"
-)
-_RELEASE_APPROVAL_STEP = {
-    "name": "Require the protected release approval sentinel",
-    "shell": "bash",
-    "env": {"RELEASE_APPROVAL_SENTINEL": ("${{ secrets.SCHEMABRIDGE_RELEASE_APPROVAL_SENTINEL }}")},
-    "run": _RELEASE_APPROVAL_SCRIPT,
+_RELEASE_WORKFLOW_SHA256 = "9979c54be6ba39d1d7b606e6d882aa10e9868bb9d003482b30a780ee104d1f26"
+_RELEASE_TRIGGER = {
+    "workflow_dispatch": {
+        "inputs": {
+            "release_tag": {
+                "description": "Existing annotated canonical SemVer tag to promote",
+                "required": "true",
+                "type": "string",
+            }
+        }
+    }
 }
-_RELEASE_AUDIT_COMMAND = re.compile(
-    r"(?m)^\s*\.venv/bin/python scripts/release_audit\.py --require-release\s*$"
-)
-_RELEASE_JOB_PERMISSIONS = {
+_RELEASE_ATTEST_PERMISSIONS = {
+    "actions": "read",
+    "attestations": "write",
     "contents": "read",
     "id-token": "write",
-    "attestations": "write",
     "packages": "write",
 }
-_RELEASE_EVIDENCE_PATHS = frozenset(
-    {
-        ".local/supply-chain/wheel.cdx.json",
-        ".local/supply-chain/runtime-image.cdx.json",
-        ".local/supply-chain/provenance.intoto.json",
-    }
-)
-_FORBIDDEN_RELEASE_DOCKER_COMMAND = re.compile(
-    r"\bdocker\s+(?:build|push|inspect|image\s+inspect)\b",
-    re.IGNORECASE,
-)
+_RELEASE_CANDIDATE_PERMISSIONS = {
+    "actions": "read",
+    "contents": "read",
+    "packages": "write",
+}
+_RELEASE_CONTENT_PERMISSIONS = {
+    "actions": "read",
+    "attestations": "read",
+    "contents": "write",
+    "packages": "read",
+}
+_RELEASE_PREPARE_PERMISSIONS = {
+    "actions": "read",
+    "contents": "read",
+    "packages": "read",
+}
+_RELEASE_AUDIT_PERMISSIONS = {
+    "attestations": "read",
+    "contents": "read",
+    "packages": "read",
+}
+_RELEASE_WRITE_PERMISSIONS_BY_JOB = {
+    "attest": _RELEASE_ATTEST_PERMISSIONS,
+    "candidate": _RELEASE_CANDIDATE_PERMISSIONS,
+    "promote": _RELEASE_CANDIDATE_PERMISSIONS,
+    "release": _RELEASE_CONTENT_PERMISSIONS,
+}
 _CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 _RELEASE_WORKFLOW_PATH = ".github/workflows/release-evidence.yml"
 _CI_TIMEOUT_JOBS = frozenset({"quality", "postgres-integration", "supply-chain"})
@@ -461,8 +588,6 @@ def _workflow_job_permission_findings(
 ) -> tuple[Finding, ...]:
     relative = str(path.relative_to(root))
     findings: list[Finding] = []
-    triggers = document.value.get("on")
-    release_only = isinstance(triggers, dict) and set(triggers) == {"release"}
     jobs = document.value.get("jobs")
     if not isinstance(jobs, dict):
         return (Finding("workflow_jobs_invalid", relative, "jobs must be a mapping"),)
@@ -494,16 +619,22 @@ def _workflow_job_permission_findings(
             continue
         environment = raw_job.get("environment")
         environment_name = environment.get("name") if isinstance(environment, dict) else environment
+        expected_permissions = (
+            _RELEASE_WRITE_PERMISSIONS_BY_JOB.get(job_name)
+            if relative == _RELEASE_WORKFLOW_PATH
+            else None
+        )
         if (
-            not release_only
+            expected_permissions is None
+            or document.value.get("on") != _RELEASE_TRIGGER
             or environment_name != "production-release"
-            or not write_scopes <= {"attestations", "id-token", "packages"}
+            or raw_permissions != expected_permissions
         ):
             findings.append(
                 Finding(
                     "release_permission_unprotected",
                     f"{relative}:{job_name}",
-                    "write permissions require one release-only protected job",
+                    "write scopes are reserved for exact protected release-evidence jobs",
                 )
             )
     return tuple(findings)
@@ -587,12 +718,7 @@ def _supply_chain_artifact_upload_findings(
         expected_name = "supply-chain-evidence-${{ github.sha }}"
         expected_retention = "14"
         require_always = True
-    elif relative == _RELEASE_WORKFLOW_PATH:
-        expected_job = "attest"
-        expected_name = "release-supply-chain-evidence-${{ github.sha }}"
-        expected_retention = "35"
-        require_always = False
-    else:
+    elif relative != _RELEASE_WORKFLOW_PATH:
         return ()
 
     jobs = document.value.get("jobs")
@@ -610,6 +736,60 @@ def _supply_chain_artifact_upload_findings(
                 action = raw_step.get("uses")
                 if isinstance(action, str) and action.startswith("actions/upload-artifact@"):
                     upload_steps.append((job_name, step_index, raw_step))
+
+    if relative == _RELEASE_WORKFLOW_PATH:
+        expected_release_uploads = {
+            "prepare": (
+                "prepared-release-${{ github.run_id }}-${{ github.run_attempt }}",
+                ".local/prepared-release/",
+            ),
+            "scan": (
+                "release-payload-${{ github.run_id }}-${{ github.run_attempt }}",
+                ".local/release-payload/",
+            ),
+        }
+        if len(upload_steps) != len(expected_release_uploads):
+            return (
+                Finding(
+                    "supply_chain_artifact_upload_invalid",
+                    relative,
+                    "release requires exactly the prepared and canonical payload uploads",
+                ),
+            )
+        findings: list[Finding] = []
+        for job_name, step_index, raw_step in upload_steps:
+            expected = expected_release_uploads.get(job_name)
+            inputs = raw_step.get("with")
+            if (
+                expected is None
+                or raw_step.get("uses") != _UPLOAD_ARTIFACT_ACTION
+                or "if" in raw_step
+                or raw_step.get("continue-on-error") not in {None, "false"}
+                or not isinstance(inputs, dict)
+                or set(inputs)
+                != {
+                    "name",
+                    "path",
+                    "if-no-files-found",
+                    "include-hidden-files",
+                    "retention-days",
+                    "compression-level",
+                }
+                or inputs.get("name") != expected[0]
+                or _artifact_upload_paths(inputs.get("path")) != (expected[1],)
+                or inputs.get("if-no-files-found") != "error"
+                or inputs.get("include-hidden-files") != "true"
+                or inputs.get("retention-days") != "35"
+                or inputs.get("compression-level") != "0"
+            ):
+                findings.append(
+                    Finding(
+                        "supply_chain_artifact_upload_invalid",
+                        f"{relative}:{job_name}:step-{step_index}",
+                        "release upload must match its exact semantic-stage allowlist",
+                    )
+                )
+        return tuple(findings)
 
     if len(upload_steps) != 1:
         return (
@@ -629,6 +809,8 @@ def _supply_chain_artifact_upload_findings(
         "include-hidden-files",
         "retention-days",
     }
+    expected_paths = _SUPPLY_CHAIN_ARTIFACT_PATHS
+    expected_compression: object | None = None
     condition_valid = raw_step.get("if") == "always()" if require_always else "if" not in raw_step
     upload_valid = (
         job_name == expected_job
@@ -638,10 +820,11 @@ def _supply_chain_artifact_upload_findings(
         and isinstance(inputs, dict)
         and set(inputs) == expected_input_keys
         and inputs.get("name") == expected_name
-        and _artifact_upload_paths(inputs.get("path")) == _SUPPLY_CHAIN_ARTIFACT_PATHS
+        and _artifact_upload_paths(inputs.get("path")) == expected_paths
         and inputs.get("if-no-files-found") == "error"
         and inputs.get("include-hidden-files") == "true"
         and inputs.get("retention-days") == expected_retention
+        and inputs.get("compression-level") == expected_compression
     )
     if upload_valid:
         return ()
@@ -731,7 +914,7 @@ def _pip_audit_resolution_findings(
     expected_job = (
         "supply-chain"
         if relative == _CI_WORKFLOW_PATH
-        else "attest"
+        else "prepare"
         if relative == _RELEASE_WORKFLOW_PATH
         else None
     )
@@ -794,325 +977,1189 @@ def _ci_buildkit_findings(
     )
 
 
-def _unconditional_action_inputs(
-    raw_step: object,
-    action: str,
-) -> Mapping[str, object] | None:
-    if (
-        not isinstance(raw_step, dict)
-        or raw_step.get("uses") != action
-        or "if" in raw_step
-        or raw_step.get("continue-on-error") not in {None, "false"}
-    ):
-        return None
-    inputs = raw_step.get("with")
-    return inputs if isinstance(inputs, dict) else {}
-
-
-def _release_command_has_image_binding(
-    steps: Sequence[object],
-    command: str,
-) -> bool:
-    pattern = re.compile(r"scripts/verify_supply_chain\.py\s+([a-z-]+)")
-    for raw_step in steps:
-        if not isinstance(raw_step, dict):
-            continue
-        script = raw_step.get("run")
-        environment = raw_step.get("env")
-        if (
-            not isinstance(script, str)
-            or not isinstance(environment, dict)
-            or environment.get("IMAGE_NAME") != _RELEASE_IMAGE_NAME_OUTPUT
-        ):
-            continue
-        matches = tuple(pattern.finditer(script))
-        for index, match in enumerate(matches):
-            if match.group(1) != command:
-                continue
-            end = matches[index + 1].start() if index + 1 < len(matches) else len(script)
-            command_text = script[match.start() : end]
-            if (
-                '--image-name "$IMAGE_NAME"' in command_text
-                and f'--image-digest "{_RELEASE_MANIFEST_DIGEST}"' in command_text
-            ):
-                return True
-    return False
-
-
 def _release_attestation_findings(
     path: Path,
     document: _YamlDocument,
     root: Path,
 ) -> tuple[Finding, ...]:
+    """Validate the reviewed staged release transaction independently of its file digest."""
+
     relative = str(path.relative_to(root))
     if relative != _RELEASE_WORKFLOW_PATH:
         return ()
+
     findings: list[Finding] = []
+    workflow_digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    if workflow_digest != _RELEASE_WORKFLOW_SHA256:
+        findings.append(
+            Finding(
+                "release_workflow_not_exact",
+                relative,
+                "release jobs, steps, scripts, actions, comments, and shell opcodes must match "
+                "the reviewed fail-closed program exactly",
+            )
+        )
+
     jobs = document.value.get("jobs")
-    attest = jobs.get("attest") if isinstance(jobs, dict) else None
+    concurrency = document.value.get("concurrency")
     if (
-        document.value.get("on") != {"release": {"types": ["published"]}}
-        or not isinstance(attest, dict)
-        or attest.get("environment") != "production-release"
-        or "if" in attest
-    ):
-        findings.append(
-            Finding(
-                "release_attestation_missing",
-                relative,
-                "protected published-release attest job is absent or unsafe",
-            )
-        )
-    if not isinstance(attest, dict):
-        return tuple(findings)
-
-    if not _valid_job_timeout(attest.get("timeout-minutes")):
-        findings.append(
-            Finding(
-                "release_attest_timeout_invalid",
-                f"{relative}:attest",
-                "the protected release attest job needs a timeout of 1 to 180 minutes",
-            )
-        )
-
-    permissions = attest.get("permissions")
-    if permissions != _RELEASE_JOB_PERMISSIONS:
-        findings.append(
-            Finding(
-                "release_attestation_missing",
-                relative,
-                "the release job permissions are not the exact reviewed set",
-            )
-        )
-    if not isinstance(permissions, dict) or permissions.get("packages") != "write":
-        findings.append(
-            Finding(
-                "release_registry_permission_missing",
-                relative,
-                "GHCR publication requires packages: write on the protected release job",
-            )
-        )
-
-    steps_value = attest.get("steps")
-    if not isinstance(steps_value, list):
-        findings.append(
-            Finding(
-                "release_attestation_missing",
-                relative,
-                "the protected release job has no structural steps list",
-            )
-        )
-        return tuple(findings)
-    steps = tuple(steps_value)
-    if not steps or steps[0] != _RELEASE_APPROVAL_STEP:
-        findings.append(
-            Finding(
-                "release_approval_sentinel_missing",
-                relative,
-                "the protected environment sentinel must be the exact first release step",
-            )
-        )
-    scripts = tuple(
-        step["run"] for step in steps if isinstance(step, dict) and isinstance(step.get("run"), str)
-    )
-    release_audit_steps = tuple(
-        index
-        for index, raw_step in enumerate(steps)
-        if isinstance(raw_step, dict)
-        and isinstance(raw_step.get("run"), str)
-        and _RELEASE_AUDIT_COMMAND.search(raw_step["run"]) is not None
-    )
-    if len(release_audit_steps) != 1:
-        findings.append(
-            Finding(
-                "release_clean_audit_missing",
-                relative,
-                "one exact clean-revision release audit is required before publication",
-            )
-        )
-    image_name_steps = tuple(
-        index
-        for index, raw_step in enumerate(steps)
-        if isinstance(raw_step, dict)
-        and raw_step
-        == {
-            "name": "Resolve the lowercase GHCR image name",
-            "id": "image_name",
-            "shell": "bash",
-            "env": {"REPOSITORY_SLUG": "${{ github.repository }}"},
-            "run": _RELEASE_IMAGE_NAME_SCRIPT,
+        document.value.get("on") != _RELEASE_TRIGGER
+        or concurrency
+        != {
+            "group": "schemabridge-global-release-publication",
+            "queue": "max",
+            "cancel-in-progress": "false",
         }
-    )
-    if len(image_name_steps) != 1:
-        findings.append(
-            Finding(
-                "release_image_name_invalid",
-                relative,
-                "the release subject must be a validated lowercase ghcr.io repository output",
-            )
-        )
-    if any(_FORBIDDEN_RELEASE_DOCKER_COMMAND.search(script) for script in scripts):
-        findings.append(
-            Finding(
-                "release_local_image_digest_forbidden",
-                relative,
-                "release image build, push, and digest capture must use the reviewed action output",
-            )
-        )
-
-    login_step_indexes = tuple(
-        index
-        for index, raw_step in enumerate(steps)
-        if (inputs := _unconditional_action_inputs(raw_step, _LOGIN_ACTION)) is not None
-        and inputs.get("registry") == "ghcr.io"
-        and inputs.get("username") == "${{ github.actor }}"
-        and inputs.get("password") == "${{ secrets.GITHUB_TOKEN }}"
-        and set(inputs) == {"registry", "username", "password"}
-    )
-    if len(login_step_indexes) != 1:
-        findings.append(
-            Finding(
-                "release_registry_login_missing",
-                relative,
-                "the protected job must authenticate to ghcr.io with its scoped GitHub token",
-            )
-        )
-
-    buildx_present = any(
-        _unconditional_action_inputs(raw_step, _SETUP_BUILDX_ACTION) is not None
-        for raw_step in steps
-    )
-    build_push_present = False
-    build_step_indexes: list[int] = []
-    for index, raw_step in enumerate(steps):
-        inputs = _unconditional_action_inputs(raw_step, _BUILD_PUSH_ACTION)
-        if inputs is None or not isinstance(raw_step, dict):
-            continue
-        build_args = inputs.get("build-args")
-        build_push_present |= (
-            raw_step.get("id") == "build"
-            and inputs.get("context") == "."
-            and inputs.get("file") == "Dockerfile.runtime"
-            and isinstance(build_args, str)
-            and {line.strip() for line in build_args.splitlines() if line.strip()}
-            == {"SCHEMABRIDGE_RELEASE_REF=${{ github.sha }}"}
-            and inputs.get("platforms") == "linux/amd64"
-            and inputs.get("pull") == "true"
-            and inputs.get("push") == "true"
-            and inputs.get("provenance") == "false"
-            and inputs.get("sbom") == "false"
-            and inputs.get("tags") == _RELEASE_IMAGE_TAG
-        )
-        if build_push_present:
-            build_step_indexes.append(index)
-    if (
-        len(image_name_steps) != 1
-        or len(build_step_indexes) != 1
-        or image_name_steps[0] >= build_step_indexes[0]
-    ):
-        build_push_present = False
-    if (
-        len(release_audit_steps) != 1
-        or len(login_step_indexes) != 1
-        or len(build_step_indexes) != 1
-        or release_audit_steps[0] >= login_step_indexes[0]
-        or release_audit_steps[0] >= build_step_indexes[0]
+        or not isinstance(jobs, dict)
+        or set(jobs) != {"audit", "prepare", "candidate", "scan", "attest", "promote", "release"}
     ):
         findings.append(
             Finding(
-                "release_clean_audit_missing",
+                "release_topology_invalid",
                 relative,
-                "the exact clean-revision audit must precede registry login and image build",
+                "release requires the exact seven-stage graph under one global concurrency group",
             )
         )
-    if not buildx_present or not build_push_present:
-        findings.append(
-            Finding(
-                "release_build_push_missing",
-                relative,
-                "one reviewed Buildx action must build and push the exact release tag",
-            )
-        )
+        return tuple(findings)
 
-    remote_sbom_present = False
-    remote_vulnerability_scan_present = False
-    for raw_step in steps:
-        inputs = _unconditional_action_inputs(raw_step, _TRIVY_ACTION)
-        if inputs is None or inputs.get("image-ref") != _RELEASE_IMAGE_REFERENCE:
+    expected_jobs: Mapping[str, tuple[Mapping[str, str], object, bool]] = {
+        "audit": (_RELEASE_AUDIT_PERMISSIONS, None, True),
+        "prepare": (_RELEASE_PREPARE_PERMISSIONS, "audit", False),
+        "candidate": (_RELEASE_CANDIDATE_PERMISSIONS, "prepare", True),
+        "scan": (_RELEASE_PREPARE_PERMISSIONS, ["prepare", "candidate"], False),
+        "attest": (_RELEASE_ATTEST_PERMISSIONS, "scan", True),
+        "promote": (_RELEASE_CANDIDATE_PERMISSIONS, ["scan", "attest"], True),
+        "release": (
+            _RELEASE_CONTENT_PERMISSIONS,
+            ["scan", "attest", "promote"],
+            True,
+        ),
+    }
+    for job_name, (expected_permissions, expected_needs, protected) in expected_jobs.items():
+        job = jobs.get(job_name)
+        if not isinstance(job, dict):
+            findings.append(
+                Finding(
+                    "release_topology_invalid",
+                    f"{relative}:{job_name}",
+                    "release job must be a structural mapping",
+                )
+            )
             continue
-        remote_sbom_present |= (
-            inputs.get("scan-type") == "image"
-            and inputs.get("format") == "cyclonedx"
-            and inputs.get("output") == ".local/supply-chain/runtime-image.cdx.json"
+        observed_needs = job.get("needs")
+        needs_valid = (
+            "needs" not in job if expected_needs is None else observed_needs == expected_needs
         )
-        remote_vulnerability_scan_present |= (
-            inputs.get("scan-type") == "image"
-            and inputs.get("scanners") == "vuln"
-            and inputs.get("format") == "json"
-            and inputs.get("output") == ".local/supply-chain/trivy-image.json"
-            and inputs.get("severity") == "HIGH,CRITICAL"
-            and inputs.get("ignore-unfixed") == "false"
-            and inputs.get("list-all-pkgs") == "true"
-            and inputs.get("exit-code") == "0"
+        environment_valid = (
+            job.get("environment") == "production-release"
+            if protected
+            else "environment" not in job
         )
-    if not remote_sbom_present or not remote_vulnerability_scan_present:
-        findings.append(
-            Finding(
-                "release_remote_scan_missing",
-                relative,
-                "SBOM and vulnerability scans must read the pushed image by manifest digest",
+        if (
+            job.get("permissions") != expected_permissions
+            or not needs_valid
+            or not environment_valid
+            or job.get("runs-on") != "ubuntu-24.04"
+            or (
+                job.get("if") != "needs.audit.outputs.published-noop != 'true'"
+                if job_name == "prepare"
+                else "if" in job
             )
-        )
-
-    required_commands = ("generate-evidence", "vulnerabilities", "verify-evidence")
-    if not all(_release_command_has_image_binding(steps, command) for command in required_commands):
-        findings.append(
-            Finding(
-                "release_manifest_digest_binding_missing",
-                relative,
-                "all evidence commands must bind the Buildx manifest digest and tag-free name",
+            or not _valid_job_timeout(job.get("timeout-minutes"))
+        ):
+            findings.append(
+                Finding(
+                    "release_authority_boundary_invalid",
+                    f"{relative}:{job_name}",
+                    "job dependency, environment, timeout, and least-privilege scope are exact",
+                )
             )
-        )
 
-    wheel_attested = False
-    evidence_attested = False
-    registry_image_attested = False
-    for raw_step in steps:
-        inputs = _unconditional_action_inputs(raw_step, _ATTEST_ACTION)
-        if inputs is None:
+    def step_identity(raw_step: object) -> tuple[str, str] | None:
+        if not isinstance(raw_step, dict):
+            return None
+        action = raw_step.get("uses")
+        if isinstance(action, str):
+            return ("uses", action)
+        name = raw_step.get("name")
+        script = raw_step.get("run")
+        if isinstance(name, str) and isinstance(script, str):
+            return ("run", name)
+        return None
+
+    expected_steps: Mapping[str, tuple[tuple[str, str], ...]] = {
+        "audit": (("run", "Verify authoritative clean external state before any build"),),
+        "prepare": (
+            ("uses", "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"),
+            ("run", "Verify canonical release source and protected policies"),
+            ("uses", "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065"),
+            ("uses", "astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e"),
+            ("uses", _SETUP_BUILDX_ACTION),
+            ("run", "Install and verify frozen inputs"),
+            ("run", "Build the wheel once"),
+            ("uses", _BUILD_PUSH_ACTION),
+            ("run", "Record the unpublished local config digest"),
+            ("uses", _TRIVY_ACTION),
+            ("uses", _TRIVY_ACTION),
+            ("run", "Audit exact Python runtime dependencies"),
+            ("run", "Normalize deterministic prepublication reports"),
+            ("run", "Block publication unless the local candidate passes every evidence gate"),
+            ("run", "Seal the semantic prepared release payload"),
+            ("uses", _UPLOAD_ARTIFACT_ACTION),
+        ),
+        "candidate": (
+            (
+                "run",
+                "Verify prepared artifact and release boundary before first package mutation",
+            ),
+            ("run", "Validate protected environment sentinel before first mutation"),
+            ("run", "Resolve the canonical GHCR image name"),
+            ("run", "Publish the new stable semantic candidate"),
+        ),
+        "scan": (
+            (
+                "run",
+                "Verify exact prepared payload and candidate before read-only evidence generation",
+            ),
+            ("run", "Authenticate the read-only registry pull used by Trivy"),
+            ("uses", _TRIVY_ACTION),
+            ("uses", _TRIVY_ACTION),
+            (
+                "run",
+                "Capture the exact temporal scanner and vulnerability database identity",
+            ),
+            ("run", "Remove the read-only registry credential after scanning"),
+            ("run", "Derive canonical public evidence using runner tools"),
+            ("uses", _UPLOAD_ARTIFACT_ACTION),
+        ),
+        "attest": (
+            (
+                "run",
+                "Verify canonical payload and release boundary before first attestation mutation",
+            ),
+            ("run", "Validate protected environment sentinel before first mutation"),
+            ("uses", _ATTEST_ACTION),
+            ("uses", _ATTEST_ACTION),
+            ("uses", _ATTEST_ACTION),
+            ("run", "Verify exact hosted attestations and unchanged source"),
+        ),
+        "promote": (
+            (
+                "run",
+                "Verify canonical payload and release boundary before first promotion mutation",
+            ),
+            ("run", "Validate protected environment sentinel before first mutation"),
+            ("run", "Promote or verify the exact candidate manifest"),
+        ),
+        "release": (
+            (
+                "run",
+                "Verify canonical payload and every boundary before first content mutation",
+            ),
+            ("run", "Validate protected environment sentinel before first mutation"),
+            ("run", "Create, resume, or publish the canonical release as the final operation"),
+        ),
+    }
+    steps_by_job: dict[str, list[object]] = {}
+    for job_name, expected in expected_steps.items():
+        job = jobs.get(job_name)
+        raw_steps = job.get("steps") if isinstance(job, dict) else None
+        if not isinstance(raw_steps, list):
+            findings.append(
+                Finding(
+                    "release_step_program_invalid",
+                    f"{relative}:{job_name}",
+                    "the reviewed job requires a structural steps list",
+                )
+            )
             continue
-        subject_path = inputs.get("subject-path")
-        if isinstance(subject_path, str):
-            paths = {line.strip() for line in subject_path.splitlines() if line.strip()}
-            wheel_attested |= paths == {".local/supply-chain/dist/*.whl"}
-            evidence_attested |= paths >= _RELEASE_EVIDENCE_PATHS
-        registry_image_attested |= (
-            inputs.get("subject-name") == _RELEASE_IMAGE_NAME_OUTPUT
-            and inputs.get("subject-digest") == _RELEASE_MANIFEST_DIGEST
-            and inputs.get("push-to-registry") == "true"
-        )
-    missing_file_attestations = tuple(
-        name
-        for name, present in (
-            ("wheel", wheel_attested),
-            ("sbom-and-provenance", evidence_attested),
-        )
-        if not present
+        steps_by_job[job_name] = raw_steps
+        if tuple(map(step_identity, raw_steps)) != expected or any(
+            not isinstance(step, dict)
+            or (
+                step.get("if") != "always()"
+                if job_name == "scan"
+                and isinstance(step, dict)
+                and step.get("name") == "Remove the read-only registry credential after scanning"
+                else "if" in step
+            )
+            or step.get("continue-on-error") not in {None, "false"}
+            for step in raw_steps
+        ):
+            findings.append(
+                Finding(
+                    "release_step_program_invalid",
+                    f"{relative}:{job_name}",
+                    "extra, missing, reordered, conditional, or substituted steps are forbidden",
+                )
+            )
+
+    privileged_jobs = ("candidate", "attest", "promote", "release")
+    audit = jobs.get("audit")
+    audit_outputs = audit.get("outputs") if isinstance(audit, dict) else None
+    audit_steps = steps_by_job.get("audit", [])
+    audit_step = audit_steps[0] if audit_steps else None
+    audit_script = (
+        audit_step.get("run")
+        if isinstance(audit_step, dict) and isinstance(audit_step.get("run"), str)
+        else ""
     )
-    if missing_file_attestations:
+    audit_environment = audit_step.get("env") if isinstance(audit_step, dict) else None
+    published_audit = (
+        audit_script.split("verify_exact_published_release() {\n", maxsplit=1)[1].split(
+            "\n}\n",
+            maxsplit=1,
+        )[0]
+        if "verify_exact_published_release() {\n" in audit_script
+        else ""
+    )
+    audit_mutations = (
+        "gh release create",
+        "gh release upload",
+        "gh release edit",
+        "docker push",
+        "--request PUT",
+        "--method POST",
+        "--method PATCH",
+        "--method DELETE",
+        "--method PUT",
+    )
+    if (
+        audit_outputs != {"published-noop": "${{ steps.preflight.outputs.published-noop }}"}
+        or not isinstance(audit_step, dict)
+        or audit_step.get("id") != "preflight"
+        or not isinstance(audit_environment, dict)
+        or audit_environment.get("RELEASE_AUDIT_TOKEN")
+        != "${{ secrets.SCHEMABRIDGE_RELEASE_AUDIT_TOKEN }}"
+        or audit_environment.get("GH_TOKEN") != "${{ secrets.GITHUB_TOKEN }}"
+        or "verify_exact_published_release" not in audit_script
+        or "published-noop=true" not in audit_script
+        or "published-noop=false" not in audit_script
+        or 'test "$(jq -r \'.permissions.push == true\' <<<"$repository")" = "true"'
+        not in audit_script
+        or '"repos/$GITHUB_REPOSITORY/branches/main"' not in audit_script
+        or 'test "$(jq -r \'.protected\' <<<"$branch_payload")" = "true"' not in audit_script
+        or 'if [[ "$release_count" = "1" ]]; then' not in audit_script
+        or "canonical_stable_semver" not in audit_script
+        or "semver_greater" not in audit_script
+        or "a newer stable release already exists" not in audit_script
+        or "a newer stable registry tag already exists" not in audit_script
+        or "[.[] | select(.draft == true)] | length == 0" not in audit_script
+        or "/tags/list?n=100" not in audit_script
+        or "ambiguous registry pagination" not in audit_script
+        or "unsafe registry next link" not in audit_script
+        or 'test "$registry_page" -le 1000' not in audit_script
+        or 'test "$registry_page" = "1"' not in audit_script
+        or '.errors | length > 0 and all(.code == "NAME_UNKNOWN")' not in audit_script
+        or audit_script.find("published-noop=true")
+        > audit_script.find("canonical_stable_semver() {")
+        or 'test "$(jq -r \'.target_commitish\' <<<"$release")" = "$SOURCE_REVISION"'
+        not in published_audit
+        or 'test "$(jq -r \'.draft\' <<<"$release")" = "false"' not in published_audit
+        or 'test "$(jq -r \'.immutable\' <<<"$release")" = "true"' not in published_audit
+        or "([.[].name] | unique | length) == 10" not in published_audit
+        or 'if [[ "$code" = "404" ]]' not in audit_script
+        or "gh attestation verify" not in published_audit
+        or "--bundle-from-oci" not in published_audit
+        or "release-assets.sha256" not in published_audit
+        or "declare -A checksum_names=()" not in published_audit
+        or 'test "${#checksum_names[@]}" = "9"' not in published_audit
+        or "maximum_size=4096" not in published_audit
+        or "maximum_size=65536" not in published_audit
+        or published_audit.find("gh attestation verify") < 0
+        or published_audit.find("sha256sum --strict --check release-assets.sha256")
+        < published_audit.find("gh attestation verify")
+        or published_audit.find('metadata="$asset_directory/release-metadata.json"')
+        < published_audit.find("sha256sum --strict --check release-assets.sha256")
+        or "releases/latest" in published_audit
+        or "reject_newer_stable_release" in published_audit
+        or "git/ref/heads/main" in published_audit
+        or any(token in audit_script for token in audit_mutations)
+    ):
         findings.append(
             Finding(
-                "release_attestation_missing",
-                relative,
-                ",".join(missing_file_attestations),
+                "release_audit_preflight_invalid",
+                f"{relative}:audit",
+                "the protected GET-only audit must fail before build on dirty state and "
+                "accept only an exact attested immutable published no-op",
             )
         )
-    if not registry_image_attested:
+    boundary_tokens = (
+        "actions/artifacts/$ARTIFACT_ID",
+        "actions/artifacts/$ARTIFACT_ID/zip",
+        ".size_in_bytes",
+        'test "$(jq -r \'.digest\' <<<"$artifact_payload")" = "sha256:$ARTIFACT_DIGEST"',
+        'test "$(sha256sum "$archive_path" | cut -d\' \' -f1)" = "$ARTIFACT_DIGEST"',
+        "zipfile.ZipFile",
+        "PurePosixPath",
+        "entry.flag_bits & 0x1",
+        "entry.external_attr",
+        "payload.testzip()",
+        "ZIP uncompressed-size limit exceeded",
+        "test ! -e",
+        "sha256sum --strict --check SHA256SUMS",
+        'test "$(remote_tag_commit)" = "$SOURCE_REVISION"',
+        "verify_default_head",
+        "verify_authoritative_release_controls",
+        "rulesets?includes_parents=true&targets=tag",
+        "rulesets/$ruleset_id?includes_parents=true",
+        'has("bypass_actors")',
+        'include == ["refs/tags/v*"]',
+        '== ["deletion", "non_fast_forward", "update"]',
+        "immutable-releases",
+        ".enabled == true",
+    )
+    for job_name, steps in steps_by_job.items():
+        for step_index, step in enumerate(steps, start=1):
+            if not isinstance(step, dict) or not isinstance(step.get("run"), str):
+                continue
+            script = step["run"]
+            if (
+                step.get("shell") != "bash"
+                or not script.startswith("set -euo pipefail\n")
+                or re.search(r"(?m)^\s*set\s+\+e(?:\s|$)", script)
+                or re.search(r"\|\|\s*true(?:\s|$)", script)
+            ):
+                findings.append(
+                    Finding(
+                        "release_strict_shell_invalid",
+                        f"{relative}:{job_name}:step-{step_index}",
+                        "every inline program must be strict Bash without error-suppression bypasses",
+                    )
+                )
+    for job_name in privileged_jobs:
+        steps = steps_by_job.get(job_name, [])
+        first = steps[0] if steps else None
+        script = first.get("run") if isinstance(first, dict) else None
+        environment = first.get("env") if isinstance(first, dict) else None
+        action_values = {
+            step.get("uses")
+            for step in steps
+            if isinstance(step, dict) and isinstance(step.get("uses"), str)
+        }
+        if (
+            not isinstance(script, str)
+            or any(token not in script for token in boundary_tokens)
+            or script.count("verify_default_head") < 2
+            or script.count("verify_authoritative_release_controls") < 2
+            or not isinstance(environment, dict)
+            or environment.get("RELEASE_AUDIT_TOKEN")
+            != "${{ secrets.SCHEMABRIDGE_RELEASE_AUDIT_TOKEN }}"
+            or any(
+                isinstance(action, str)
+                and (
+                    action.startswith("actions/checkout@")
+                    or action.startswith("actions/setup-python@")
+                    or action.startswith("astral-sh/setup-uv@")
+                    or action.startswith("./")
+                )
+                for action in action_values
+            )
+        ):
+            findings.append(
+                Finding(
+                    "release_boundary_verification_invalid",
+                    f"{relative}:{job_name}",
+                    "write jobs must validate ZIP content, source HEAD, rulesets, and immutable "
+                    "releases before their first mutation",
+                )
+            )
+        combined = "\n".join(
+            step["run"]
+            for step in steps
+            if isinstance(step, dict) and isinstance(step.get("run"), str)
+        )
+        if re.search(
+            r"(?m)(?:^|[;&|]\s*)(?:make|\.venv/|scripts/)\b",
+            combined,
+        ) or re.search(r"(?m)(?:^|[;&|]\s*)python3?\b(?!\s+-)", combined):
+            findings.append(
+                Finding(
+                    "release_unsealed_code_execution",
+                    f"{relative}:{job_name}",
+                    "privileged jobs may not execute repository code or bootstrap dependencies",
+                )
+            )
+
+    zip_tokens = (
+        ".size_in_bytes",
+        "zipfile.ZipFile",
+        "len(entries) != len(expected)",
+        "set(names) != expected_set",
+        '"\\x00" in name',
+        '"\\\\" in name',
+        "path.is_absolute()",
+        "len(path.parts) != 1",
+        "entry.flag_bits & 0x1",
+        "entry.external_attr",
+        "file_type not in {0, stat.S_IFREG}",
+        "entry.file_size > 1073741824",
+        "entry.file_size / entry.compress_size > 100",
+        "payload.testzip()",
+        "test ! -e",
+        "! -type f",
+    )
+    default_head_tokens = (
+        'test "$(jq -r \'.default_branch\' <<<"$repository")" = "main"',
+        'test "$(jq -r \'.object.type\' <<<"$default_ref")" = "commit"',
+        'test "$(jq -r \'.object.sha\' <<<"$default_ref")" = "$SOURCE_REVISION"',
+        '"repos/$GITHUB_REPOSITORY/branches/main"',
+        'test "$(jq -r \'.name\' <<<"$branch_payload")" = "main"',
+        'test "$(jq -r \'.protected\' <<<"$branch_payload")" = "true"',
+        'test "$(jq -r \'.commit.sha\' <<<"$branch_payload")" = "$SOURCE_REVISION"',
+    )
+    for job_name in privileged_jobs:
+        steps = steps_by_job.get(job_name, [])
+        first = steps[0] if steps else None
+        script = first.get("run") if isinstance(first, dict) else ""
+        if not isinstance(script, str) or any(token not in script for token in zip_tokens):
+            findings.append(
+                Finding(
+                    "release_zip_validation_invalid",
+                    f"{relative}:{job_name}",
+                    "artifact ZIPs require bounded structural, type, encryption, CRC, and "
+                    "fresh-extraction validation before any privileged mutation",
+                )
+            )
+        if not isinstance(script, str) or any(token not in script for token in default_head_tokens):
+            findings.append(
+                Finding(
+                    "release_default_head_invalid",
+                    f"{relative}:{job_name}",
+                    "every privileged boundary must require SOURCE_REVISION to be the exact "
+                    "remote default-branch HEAD",
+                )
+            )
+
+    for job_name in ("candidate", "scan", "attest", "promote", "release"):
+        steps = steps_by_job.get(job_name, [])
+        first = steps[0] if steps else None
+        script = first.get("run") if isinstance(first, dict) else ""
+        prepared_contract = job_name in {"candidate", "scan"}
+        expected_call = (
+            'verify_checksum_manifest_exact "$PREPARED_DIRECTORY/SHA256SUMS"'
+            if prepared_contract
+            else 'verify_checksum_manifest_exact "$RELEASE_PAYLOAD_DIRECTORY/SHA256SUMS"'
+        )
+        if (
+            not isinstance(script, str)
+            or "verify_checksum_manifest_exact() {" not in script
+            or 'test "$(stat --format=\'%s\' "$checksum_file")" -le 4096' not in script
+            or "([0-9a-f]{64})\\ \\ ([A-Za-z0-9][A-Za-z0-9._-]*)" not in script
+            or "declare -A" in script
+            or expected_call not in script
+            or (
+                not prepared_contract
+                and 'verify_checksum_manifest_exact "$RELEASE_PAYLOAD_DIRECTORY/release-assets.sha256"'
+                not in script
+            )
+            or script.find(expected_call) > script.find("sha256sum --strict --check SHA256SUMS")
+        ):
+            findings.append(
+                Finding(
+                    "release_checksum_manifest_invalid",
+                    f"{relative}:{job_name}",
+                    "every checksum file must have a bounded exact basename grammar and full "
+                    "allowlist before sha256sum reads any named path",
+                )
+            )
+
+    privileged_scripts = "\n".join(
+        step["run"]
+        for job_name in privileged_jobs
+        for step in steps_by_job.get(job_name, [])
+        if isinstance(step, dict) and isinstance(step.get("run"), str)
+    )
+    audit_get = re.compile(
+        r'GH_TOKEN="\$RELEASE_AUDIT_TOKEN"\s+\\\s*\n\s*'
+        r"gh api --method GET",
+    )
+    audit_non_get = re.compile(
+        r'GH_TOKEN="\$RELEASE_AUDIT_TOKEN"\s+\\\s*\n\s*'
+        r"gh api --method (?!GET\b)[A-Z]+",
+    )
+    if (
+        "/rules/tags/" in privileged_scripts
+        or len(audit_get.findall(privileged_scripts)) < 12
+        or audit_non_get.search(privileged_scripts)
+        or privileged_scripts.count("rulesets?includes_parents=true&targets=tag&per_page=100") < 6
+        or privileged_scripts.count("rulesets/$ruleset_id?includes_parents=true") < 6
+        or privileged_scripts.count('has("bypass_actors")') < 6
+        or privileged_scripts.count('== ["deletion", "non_fast_forward", "update"]') < 6
+        or privileged_scripts.count("immutable-releases") < 6
+        or re.search(
+            r"(?m)^\s*(?:echo|printf)\b[^\n]*RELEASE_AUDIT_TOKEN",
+            privileged_scripts,
+        )
+    ):
         findings.append(
             Finding(
-                "release_registry_attestation_missing",
+                "release_ruleset_audit_invalid",
                 relative,
-                "runtime-image provenance must be pushed against the Buildx manifest digest",
+                "authoritative tag rulesets and immutable releases require a non-logged "
+                "environment audit token used only by GET requests",
+            )
+        )
+
+    prepare_policy_step = (
+        steps_by_job.get("prepare", [None, None])[1]
+        if len(steps_by_job.get("prepare", [])) > 1
+        else None
+    )
+    prepare_policy_script = (
+        prepare_policy_step.get("run")
+        if isinstance(prepare_policy_step, dict) and isinstance(prepare_policy_step.get("run"), str)
+        else ""
+    )
+    if any(
+        token not in prepare_policy_script
+        for token in (
+            "canonical_semver",
+            'test "$REF_TYPE" = "tag"',
+            '[[ "$RELEASE_TAG" != *-* ]]',
+            'test "$RELEASE_TAG" = "v$project_version"',
+            'test "$(remote_tag_commit)" = "$SOURCE_REVISION"',
+            "verify_tag_ruleset_metadata",
+            "verify_default_head",
+            "verify_public_external_state_metadata",
+            "rulesets?includes_parents=true&targets=tag",
+            "rulesets/$ruleset_id?includes_parents=true",
+            'include == ["refs/tags/v*"]',
+            '== ["deletion", "non_fast_forward", "update"]',
+            'test "$(git rev-parse origin/main)" = "$SOURCE_REVISION"',
+            'test "$(jq -r \'.default_branch\' <<<"$repository")" = "main"',
+            'test "$(jq -r \'.object.sha\' <<<"$default_ref")" = "$SOURCE_REVISION"',
+            "releases?per_page=100",
+            '"candidate-$SOURCE_REVISION" "$RELEASE_TAG"',
+            "manifests/$reference",
+            "required_context in quality postgres-integration supply-chain",
+            'test "$required_jobs" = "3:3:3"',
+        )
+    ) or (
+        "SCHEMABRIDGE_RELEASE_AUDIT_TOKEN" in prepare_policy_script
+        or "bypass_actors" in prepare_policy_script
+    ):
+        findings.append(
+            Finding(
+                "release_prepare_policy_invalid",
+                f"{relative}:prepare",
+                "prepare must prove stable tag, exact default HEAD, CI, ruleset metadata, and "
+                "a public/basic external-state check without the administrative audit token",
+            )
+        )
+
+    prepare = jobs.get("prepare")
+    candidate = jobs.get("candidate")
+    scan = jobs.get("scan")
+    attest = jobs.get("attest")
+    promote = jobs.get("promote")
+    release = jobs.get("release")
+    prepare_outputs = prepare.get("outputs") if isinstance(prepare, dict) else None
+    candidate_outputs = candidate.get("outputs") if isinstance(candidate, dict) else None
+    scan_outputs = scan.get("outputs") if isinstance(scan, dict) else None
+    candidate_env = candidate.get("env") if isinstance(candidate, dict) else None
+    scan_env = scan.get("env") if isinstance(scan, dict) else None
+    if (
+        not isinstance(prepare_outputs, dict)
+        or prepare_outputs.get("artifact-id") != "${{ steps.upload_prepared.outputs.artifact-id }}"
+        or prepare_outputs.get("artifact-digest")
+        != "${{ steps.upload_prepared.outputs.artifact-digest }}"
+        or not isinstance(candidate_outputs, dict)
+        or set(candidate_outputs) != {"candidate-tag", "image-digest", "image-id", "image-name"}
+        or not isinstance(scan_outputs, dict)
+        or scan_outputs.get("artifact-id") != "${{ steps.upload_release.outputs.artifact-id }}"
+        or scan_outputs.get("artifact-digest")
+        != "${{ steps.upload_release.outputs.artifact-digest }}"
+        or scan_outputs.get("candidate-tag") != "${{ needs.candidate.outputs.candidate-tag }}"
+        or scan_outputs.get("image-digest") != "${{ needs.candidate.outputs.image-digest }}"
+        or scan_outputs.get("image-id") != "${{ needs.candidate.outputs.image-id }}"
+        or scan_outputs.get("image-name") != "${{ needs.candidate.outputs.image-name }}"
+        or not isinstance(candidate_env, dict)
+        or candidate_env.get("ARTIFACT_ID") != "${{ needs.prepare.outputs.artifact-id }}"
+        or candidate_env.get("ARTIFACT_DIGEST") != "${{ needs.prepare.outputs.artifact-digest }}"
+        or candidate_env.get("ARTIFACT_NAME") != "${{ needs.prepare.outputs.artifact-name }}"
+        or candidate_env.get("CANDIDATE_TAG") != "candidate-${{ github.sha }}"
+        or not isinstance(scan_env, dict)
+        or scan_env.get("ARTIFACT_ID") != "${{ needs.prepare.outputs.artifact-id }}"
+        or scan_env.get("ARTIFACT_DIGEST") != "${{ needs.prepare.outputs.artifact-digest }}"
+        or scan_env.get("ARTIFACT_NAME") != "${{ needs.prepare.outputs.artifact-name }}"
+        or scan_env.get("CANDIDATE_TAG") != "${{ needs.candidate.outputs.candidate-tag }}"
+    ):
+        findings.append(
+            Finding(
+                "release_rerun_identity_invalid",
+                relative,
+                "stages must consume actual upstream outputs and use one stable semantic candidate",
+            )
+        )
+    for job_name, job in (("attest", attest), ("promote", promote), ("release", release)):
+        environment = job.get("env") if isinstance(job, dict) else None
+        if not isinstance(environment, dict) or any(
+            environment.get(key) != f"${{{{ needs.scan.outputs.{output} }}}}"
+            for key, output in (
+                ("ARTIFACT_DIGEST", "artifact-digest"),
+                ("ARTIFACT_ID", "artifact-id"),
+                ("ARTIFACT_NAME", "artifact-name"),
+                ("CANDIDATE_TAG", "candidate-tag"),
+                ("IMAGE_DIGEST", "image-digest"),
+                ("IMAGE_ID", "image-id"),
+                ("IMAGE_NAME", "image-name"),
+            )
+        ):
+            findings.append(
+                Finding(
+                    "release_rerun_identity_invalid",
+                    f"{relative}:{job_name}",
+                    "downstream retries must reuse the exact candidate outputs",
+                )
+            )
+
+    prepare_scripts = "\n".join(
+        step["run"]
+        for step in steps_by_job.get("prepare", [])
+        if isinstance(step, dict) and isinstance(step.get("run"), str)
+    )
+    candidate_scripts = "\n".join(
+        step["run"]
+        for step in steps_by_job.get("candidate", [])
+        if isinstance(step, dict) and isinstance(step.get("run"), str)
+    )
+    scan_scripts = "\n".join(
+        step["run"]
+        for step in steps_by_job.get("scan", [])
+        if isinstance(step, dict) and isinstance(step.get("run"), str)
+    )
+    derivation_step = next(
+        (
+            step
+            for step in steps_by_job.get("scan", [])
+            if isinstance(step, dict)
+            and step.get("name") == "Derive canonical public evidence using runner tools"
+        ),
+        None,
+    )
+    derivation_script = (
+        derivation_step.get("run")
+        if isinstance(derivation_step, dict) and isinstance(derivation_step.get("run"), str)
+        else ""
+    )
+    local_image_build = next(
+        (
+            step
+            for step in steps_by_job.get("prepare", [])
+            if isinstance(step, dict)
+            and step.get("uses") == _BUILD_PUSH_ACTION
+            and step.get("id") == "local_build"
+        ),
+        None,
+    )
+    if (
+        not isinstance(local_image_build, dict)
+        or local_image_build.get("env")
+        != {
+            "DOCKER_BUILD_RECORD_UPLOAD": "false",
+            "SOURCE_DATE_EPOCH": "1730470033",
+        }
+        or "run_id:" in prepare_scripts
+        or "run_attempt:" in prepare_scripts
+        or any(
+            token in derivation_script
+            for token in (
+                "$ARTIFACT_ID",
+                "$ARTIFACT_DIGEST",
+                "$GITHUB_RUN_ID",
+                "$GITHUB_RUN_ATTEMPT",
+                "$RUN_ID",
+                "$RUN_ATTEMPT",
+            )
+        )
+        or "candidate-${{ github.run_id }}" in candidate_scripts
+        or "del(.serialNumber, .metadata.timestamp)" not in scan_scripts
+        or "del(.CreatedAt)" not in scan_scripts
+        or "prepared_components" not in scan_scripts
+        or "registry_components" not in scan_scripts
+        or 'test "$registry_components" = "$prepared_components"' not in scan_scripts
+        or ".Metadata.DiffIDs" not in scan_scripts
+        or 'any(.Packages | type == "array" and length > 0)' not in scan_scripts
+    ):
+        findings.append(
+            Finding(
+                "release_evidence_determinism_invalid",
+                relative,
+                "public evidence must exclude execution identity, suppress build-record uploads, "
+                "and bind normalized complete reports without claiming bitwise rebuild identity",
+            )
+        )
+
+    def named_run(job_name: str, name: str) -> Mapping[str, object] | None:
+        return next(
+            (
+                step
+                for step in steps_by_job.get(job_name, [])
+                if isinstance(step, dict)
+                and step.get("name") == name
+                and isinstance(step.get("run"), str)
+            ),
+            None,
+        )
+
+    pip_audit_step = named_run("prepare", "Audit exact Python runtime dependencies")
+    pip_audit_script = pip_audit_step.get("run") if isinstance(pip_audit_step, dict) else ""
+    seal_step = named_run("prepare", "Seal the semantic prepared release payload")
+    seal_script = seal_step.get("run") if isinstance(seal_step, dict) else ""
+    scan_login_step = named_run("scan", "Authenticate the read-only registry pull used by Trivy")
+    scan_login_script = scan_login_step.get("run") if isinstance(scan_login_step, dict) else ""
+    scan_capture_step = named_run(
+        "scan", "Capture the exact temporal scanner and vulnerability database identity"
+    )
+    scan_capture_script = (
+        scan_capture_step.get("run") if isinstance(scan_capture_step, dict) else ""
+    )
+    scan_cleanup_step = named_run("scan", "Remove the read-only registry credential after scanning")
+    scan_cleanup_script = (
+        scan_cleanup_step.get("run") if isinstance(scan_cleanup_step, dict) else ""
+    )
+    scan_trivy_steps = [
+        step
+        for step in steps_by_job.get("scan", [])
+        if isinstance(step, dict) and step.get("uses") == _TRIVY_ACTION
+    ]
+    if (
+        not isinstance(scan, dict)
+        or scan.get("permissions") != _RELEASE_PREPARE_PERMISSIONS
+        or not isinstance(scan_env, dict)
+        or scan_env.get("DOCKER_CONFIG") != ".local/trivy-docker-config"
+        or not isinstance(scan_login_step, dict)
+        or not isinstance(scan_login_step.get("env"), dict)
+        or scan_login_step["env"].get("GH_TOKEN") != "${{ secrets.GITHUB_TOKEN }}"
+        or "docker login ghcr.io" not in scan_login_script
+        or "--password-stdin" not in scan_login_script
+        or not isinstance(scan_cleanup_step, dict)
+        or scan_cleanup_step.get("if") != "always()"
+        or "cleanup_status=0" not in scan_cleanup_script
+        or "if docker logout ghcr.io; then" not in scan_cleanup_script
+        or 'if rm -f "$DOCKER_CONFIG/config.json"; then' not in scan_cleanup_script
+        or 'if rmdir "$DOCKER_CONFIG"; then' not in scan_cleanup_script
+        or 'exit "$cleanup_status"' not in scan_cleanup_script
+        or not (
+            scan_cleanup_script.index("if docker logout ghcr.io; then")
+            < scan_cleanup_script.index('if rm -f "$DOCKER_CONFIG/config.json"; then')
+            < scan_cleanup_script.index('if rmdir "$DOCKER_CONFIG"; then')
+            < scan_cleanup_script.index('exit "$cleanup_status"')
+        )
+        or len(scan_trivy_steps) != 2
+        or any(
+            not isinstance(step.get("with"), dict)
+            or step["with"].get("cache-dir") != ".local/trivy-cache"
+            or step["with"].get("version") != "v0.69.3"
+            or step["with"].get("image-ref") != "${{ env.IMAGE_NAME }}@${{ env.IMAGE_DIGEST }}"
+            for step in scan_trivy_steps
+        )
+    ):
+        findings.append(
+            Finding(
+                "release_scan_auth_invalid",
+                f"{relative}:scan",
+                "the read-only scan must provide and then erase one pull-only GHCR credential",
+            )
+        )
+    scanner_snapshot_tokens = (
+        "trivy --version",
+        'test "$trivy_version" = "0.69.3"',
+        ".local/trivy-cache/db/metadata.json",
+        ".local/trivy-cache/db/trivy.db",
+        'database_sha256="$(sha256sum "$database_file"',
+        'metadata_sha256="$(sha256sum "$database_metadata"',
+        "schema_version",
+        "updated_at",
+        "next_update",
+        "downloaded_at",
+        "observed_at",
+        "scanner-evidence.json",
+    )
+    if (
+        not isinstance(pip_audit_script, str)
+        or "--vulnerability-service pypi" not in pip_audit_script
+        or 'test "$pip_audit_version" = "2.10.1"' not in pip_audit_script
+        or "https://pypi.org/pypi" not in pip_audit_script
+        or "pip-audit-observation.json" not in pip_audit_script
+        or not isinstance(seal_script, str)
+        or "scanner_evidence" not in seal_script
+        or "pip_audit" not in seal_script
+        or not isinstance(scan_capture_script, str)
+        or any(token not in scan_capture_script for token in scanner_snapshot_tokens)
+        or "scanner_evidence" not in derivation_script
+        or "pip_audit_evidence" not in derivation_script
+        or "trivy_evidence" not in derivation_script
+        or "vulnerability_database" not in derivation_script
+        or ".vulnerability_database.sha256" not in derivation_script
+    ):
+        findings.append(
+            Finding(
+                "release_scanner_snapshot_invalid",
+                relative,
+                "attested release metadata must identify the temporal pip-audit service and "
+                "the exact Trivy tool, cache metadata, and vulnerability DB bytes used",
+            )
+        )
+
+    action_allowlist: Mapping[str, frozenset[str]] = {
+        "audit": frozenset(),
+        "candidate": frozenset(),
+        "scan": frozenset({_TRIVY_ACTION, _UPLOAD_ARTIFACT_ACTION}),
+        "attest": frozenset({_ATTEST_ACTION}),
+        "promote": frozenset(),
+        "release": frozenset(),
+    }
+    for job_name, allowed_actions in action_allowlist.items():
+        actions = {
+            step["uses"]
+            for step in steps_by_job.get(job_name, [])
+            if isinstance(step, dict) and isinstance(step.get("uses"), str)
+        }
+        if not actions <= allowed_actions:
+            findings.append(
+                Finding(
+                    "release_action_allowlist_invalid",
+                    f"{relative}:{job_name}",
+                    f"privileged action outside allowlist: {sorted(actions - allowed_actions)!r}",
+                )
+            )
+
+    forbidden_everywhere = (
+        (r"\bgh\s+release\s+(?:delete|download|view)\b", "GitHub release destructive/generic"),
+        (r"\bgh\s+api\s+--method\s+(?:DELETE|PATCH|POST|PUT)\b", "mutable GitHub API"),
+        (r"\bcurl\b[\s\S]*?--request\s+(?:DELETE|PATCH)\b", "destructive registry API"),
+        (r"\bgit\s+push\b", "Git ref publication"),
+        (r"(?m)(?:^|[;&|]\s*)(?:eval|source)\s+", "dynamic shell evaluation"),
+        (r"\b(?:bash|sh)\s+-c\b", "nested shell evaluation"),
+        (r"\bif\s+false\b", "dead publication branch"),
+    )
+    for job_name, steps in steps_by_job.items():
+        scripts = "\n".join(
+            step["run"]
+            for step in steps
+            if isinstance(step, dict) and isinstance(step.get("run"), str)
+        )
+        normalized_scripts = re.sub(r"\\\s*\n", " ", scripts)
+        for pattern, operation in forbidden_everywhere:
+            if re.search(pattern, normalized_scripts, flags=re.IGNORECASE):
+                findings.append(
+                    Finding(
+                        "release_opcode_forbidden",
+                        f"{relative}:{job_name}",
+                        operation,
+                    )
+                )
+        if job_name != "candidate" and re.search(
+            r"\bdocker\s+(?:image\s+)?push\b", normalized_scripts
+        ):
+            findings.append(
+                Finding(
+                    "release_opcode_forbidden",
+                    f"{relative}:{job_name}",
+                    "container push is candidate-only",
+                )
+            )
+        if job_name != "promote" and re.search(
+            r"\bcurl\b[\s\S]*?--request\s+PUT\b", normalized_scripts
+        ):
+            findings.append(
+                Finding(
+                    "release_opcode_forbidden",
+                    f"{relative}:{job_name}",
+                    "registry manifest PUT is promotion-only",
+                )
+            )
+        if job_name != "release" and re.search(
+            r"\bgh\s+release\s+(?:create|upload|edit)\b", normalized_scripts
+        ):
+            findings.append(
+                Finding(
+                    "release_opcode_forbidden",
+                    f"{relative}:{job_name}",
+                    "GitHub release mutation is content-job-only",
+                )
+            )
+
+    canonical_body_program = (
+        "printf '%s\\n\\n%s\\n%s\\n%s\\n' \\\n"
+        '  "# SchemaBridge $RELEASE_TAG" \\\n'
+        '  "- Source: \\`$SOURCE_REVISION\\`" \\\n'
+        '  "- Image: \\`$IMAGE_NAME@$IMAGE_DIGEST\\`" \\\n'
+        '  "- Checksums: \\`release-assets.sha256\\`" \\\n'
+        '  > "$RELEASE_ASSETS_DIRECTORY/release-body.md"'
+    )
+    if (
+        "release-body.md" not in derivation_script
+        or '--arg body_sha256 "$(' not in derivation_script
+        or "body_sha256" not in derivation_script
+        or '--arg release_body_sha256 "$release_body_digest"' not in derivation_script
+        or "release-body.md \\" not in derivation_script
+        or canonical_body_program not in derivation_script
+        or not isinstance(release, dict)
+    ):
+        findings.append(
+            Finding(
+                "release_body_contract_invalid",
+                relative,
+                "one deterministic body file and its digest must be payload-bound",
+            )
+        )
+    release_steps = steps_by_job.get("release", [])
+    release_final = release_steps[-1] if release_steps else None
+    release_script = (
+        release_final.get("run")
+        if isinstance(release_final, dict) and isinstance(release_final.get("run"), str)
+        else ""
+    )
+    if release_script.count("verify_default_head") < 3:
+        findings.append(
+            Finding(
+                "release_default_head_invalid",
+                f"{relative}:release",
+                "release must revalidate the exact default-branch HEAD before each mutation "
+                "boundary",
+            )
+        )
+    if (
+        '--notes-file "$RELEASE_PAYLOAD_DIRECTORY/release-body.md"' not in release_script
+        or "jq -jr '.body'" not in release_script
+        or "body_sha256" not in release_script
+        or "release_body_sha256" not in release_script
+        or 'test "$(jq -r \'.immutable\' <<<"$release")" = "true"' not in release_script
+        or 'test "$(jq -r \'.immutable\' <<<"$release")" = "false"' not in release_script
+        or '"$RELEASE_PAYLOAD_DIRECTORY/release-body.md" \\' not in release_script
+    ):
+        findings.append(
+            Finding(
+                "release_body_contract_invalid",
+                f"{relative}:release",
+                "draft, published no-op, and canonical payload require exact body and immutability",
+            )
+        )
+    if (
+        "reconcile_draft_assets" not in release_script
+        or "verify_assets_exact" not in release_script
+        or "([.[].name] | length) == 10" not in release_script
+        or "([.[].name] | unique | length) == 10" not in release_script
+        or "release-body.md" not in release_script
+        or ".digest" not in release_script
+        or ".size" not in release_script
+        or ".state" not in release_script
+        or "--clobber" in release_script
+    ):
+        findings.append(
+            Finding(
+                "release_asset_contract_invalid",
+                f"{relative}:release",
+                "draft reconciliation and published verification must allow exactly ten "
+                "digest- and size-bound assets without clobber",
+            )
+        )
+    attest_steps = steps_by_job.get("attest", [])
+    attest_final = attest_steps[-1] if attest_steps else None
+    attest_script = (
+        attest_final.get("run")
+        if isinstance(attest_final, dict) and isinstance(attest_final.get("run"), str)
+        else ""
+    )
+    release_boundary = release_steps[0] if release_steps else None
+    release_boundary_script = (
+        release_boundary.get("run")
+        if isinstance(release_boundary, dict) and isinstance(release_boundary.get("run"), str)
+        else ""
+    )
+    attestation_tokens = (
+        "gh attestation verify",
+        "release-body.md",
+        '--source-digest "$SOURCE_REVISION"',
+        '--source-ref "$SOURCE_REF"',
+        "--deny-self-hosted-runners",
+        "--bundle-from-oci",
+    )
+    evidence_attestation = attest_steps[3] if len(attest_steps) > 3 else None
+    evidence_inputs = (
+        evidence_attestation.get("with") if isinstance(evidence_attestation, dict) else None
+    )
+    if (
+        any(
+            token not in script
+            for script in (attest_script, release_boundary_script)
+            for token in attestation_tokens
+        )
+        or not isinstance(evidence_inputs, dict)
+        or "release-body.md" not in str(evidence_inputs.get("subject-path", ""))
+    ):
+        findings.append(
+            Finding(
+                "release_attestation_verification_invalid",
+                relative,
+                "attest and release must verify exact source-bound artifact and OCI attestations",
+            )
+        )
+    release_transaction = release_script.rsplit(
+        'canonical_stable_semver "$RELEASE_TAG"\n', maxsplit=1
+    )[-1]
+    published_marker = 'if [[ "$(jq -r \'.draft\' <<<"$release")" = "false" ]]; then\n'
+    published_branch = (
+        release_transaction.split(published_marker, maxsplit=1)[1].split("\nfi\n", maxsplit=1)[0]
+        if published_marker in release_transaction
+        else ""
+    )
+    published_verifier = (
+        release_script.split("verify_exact_published_release() {\n", maxsplit=1)[1].split(
+            "\n}\n",
+            maxsplit=1,
+        )[0]
+        if "verify_exact_published_release() {\n" in release_script
+        else ""
+    )
+    published_mutations = (
+        "gh release create",
+        "gh release upload",
+        "gh release edit",
+        "reconcile_draft_assets",
+        "--request PUT",
+        "docker push",
+    )
+    if (
+        "canonical_stable_semver" not in release_script
+        or release_script.count("reject_newer_stable_release") < 3
+        or "semver_greater" not in release_script
+        or release_script.count("verify_default_head") < 3
+        or release_script.count("verify_authoritative_release_controls") < 3
+        or release_script.count('test "$(remote_tag_commit)" = "$SOURCE_REVISION"') < 2
+        or (
+            'if [[ "$(jq \'length\' <<<"$releases")" = "0" ]]; then\n'
+            "  reject_newer_stable_release\n"
+            '  gh release create "$RELEASE_TAG"'
+        )
+        not in release_transaction
+        or "verify_exact_published_release" not in published_branch
+        or "exit 0" not in published_branch
+        or any(token in published_branch for token in published_mutations)
+        or any(token in published_verifier for token in published_mutations)
+        or "--draft=false" not in release_script
+        or "--latest" not in release_script
+        or release_script.count('release="$(fetch_release "$release_id")"') < 2
+        or "repos/$GITHUB_REPOSITORY/releases/latest" not in release_script
+        or 'test "$(jq -r \'.id\' <<<"$latest_release")" = "$release_id"' not in release_script
+        or 'test "$(jq -r \'.immutable\' <<<"$latest_release")" = "true"' not in release_script
+        or not release_script.rstrip().endswith(
+            'verify_postpublication_current_latest "$release" "$release_id"'
+        )
+    ):
+        findings.append(
+            Finding(
+                "release_latest_policy_invalid",
+                f"{relative}:release",
+                "stable publication must re-fetch exact immutable current/latest state; a "
+                "published replay is read-only",
+            )
+        )
+    promote_steps = steps_by_job.get("promote", [])
+    promote_final = promote_steps[-1] if promote_steps else None
+    promote_script = (
+        promote_final.get("run")
+        if isinstance(promote_final, dict) and isinstance(promote_final.get("run"), str)
+        else ""
+    )
+    candidate_publish_step = next(
+        (
+            step
+            for step in steps_by_job.get("candidate", [])
+            if isinstance(step, dict)
+            and step.get("name") == "Publish the new stable semantic candidate"
+        ),
+        None,
+    )
+    candidate_publish_script = (
+        candidate_publish_step.get("run")
+        if isinstance(candidate_publish_step, dict)
+        and isinstance(candidate_publish_step.get("run"), str)
+        else ""
+    )
+    candidate_pre_push = candidate_publish_script.split(
+        'docker image tag "schemabridge-runtime:$SOURCE_REVISION"',
+        maxsplit=1,
+    )[0]
+    candidate_boundary_step = (
+        steps_by_job.get("candidate", [None])[0] if steps_by_job.get("candidate") else None
+    )
+    candidate_boundary_script = (
+        candidate_boundary_step.get("run")
+        if isinstance(candidate_boundary_step, dict)
+        and isinstance(candidate_boundary_step.get("run"), str)
+        else ""
+    )
+    if (
+        "verify_public_external_state_metadata" not in prepare_policy_script
+        or 'for reference in "candidate-$SOURCE_REVISION" "$RELEASE_TAG"' not in audit_script
+        or "registry reference already exists before this dispatch" not in audit_script
+        or 'if [[ "$release_count" = "1" ]]; then' not in audit_script
+        or "releases?per_page=100" not in candidate_boundary_script
+        or "[.[][] | select(.tag_name == $tag)] | length" not in candidate_boundary_script
+        or "stable tag already exists; dispatch is not clean" not in candidate_pre_push
+        or "adopting the exact candidate created by this run after a retry"
+        not in candidate_pre_push
+        or 'test "${candidate_state##*|}" = "$LOCAL_IMAGE_ID"' not in candidate_pre_push
+        or "candidate_digest=" not in candidate_pre_push
+        or "exit 0" not in candidate_pre_push
+        or candidate_pre_push.count("exit 1") < 1
+        or 'test "${candidate_state%%|*}" = "$LOCAL_IMAGE_ID"' in candidate_pre_push
+    ):
+        findings.append(
+            Finding(
+                "release_partial_dispatch_invalid",
+                relative,
+                "audit must reject dirty full dispatches while a same-run candidate retry may "
+                "adopt only the exact prepared config",
+            )
+        )
+    registry_absence_tokens = (
+        'if [[ "$code" = "404" ]]',
+        '.code == "MANIFEST_UNKNOWN" or .code == "NAME_UNKNOWN"',
+        'test "$code" = "200"',
+    )
+    all_release_scripts = "\n".join(
+        step["run"]
+        for steps in steps_by_job.values()
+        for step in steps
+        if isinstance(step, dict) and isinstance(step.get("run"), str)
+    )
+    if (
+        any(token not in candidate_publish_script for token in registry_absence_tokens)
+        or any(token not in promote_script for token in registry_absence_tokens)
+        or 'test "${candidate_state##*|}" = "$LOCAL_IMAGE_ID"' not in candidate_publish_script
+        or 'test "${candidate_state##*|}" = "$IMAGE_ID"' not in promote_script
+        or all_release_scripts.count("--max-filesize 4194304") != 9
+        or all_release_scripts.count('test "$(stat --format=\'%s\' "$body")" -le 4194304') < 5
+        or all_release_scripts.count(
+            'test "$(stat --format=\'%s\' "$candidate_manifest")" -le 4194304'
+        )
+        < 2
+    ):
+        findings.append(
+            Finding(
+                "release_registry_state_invalid",
+                relative,
+                "candidate and promotion accept only structured absence or exact digest/config state",
+            )
+        )
+    if (
+        "--request PUT" not in promote_script
+        or "candidate_state" not in promote_script
+        or "final_state" not in promote_script
+        or promote_script.count('test "$(remote_tag_commit)" = "$SOURCE_REVISION"') < 1
+        or "verify_default_head" not in promote_script
+        or "verify_authoritative_release_controls" not in promote_script
+    ):
+        findings.append(
+            Finding(
+                "release_promotion_order_invalid",
+                f"{relative}:promote",
+                "promotion must resume exact state and revalidate immediately before the sole PUT",
             )
         )
     return tuple(findings)
@@ -1294,11 +2341,135 @@ def _logical_dockerfile_instructions(text: str) -> tuple[str, ...]:
         continued = line.endswith("\\")
         current.append(line[:-1].rstrip() if continued else line)
         if not continued:
-            instructions.append(" ".join(current))
+            instruction = " ".join(current)
+            opcode, separator, arguments = instruction.partition(" ")
+            instructions.append(
+                f"{opcode.upper()}{separator}{arguments}" if separator else opcode.upper()
+            )
             current = []
     if current:
-        instructions.append(" ".join(current))
+        instruction = " ".join(current)
+        opcode, separator, arguments = instruction.partition(" ")
+        instructions.append(
+            f"{opcode.upper()}{separator}{arguments}" if separator else opcode.upper()
+        )
     return tuple(instructions)
+
+
+def _dockerfile_stages(instructions: Sequence[str]) -> tuple[tuple[str, ...], ...]:
+    stages: list[list[str]] = []
+    for instruction in instructions:
+        opcode = instruction.partition(" ")[0]
+        if opcode == "FROM":
+            stages.append([instruction])
+            continue
+        if not stages:
+            return ()
+        stages[-1].append(instruction)
+    return tuple(tuple(stage) for stage in stages)
+
+
+def _expected_postgres_client_apk_fetch_command() -> str:
+    parts = ['RUN set -eu; case "$TARGETARCH" in']
+    for architecture, packages in POSTGRES_CLIENT_APK_MATRIX.items():
+        parts.append(f"{architecture})")
+        for index, (variable, url, digest) in enumerate(packages):
+            parts.extend(
+                (
+                    f"{variable}_url={url};",
+                    f"{variable}_sha256={digest}{';' if index < len(packages) - 1 else ''}",
+                )
+            )
+        parts.append(";;")
+    parts.extend(
+        (
+            "*)",
+            r"""printf 'unsupported TARGETARCH: %s\n' "$TARGETARCH" >&2;""",
+            "exit 1",
+            ";;",
+            "esac;",
+            "mkdir -p /postgres-client-apks;",
+            "fetch_apk()",
+            "{",
+            'url="$1";',
+            'expected_sha256="$2";',
+            'destination="/postgres-client-apks/${url##*/}";',
+            'wget -q -T 60 -O "$destination" "$url";',
+            r"""printf '%s  %s\n' "$expected_sha256" "$destination" | sha256sum -c -;""",
+            "};",
+            'fetch_apk "$libpq_url" "$libpq_sha256";',
+            'fetch_apk "$lz4_url" "$lz4_sha256";',
+            'fetch_apk "$postgresql_common_url" "$postgresql_common_sha256";',
+            'fetch_apk "$postgresql_client_url" "$postgresql_client_sha256";',
+            'fetch_apk "$zstd_url" "$zstd_sha256"',
+        )
+    )
+    return " ".join(parts)
+
+
+def _expected_postgres_client_apk_install_command() -> str:
+    return (
+        "RUN --mount=from=postgres-client-apks,source=/postgres-client-apks,"
+        "target=/postgres-client-apks,ro apk add --no-cache --no-network "
+        "/postgres-client-apks/libpq-18.4-r0.apk "
+        "/postgres-client-apks/lz4-libs-1.10.0-r1.apk "
+        "/postgres-client-apks/postgresql-common-1.3-r0.apk "
+        "/postgres-client-apks/postgresql16-client-16.14-r0.apk "
+        "/postgres-client-apks/zstd-libs-1.5.7-r2.apk"
+    )
+
+
+def _expected_runtime_builder_stage() -> tuple[str, ...]:
+    return (
+        f"FROM {RUNTIME_BASE_IMAGE} AS builder",
+        "ARG SCHEMABRIDGE_RELEASE_REF=release-ref-not-supplied",
+        "ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 "
+        "PIP_DISABLE_PIP_VERSION_CHECK=1 SOURCE_DATE_EPOCH=1730470033",
+        "WORKDIR /opt/schemabridge",
+        "COPY requirements/build.txt requirements/watchdog-build.txt "
+        "requirements/runtime.txt ./requirements/",
+        "RUN python -m pip install --no-cache-dir --no-deps --require-hashes "
+        "-r requirements/build.txt -r requirements/watchdog-build.txt",
+        "RUN python -m pip wheel --no-cache-dir --no-deps --no-build-isolation "
+        "--require-hashes --wheel-dir /tmp/runtime-wheels -r requirements/runtime.txt",
+        "COPY pyproject.toml README.md LICENSE ./",
+        "COPY src ./src",
+        "COPY migrations ./migrations",
+        "RUN python -m pip wheel --no-cache-dir --no-deps --no-build-isolation "
+        "--wheel-dir /tmp/dist .",
+    )
+
+
+def _expected_runtime_final_stage() -> tuple[str, ...]:
+    return (
+        f"FROM {RUNTIME_BASE_IMAGE}",
+        "ARG SCHEMABRIDGE_RELEASE_REF=release-ref-not-supplied",
+        'LABEL org.opencontainers.image.source="https://github.com/Crespillo95/'
+        'schemabridge-codex-starter" '
+        'org.opencontainers.image.revision="${SCHEMABRIDGE_RELEASE_REF}"',
+        "ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 "
+        "PIP_DISABLE_PIP_VERSION_CHECK=1 "
+        "SCHEMABRIDGE_RELEASE_REF=${SCHEMABRIDGE_RELEASE_REF}",
+        _expected_postgres_client_apk_install_command(),
+        "RUN adduser -D -u 10001 schemabridge",
+        "WORKDIR /opt/schemabridge",
+        "COPY requirements/runtime.txt ./requirements/runtime.txt",
+        "COPY requirements/runtime-built.txt ./requirements/runtime-built.txt",
+        "RUN --mount=from=builder,source=/tmp/runtime-wheels,target=/tmp/runtime-wheels,ro "
+        "python -m pip install --no-cache-dir --no-index --no-deps --require-hashes "
+        "-r requirements/runtime-built.txt && python -m pip install --no-cache-dir --no-index "
+        "--no-deps --require-hashes --find-links /tmp/runtime-wheels "
+        "-r requirements/runtime.txt",
+        "COPY --from=builder /opt/schemabridge/src/schemabridge/entrypoints/streamlit/app.py "
+        "./streamlit_app.py",
+        "RUN --mount=from=builder,source=/tmp/dist,target=/tmp/dist,ro "
+        "python -m pip install --no-cache-dir --no-deps "
+        "/tmp/dist/schemabridge-0.1.0-py3-none-any.whl",
+        "RUN chown -R schemabridge:schemabridge /opt/schemabridge",
+        "USER 10001:10001",
+        "EXPOSE 7860 8520",
+        'CMD ["schemabridge-api"]',
+    )
 
 
 def verify_images(root: Path) -> tuple[Finding, ...]:
@@ -1347,12 +2518,12 @@ def verify_images(root: Path) -> tuple[Finding, ...]:
     runtime_images = tuple(
         match.group(1) for line in text.splitlines() if (match := _FROM.match(line)) is not None
     )
-    if runtime_images != (RUNTIME_BASE_IMAGE, RUNTIME_BASE_IMAGE):
+    if runtime_images != (RUNTIME_BASE_IMAGE, RUNTIME_BASE_IMAGE, RUNTIME_BASE_IMAGE):
         findings.append(
             Finding(
                 "runtime_base_image_unreviewed",
                 runtime.name,
-                "both runtime stages must use the exact reviewed base image",
+                "the build, APK-fetch, and runtime stages must use the exact reviewed image",
             )
         )
     watchdog_build_requirement = root / WATCHDOG_BUILD_REQUIREMENTS
@@ -1427,38 +2598,49 @@ def verify_images(root: Path) -> tuple[Finding, ...]:
                     f"required reproducible-build fragment is absent: {fragment}",
                 )
             )
-    runtime_lines = text.splitlines()
-    runtime_from_indexes = tuple(
-        index for index, line in enumerate(runtime_lines) if _FROM.match(line) is not None
+    runtime_instructions = _logical_dockerfile_instructions(text)
+    runtime_stages = _dockerfile_stages(runtime_instructions)
+    expected_postgres_client_stage = (
+        f"FROM {RUNTIME_BASE_IMAGE} AS postgres-client-apks",
+        "ARG TARGETARCH",
+        _expected_postgres_client_apk_fetch_command(),
     )
-    runtime_stage = (
-        "\n".join(runtime_lines[runtime_from_indexes[1] :])
-        if len(runtime_from_indexes) >= 2
-        else ""
+    expected_runtime_stages = (
+        _expected_runtime_builder_stage(),
+        expected_postgres_client_stage,
+        _expected_runtime_final_stage(),
     )
-    runtime_run_instructions = tuple(
-        instruction
-        for instruction in _logical_dockerfile_instructions(runtime_stage)
-        if instruction.startswith("RUN ")
-    )
-    expected_runtime_run_instructions = (
-        "RUN adduser -D -u 10001 schemabridge",
-        "RUN --mount=from=builder,source=/tmp/runtime-wheels,target=/tmp/runtime-wheels,ro "
-        "python -m pip install --no-cache-dir --no-index --no-deps --require-hashes "
-        "-r requirements/runtime-built.txt && python -m pip install --no-cache-dir --no-index "
-        "--no-deps --require-hashes --find-links /tmp/runtime-wheels "
-        "-r requirements/runtime.txt",
-        "RUN --mount=from=builder,source=/tmp/dist,target=/tmp/dist,ro "
-        "python -m pip install --no-cache-dir --no-deps "
-        "/tmp/dist/schemabridge-0.1.0-py3-none-any.whl",
-        "RUN chown -R schemabridge:schemabridge /opt/schemabridge",
-    )
-    if runtime_run_instructions != expected_runtime_run_instructions:
+    if runtime_stages != expected_runtime_stages or any(
+        instruction.partition(" ")[0] == "ADD" for instruction in runtime_instructions
+    ):
         findings.append(
             Finding(
                 "runtime_commands_unreviewed",
                 runtime.name,
-                "the final stage contains a missing, changed, or additional RUN instruction",
+                "the three runtime stages contain a missing, changed, or additional instruction",
+            )
+        )
+    postgres_client_instructions = runtime_stages[1] if len(runtime_stages) == 3 else ()
+    runtime_run_instructions = (
+        tuple(
+            instruction
+            for instruction in runtime_stages[2]
+            if instruction.partition(" ")[0] == "RUN"
+        )
+        if len(runtime_stages) == 3
+        else ()
+    )
+    if (
+        postgres_client_instructions != expected_postgres_client_stage
+        or runtime_run_instructions.count(_expected_postgres_client_apk_install_command()) != 1
+        or "COPY --from=postgres-client-apks" in text
+        or text.count("apk add") != 1
+    ):
+        findings.append(
+            Finding(
+                "runtime_postgres_client_unreviewed",
+                runtime.name,
+                "PostgreSQL client APK URLs, architectures, hashes, and offline mount must be exact",
             )
         )
     if "COPY --from=builder /tmp/runtime-wheels" in text:
@@ -2288,6 +3470,315 @@ def build_cyclonedx_sbom(
     }
 
 
+def _expected_linux_python_components(root: Path) -> frozenset[tuple[str, str]]:
+    requirements = load_requirements(root, RUNTIME_REQUIREMENTS)
+    expected = {
+        (item.normalized_name, item.version)
+        for item in requirements
+        if not (item.marker is not None and "sys_platform == 'win32'" in item.marker)
+    }
+    expected.update(RUNTIME_PYTHON_BASE_COMPONENTS)
+    return frozenset(expected)
+
+
+def _postgres_client_apk_bindings(
+    apk_architecture: str,
+) -> Mapping[tuple[str, str], tuple[str, str]]:
+    docker_architecture = _APK_ARCHITECTURE_TO_DOCKER.get(apk_architecture)
+    if docker_architecture is None:
+        return {}
+    return {
+        _POSTGRES_CLIENT_COMPONENT_BY_VARIABLE[variable]: (url, digest)
+        for variable, url, digest in POSTGRES_CLIENT_APK_MATRIX[docker_architecture]
+    }
+
+
+def _runtime_apk_architecture(payload: Mapping[str, Any]) -> str:
+    components = payload.get("components")
+    architectures: set[str] = set()
+    if isinstance(components, list):
+        for item in components:
+            if not isinstance(item, dict) or not isinstance(item.get("purl"), str):
+                continue
+            match = _APK_PURL.fullmatch(item["purl"])
+            if match is not None and match.group("architecture") != "noarch":
+                architectures.add(match.group("architecture"))
+    if len(architectures) != 1:
+        raise SupplyChainViolation(
+            (
+                Finding(
+                    "sbom_apk_architecture_invalid",
+                    "runtime-image.cdx.json",
+                    "expected one coherent aarch64 or x86_64 APK architecture",
+                ),
+            )
+        )
+    return next(iter(architectures))
+
+
+def _valid_component_package_hash(item: Mapping[str, Any]) -> bool:
+    hashes = item.get("hashes")
+    if not isinstance(hashes, list) or not hashes:
+        return False
+    expected_lengths = {"SHA-1": 40, "SHA-256": 64}
+    for value in hashes:
+        if not isinstance(value, dict):
+            continue
+        algorithm = value.get("alg")
+        content = value.get("content")
+        if (
+            isinstance(algorithm, str)
+            and algorithm in expected_lengths
+            and isinstance(content, str)
+            and re.fullmatch(
+                rf"[0-9a-f]{{{expected_lengths[algorithm]}}}",
+                content,
+            )
+            is not None
+        ):
+            return True
+    return False
+
+
+def _root_reachable_component_refs(payload: Mapping[str, Any]) -> frozenset[str]:
+    metadata = payload.get("metadata")
+    component = metadata.get("component") if isinstance(metadata, dict) else None
+    root_ref = component.get("bom-ref") if isinstance(component, dict) else None
+    dependencies = payload.get("dependencies")
+    if not isinstance(root_ref, str) or not root_ref or not isinstance(dependencies, list):
+        return frozenset()
+    adjacency: dict[str, tuple[str, ...]] = {}
+    for dependency in dependencies:
+        if not isinstance(dependency, dict):
+            return frozenset()
+        reference = dependency.get("ref")
+        depends_on = dependency.get("dependsOn")
+        if (
+            not isinstance(reference, str)
+            or not reference
+            or reference in adjacency
+            or not isinstance(depends_on, list)
+            or not all(isinstance(item, str) and item for item in depends_on)
+        ):
+            return frozenset()
+        adjacency[reference] = tuple(depends_on)
+    reachable: set[str] = set()
+    pending = [root_ref]
+    while pending:
+        reference = pending.pop()
+        if reference in reachable:
+            continue
+        reachable.add(reference)
+        pending.extend(adjacency.get(reference, ()))
+    return frozenset(reachable)
+
+
+def _verify_linux_runtime_components(
+    payload: Mapping[str, Any],
+    *,
+    root: Path,
+) -> tuple[Finding, ...]:
+    findings: list[Finding] = []
+    components = payload.get("components")
+    if not isinstance(components, list):
+        return (
+            Finding(
+                "sbom_component_mismatch",
+                "sbom",
+                "runtime components must be a list",
+            ),
+        )
+
+    python_components: set[tuple[str, str]] = set()
+    apk_components: dict[tuple[str, str], Mapping[str, Any]] = {}
+    apk_component_architectures: dict[tuple[str, str], str] = {}
+    apk_refs: set[str] = set()
+    operating_system_refs: set[str] = set()
+    for index, item in enumerate(components, start=1):
+        if not isinstance(item, dict):
+            findings.append(
+                Finding(
+                    "sbom_component_metadata_invalid",
+                    f"sbom:component:{index}",
+                    "runtime package components must be CycloneDX objects",
+                )
+            )
+            continue
+        purl = item.get("purl")
+        if not isinstance(purl, str):
+            operating_system_ref = item.get("bom-ref")
+            if (
+                item.get("type") == "operating-system"
+                and item.get("name") == "alpine"
+                and item.get("version") == "3.24.1"
+                and isinstance(operating_system_ref, str)
+                and operating_system_ref
+                and not operating_system_refs
+            ):
+                operating_system_refs.add(operating_system_ref)
+                continue
+            findings.append(
+                Finding(
+                    "sbom_component_metadata_invalid",
+                    f"sbom:component:{index}",
+                    "only the Alpine 3.24.1 operating-system component may omit a purl",
+                )
+            )
+            continue
+        if purl.startswith("pkg:pypi/"):
+            match = _PYPI_PURL.fullmatch(purl)
+            identity = (
+                normalize_name(str(item.get("name"))),
+                str(item.get("version")),
+            )
+            if (
+                match is None
+                or item.get("type") != "library"
+                or normalize_name(match.group("name")) != identity[0]
+                or match.group("version") != identity[1]
+                or item.get("bom-ref") != purl
+                or identity in python_components
+            ):
+                findings.append(
+                    Finding(
+                        "sbom_component_metadata_invalid",
+                        f"sbom:component:{index}",
+                        "Python component purl, bom-ref, name, or version is invalid",
+                    )
+                )
+                continue
+            python_components.add(identity)
+            continue
+        if not purl.startswith("pkg:apk/"):
+            findings.append(
+                Finding(
+                    "sbom_component_metadata_invalid",
+                    f"sbom:component:{index}",
+                    "runtime library purl must identify a reviewed PyPI or Alpine package",
+                )
+            )
+            continue
+        match = _APK_PURL.fullmatch(purl)
+        if match is None:
+            findings.append(
+                Finding(
+                    "sbom_component_metadata_invalid",
+                    f"sbom:component:{index}",
+                    "APK purl must bind Alpine 3.24.1 and one reviewed architecture",
+                )
+            )
+            continue
+        identity = (match.group("name"), match.group("version"))
+        if (
+            item.get("type") != "library"
+            or item.get("name") != identity[0]
+            or str(item.get("version")) != identity[1]
+            or item.get("bom-ref") != purl
+            or identity in apk_components
+        ):
+            findings.append(
+                Finding(
+                    "sbom_component_metadata_invalid",
+                    f"sbom:component:{index}",
+                    "APK purl, bom-ref, name, version, or uniqueness is invalid",
+                )
+            )
+            continue
+        if not _valid_component_package_hash(item):
+            findings.append(
+                Finding(
+                    "sbom_component_hash_missing",
+                    f"sbom:component:{index}",
+                    "APK component needs a valid SHA-1 or SHA-256 package hash",
+                )
+            )
+        apk_components[identity] = item
+        apk_component_architectures[identity] = match.group("architecture")
+        apk_refs.add(purl)
+
+    expected_python = _expected_linux_python_components(root)
+    if python_components != expected_python:
+        findings.append(
+            Finding(
+                "sbom_component_mismatch",
+                "sbom",
+                f"python missing={sorted(expected_python - python_components)!r} "
+                f"extra={sorted(python_components - expected_python)!r}",
+            )
+        )
+    observed_apk = set(apk_components)
+    if observed_apk != RUNTIME_ALPINE_COMPONENTS:
+        findings.append(
+            Finding(
+                "sbom_component_mismatch",
+                "sbom",
+                f"apk missing={sorted(RUNTIME_ALPINE_COMPONENTS - observed_apk)!r} "
+                f"extra={sorted(observed_apk - RUNTIME_ALPINE_COMPONENTS)!r}",
+            )
+        )
+
+    selected_architectures = {
+        architecture
+        for architecture in apk_component_architectures.values()
+        if architecture != "noarch"
+    }
+    selected_architecture = (
+        next(iter(selected_architectures)) if len(selected_architectures) == 1 else None
+    )
+    if selected_architecture not in _APK_ARCHITECTURE_TO_DOCKER:
+        findings.append(
+            Finding(
+                "sbom_apk_architecture_invalid",
+                "sbom",
+                "expected one coherent aarch64 or x86_64 APK architecture",
+            )
+        )
+    else:
+        for identity, architecture in apk_component_architectures.items():
+            expected_architecture = (
+                "noarch" if identity in RUNTIME_ALPINE_NOARCH_COMPONENTS else selected_architecture
+            )
+            if architecture != expected_architecture:
+                findings.append(
+                    Finding(
+                        "sbom_apk_architecture_invalid",
+                        f"sbom:{identity[0]}",
+                        f"expected {expected_architecture}, observed {architecture}",
+                    )
+                )
+        for identity, (expected_url, expected_digest) in _postgres_client_apk_bindings(
+            selected_architecture
+        ).items():
+            item = apk_components.get(identity)
+            properties = item.get("properties") if isinstance(item, Mapping) else None
+            values: dict[str, list[object]] = {}
+            if isinstance(properties, list):
+                for value in properties:
+                    if isinstance(value, dict) and isinstance(value.get("name"), str):
+                        values.setdefault(value["name"], []).append(value.get("value"))
+            if values.get(_APK_SOURCE_URL_PROPERTY) != [expected_url] or values.get(
+                _APK_SOURCE_SHA256_PROPERTY
+            ) != [expected_digest]:
+                findings.append(
+                    Finding(
+                        "sbom_apk_binding_mismatch",
+                        f"sbom:{identity[0]}",
+                        "APK URL and architecture-specific SHA-256 properties are incomplete",
+                    )
+                )
+
+    reachable_refs = _root_reachable_component_refs(payload)
+    if not apk_refs or not apk_refs <= reachable_refs:
+        findings.append(
+            Finding(
+                "sbom_dependency_graph_invalid",
+                "sbom",
+                f"unreachable APK refs={sorted(apk_refs - reachable_refs)!r}",
+            )
+        )
+    return tuple(findings)
+
+
 def verify_cyclonedx_sbom(
     payload: Mapping[str, Any],
     *,
@@ -2310,29 +3801,27 @@ def verify_cyclonedx_sbom(
                 "expected CycloneDX 1.5 or 1.6",
             )
         )
-    requirements = load_requirements(root, RUNTIME_REQUIREMENTS)
-    expected = {
-        (item.normalized_name, item.version)
-        for item in requirements
-        if not (
-            linux_runtime and item.marker is not None and "sys_platform == 'win32'" in item.marker
-        )
-    }
-    components = payload.get("components")
-    observed: set[tuple[str, str]] = set()
-    if isinstance(components, list):
-        for item in components:
-            if isinstance(item, dict):
-                observed.add((normalize_name(str(item.get("name"))), str(item.get("version"))))
-    component_mismatch = expected - observed if linux_runtime else expected ^ observed
-    if component_mismatch:
-        findings.append(
-            Finding(
-                "sbom_component_mismatch",
-                "sbom",
-                f"missing={sorted(expected - observed)!r} extra={sorted(observed - expected)!r}",
+    if linux_runtime:
+        findings.extend(_verify_linux_runtime_components(payload, root=root))
+    else:
+        requirements = load_requirements(root, RUNTIME_REQUIREMENTS)
+        expected = {(item.normalized_name, item.version) for item in requirements}
+        components = payload.get("components")
+        observed: set[tuple[str, str]] = set()
+        if isinstance(components, list):
+            for item in components:
+                if isinstance(item, dict):
+                    observed.add((normalize_name(str(item.get("name"))), str(item.get("version"))))
+        component_mismatch = expected ^ observed
+        if component_mismatch:
+            findings.append(
+                Finding(
+                    "sbom_component_mismatch",
+                    "sbom",
+                    f"missing={sorted(expected - observed)!r} "
+                    f"extra={sorted(observed - expected)!r}",
+                )
             )
-        )
     component = payload.get("metadata", {}).get("component", {})
     hashes = component.get("hashes", ()) if isinstance(component, dict) else ()
     if {"alg": "SHA-256", "content": artifact_digest} not in hashes:
@@ -2409,6 +3898,60 @@ def bind_existing_cyclonedx_sbom(
         )
     )
     component["properties"] = retained
+    apk_architecture = _runtime_apk_architecture(bound)
+    apk_bindings = _postgres_client_apk_bindings(apk_architecture)
+    components = bound.get("components")
+    if not isinstance(components, list):
+        raise SupplyChainViolation(
+            (
+                Finding(
+                    "sbom_component_mismatch",
+                    "runtime-image.cdx.json",
+                    "runtime components must be a list",
+                ),
+            )
+        )
+    bound_identities: set[tuple[str, str]] = set()
+    for item in components:
+        if not isinstance(item, dict) or not isinstance(item.get("purl"), str):
+            continue
+        match = _APK_PURL.fullmatch(item["purl"])
+        if match is None or match.group("architecture") != apk_architecture:
+            continue
+        identity = (match.group("name"), match.group("version"))
+        binding = apk_bindings.get(identity)
+        if binding is None:
+            continue
+        properties = item.get("properties")
+        retained_apk_properties = (
+            [
+                value
+                for value in properties
+                if isinstance(value, dict)
+                and value.get("name") not in {_APK_SOURCE_URL_PROPERTY, _APK_SOURCE_SHA256_PROPERTY}
+            ]
+            if isinstance(properties, list)
+            else []
+        )
+        expected_url, expected_digest = binding
+        retained_apk_properties.extend(
+            (
+                {"name": _APK_SOURCE_URL_PROPERTY, "value": expected_url},
+                {"name": _APK_SOURCE_SHA256_PROPERTY, "value": expected_digest},
+            )
+        )
+        item["properties"] = retained_apk_properties
+        bound_identities.add(identity)
+    if bound_identities != POSTGRES_CLIENT_ALPINE_COMPONENTS:
+        raise SupplyChainViolation(
+            (
+                Finding(
+                    "sbom_apk_binding_mismatch",
+                    "runtime-image.cdx.json",
+                    "the five reviewed PostgreSQL client APK components are incomplete",
+                ),
+            )
+        )
     return bound
 
 

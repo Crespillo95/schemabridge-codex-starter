@@ -6,7 +6,9 @@ resources:
   - resource-governance.yaml
   - runtime-config.yaml
   - workloads.yaml
+  - backup-cronjob.yaml
   - services.yaml
   - disruption-budgets.yaml
   - network-policies.yaml
   - observer-contract.yaml
+  - prometheus-rules.yaml

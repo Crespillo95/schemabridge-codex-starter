@@ -99,14 +99,15 @@ def query_studio_database() -> Iterator[_Urls]:
                     schemabridge_api,
                     schemabridge_worker,
                     schemabridge_catalog,
-                    schemabridge_reconciler
+                    schemabridge_reconciler,
+                    schemabridge_backup
                 """
             ).format(sql.Identifier(database))
         )
     try:
         migrated = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert migrated.applied_versions == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
-        assert migrated.inspection.current_version == 11
+        assert migrated.applied_versions == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+        assert migrated.inspection.current_version == 12
         yield urls
     finally:
         with psycopg.connect(_admin_dsn(), autocommit=True) as connection:

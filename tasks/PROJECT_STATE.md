@@ -1,6 +1,6 @@
 # Project state
 
-Last updated: 2026-07-29
+Last updated: 2026-07-30
 
 ## Accepted milestone
 
@@ -32,31 +32,38 @@ M28 is complete and accepted locally. Schema v9, the six-role matrix, exact two-
 PostgreSQL-only compilation/guarding, bounded cost preflight, dynamic 10/75 and 5,434/41,028
 inventory paths, 164-test integration, 47-test acceptance, 2,714-test quality, 81.76% coverage,
 package/release/scale/diff postflight, and all nine desktop/mobile internal-browser scenarios pass.
-M29's reproducible local baseline is accepted. Control schema v11, the seven-role boundary,
-focused/full PostgreSQL gates, deterministic acceptance/evaluation, installed wheel, frozen
-dependency/supply-chain policy, distinct-target local recovery, scale contracts, and the 6×2
-internal-browser operations matrix pass. The monolithic quality command passes supply-chain,
-release audit, Ruff, and mypy before the local executor's 600-second limit; its exact 3154-test
-selection passes exhaustively in disjoint shards with no assertion failure. The retained
-full-coverage baseline over unchanged `src/schemabridge` is 3325 tests with 14 explicit external
-skips at 81.09%; it was not rerun after the final supply-chain-only patch. No external provider,
-cluster, alert delivery, immutable retention, external cutover/rollback, protected release, or
-production operation has been accepted.
+M29 is complete and accepted locally under D123. Its focused, schema/service,
+release/supply-chain/static, integration, acceptance, deterministic evaluation, runtime-wheel,
+local-image, recovery, scale, browser, quality, and coverage evidence passes after the final audit
+remediation. The tree advances the control plane to schema v12 and eight credentials, adds
+scheduled-backup and managed-web process boundaries, closes the Kubernetes graph at 63 resources,
+activates only producer-backed observability, and installs an exact five-APK amd64/arm64
+PostgreSQL-client matrix offline from a read-only BuildKit mount.
 
-The first hosted M29 supply-chain run failed closed before provenance because Trivy created
-non-ignored `.cache/trivy` after its image scans. Both workflows now use ignored
-`.local/trivy-cache`, and the initial 43 focused supply-chain regressions enforce
-`trivy_cache_path_invalid`. Corrected hosted evidence remains external and is not claimed by this
-local state record.
+The seven-job release-topology redesign and `make check` are closed locally. The workflow SHA-256
+is `9979c54be6ba39d1d7b606e6d882aa10e9868bb9d003482b30a780ee104d1f26`;
+Actionlint 1.7.12, ShellCheck 0.11.0, static policy, 154 adversarial release/supply-chain tests, and
+independent review pass with zero local P0/P1/P2 findings. Current-byte coverage passes 3534 tests
+with 14 external skips and 1 deselected at 81.17%, superseding D115's 81.09% historical baseline.
+Worktree/staged/history secret scans pass; exact-revision scan, stage/commit/push, and hosted
+checks remain pending. No external provider, cluster, alert/SIEM delivery, immutable retention, external
+cutover/rollback, exclusive registry-writer control, protected release, or production operation
+has been accepted.
+
+Historical hosted M29 findings remain useful development evidence. The first supply-chain run
+failed closed before provenance because Trivy created non-ignored `.cache/trivy` after its image
+scans. Both workflows now use ignored `.local/trivy-cache`, and static policy rejects any deviation
+as `trivy_cache_path_invalid`. A new hosted result for the current final bytes has not yet been
+recorded.
 
 Hosted run `30495413406` proved the cache correction by generating provenance and uploading all
 seven evidence paths, then failed closed on incomplete default `pip-audit` resolution and the old
 Debian image findings. The candidate now audits all runtime/build inputs with `--disable-pip` and
 uses the exact Python 3.13.14/Alpine 3.24 digest. Its only sdist build uses isolated,
 vulnerability-fixed, hash-bound tooling and is reproducible across amd64/arm64; offline BuildKit
-mounts prevent retaining build inputs. Local smoke and an updated Trivy scan pass with zero
-HIGH/CRITICAL findings. The next hosted result remains
-external evidence, and production/release remain NO-GO.
+mounts prevent retaining build inputs. The replacement pre-commit local image smoke/SBOM/scan now
+passes on stable product bytes, but its OCI revision label remains the prior HEAD and the hosted
+exact-commit result is pending. Production/release remain NO-GO.
 
 This is not a production or release acceptance. The development branch is versioned on a draft
 GitHub PR but has not been reviewed or accepted as a release candidate. The
@@ -575,7 +582,7 @@ evidence.
   All nine scenarios passed at desktop 1280x720 and mobile 390x844 with distinct tenant results,
   clean consoles, no overflow/XSS/protected-data hits, and exact state/database/role/port cleanup.
 
-## M29 local baseline — accepted; production/release not accepted
+## M29 final-byte remediation — local evidence partially closed; acceptance/release pending
 
 - The provider-neutral connector-secret application port has owner-only local and HTTPS
   Vault/OpenBao-compatible remote implementations. The remote path consumes a short-lived
@@ -586,46 +593,72 @@ evidence.
   global source/DataHub fallback in managed mode. API, reconciler, observer, and migrator do not
   receive connector-secret authority.
 - Control schema v10 adds `schemabridge_observer` and a security-barrier aggregate queue view.
-  Schema v11 adds immutable per-capability provider-version pins and version-bearing route
-  loaders. It does not infer a provider version from `route_revision` or backfill historical
-  routes; an unversioned route requires a newly approved rotation before it is executable.
-- Runtime composition now has separate web, API, execution, catalog, profile, reconciler,
-  observer, and operator boundaries. Managed web explicitly disables synchronous execution and
-  publication; it can plan, compile, validate, and preflight, but has no source-execution or
-  DataHub-writer capability. Streamlit-to-API execution submission and a durable publisher
-  queue/worker are not implemented and remain explicit NO-GO capabilities.
-- Long-running service telemetry uses schema-versioned bounded structured events and closed
-  low-cardinality OpenMetrics contracts. The aggregate-only observer, internal metrics exporters,
-  SLOs, alert rules, dashboards, SIEM contract, runbooks, and six-state safe operations view are
-  present. The final internal-browser matrix passes 6/6 states at desktop and 6/6 at 390×844 with
-  clean console, escaped hostile text, no overflow, protected-data hit, or dangerous action.
-- The M29 Kubernetes reference base contains distinct service accounts, explicit projected
-  identities only for secret readers, restricted non-root workloads, resource/topology controls,
-  PDBs, TLS ingress, namespace default-deny, capability-specific network paths, and six isolated
-  metrics scrape services. The production overlay deliberately retains blocking placeholders and
-  has not passed target-cluster admission or network-policy enforcement.
+  Schema v11 adds immutable per-capability provider-version pins and version-bearing route loaders
+  without inferring historical values. Schema v12 adds `schemabridge_backup`, producing eight
+  distinct control credentials: runtime, API, worker, catalog, reconciler, migrator, observer, and
+  backup.
+- Runtime composition has separate web, API, execution, catalog, profile, reconciler, observer,
+  backup, and operator boundaries. The scheduled backup uses its own read-only identity and
+  sanitized entrypoint. Its `pg_dump`/`pg_restore` subprocess environment contains only allowlisted
+  `PATH` and required `PG*` values, not ambient OpenAI, audit, OIDC, web, DataHub, or
+  connector-secret capability.
+- Managed `schemabridge-web` preflights typed configuration, authentication, and exact control
+  schema before replacing itself with the fixed Streamlit command. Startup/readiness repeat the
+  preflight and require an exact bounded 200/`ok` response from the loopback Streamlit health
+  endpoint. Managed web disables synchronous execution/publication and renders Operations as
+  unavailable without an operated data source; synthetic scenarios exist only in explicit
+  development/hosted-demo profiles.
+- Long-running service telemetry uses schema-versioned bounded structured events and a closed
+  low-cardinality registry. Exactly eight metric families with real runtime/observer producers,
+  six alerts, three SLOs, and eight dashboard panels form the active bundle. The Kubernetes
+  PrometheusRule mirrors the active alert group exactly. SIEM plus uncomposed
+  backup/release/integrity/capacity signals remain schema-validated under
+  `deploy/observability/inactive/`; they are not active delivery, paging, or health evidence.
+- The M29 Kubernetes reference base renders a closed 63-resource graph: seven long-running
+  Deployments, one hourly non-overlapping backup CronJob, one PrometheusRule, nine ServiceAccounts,
+  explicit projected identities only for secret readers, restricted non-root workloads,
+  resource/topology controls, PDBs, TLS ingress, namespace default deny, capability-specific
+  network paths, and six isolated metrics scrape services. The production overlay deliberately
+  retains blocking placeholders. The focused local manifest/render contract passes; target-cluster
+  admission and network-policy enforcement have not been operated.
 - Dependency inputs are represented by `uv.lock` plus exact hashed runtime/build exports.
   Supply-chain validation covers immutable actions/images, direct-license policy,
   vulnerability-report structure, SBOM/artifact binding, provenance subjects, and
   protected-release OIDC. No clean protected release has been built, scanned, attested, signed,
   or promoted from these bytes.
+- The final image design fetches exactly five reviewed Alpine APKs for each supported amd64/arm64
+  architecture, verifies their fixed SHA-256 values, and installs them from a read-only BuildKit
+  mount with `apk --no-network`. Static policy rejects an extra/mutable APK, changed URL/hash,
+  writable mount, raw filesystem copy, or online final-stage resolution. Local image
+  `sha256:db2a42ce187243c809a9fcc1272246fb914fbeefc9186b7a83b651014d015b79`
+  passes runtime, linkage, entrypoint, SBOM, `pip-audit`, and Trivy policy checks. It was built
+  before commit and its OCI label names the prior HEAD, so it is not release evidence.
 - Recovery policy and tooling enforce the hourly/RPO/RTO floor, verify signed archive/manifest
   pairs before retention decisions, default to dry-run, reject links/tampering/orphans, and move
   expired verified pairs into recoverable owner-only quarantine only after exact review. Remote
   encrypted object-lock transfer, external cutover, and operated rollback have not been performed.
-  The signed local backup restores into a distinct fresh database and verifies schema v11, state,
-  audit, and cleanup.
+  The schema-v12 distinct-target backup/restore cut passes 6 tests with 5 deselected in
+  5.96 seconds, and the recovery policy fingerprint is
+  `24bdecb8bcb8faab8ba83d64eadf201c0b1d31142ebab773b012735f8f6f34ae`.
 - Operator commands use an explicit component boundary and clean environment rather than
   inheriting web, OIDC, OpenAI, DataHub, API-auth, connector-secret, or developer `.env`
-  capabilities. The clean operator reset/migrate/check sequence reports all seven credentials
-  current at schema v11 and confirms source/control separation.
-- Final local evidence is recorded in `tasks/M29_HANDOFF.md`: 210 focused M29 tests; 18 focused
-  PostgreSQL tests; 158 full integration passes with 11 exact external skips; 43 acceptance passes
-  with four DataHub skips; deterministic evaluation; complete wheel migrations/entrypoints;
-  frozen install; local recovery; scale; browser acceptance; final 3154-test quality; and the
-  retained 3325-test/81.09% coverage baseline over unchanged measured product source. Production
-  and release remain **NO-GO**; M30/M31 and external provider, cluster, operations, recovery,
-  release, security, and operator acceptance remain blocked.
+  capabilities.
+- Release promotion is a seven-job prepublication state machine:
+  `audit → prepare → candidate → scan → attest → promote → release`. The protected GET-only audit
+  runs without checkout, repository code, or third-party actions; it reverifies an exact
+  historical immutable publication as a no-op or admits one fresh current-`main` build after
+  branch/ruleset, CI, immutable-Release, monotonic publication, and reference-absence checks.
+  Candidate resumption, scan, attestations, same-digest promotion, and the exact ten-asset Release
+  are independently reverified. Five approvals and post-readback are bounded to seven calendar
+  days; 35-day retention is only an incident-analysis buffer.
+- Current focused, schema/service, release/supply-chain/static, integration, acceptance,
+  deterministic evaluation, runtime-wheel, local-image, recovery, scale, final browser,
+  current-byte coverage, and `make check` evidence is recorded in `tasks/M29_HANDOFF.md`. Final
+  worktree/staged/history secret scans pass; exact-revision scan, stage/commit/push, and hosted
+  checks remain pending. Coverage is 81.17% and supersedes D115's historical 81.09%; D123 records final local acceptance.
+  Production and release remain **NO-GO**; M30/M31 and external provider, cluster, operations, recovery,
+  exclusive Release/GHCR writers, immutable Releases, security, and operator acceptance remain
+  blocked.
 
 ## Test evidence
 
@@ -1403,32 +1436,55 @@ M28 accepted evidence on 2026-07-28:
   cleanup; and
 - D103 accepts M28 locally. Production/release remains NO-GO and M29 is eligible but not started.
 
-M29 accepted local evidence on 2026-07-29:
+M29 final-byte remediation status on 2026-07-30:
 
-- schema v11 and all seven control credentials pass from a clean control-plane reset; 18 focused
-  observer/provider-version PostgreSQL tests pass, and the complete integration suite yields 158
-  passed with 11 explicit external skips;
-- acceptance passes 43 tests with four DataHub skips; deterministic evaluation, installed-wheel
-  migrations 1–11 and all ten entrypoints, frozen uv installation, dependency audit, local
-  distinct-target recovery, the 61-resource validator, and scale correctness pass;
-- the monolithic `make check` passes supply-chain/release audit, Ruff over 592 files, and strict
-  mypy over 300 source files before the local executor sends SIGTERM at its 600-second limit while
-  pytest is still passing at 68%. The exact 3154-test selection passes in exhaustive disjoint
-  shards (3079 + 39 + 22 + 14), with 211 service tests deselected and no assertion failure. The
-  retained full-coverage baseline over unchanged `src/schemabridge` passes 3325 tests with 14
-  explicit external skips and one performance deselection at 81.09% in 2436.86 seconds; that
-  command was not rerun after the final supply-chain-only patch;
-- the final local BuildKit image runs as UID/GID 10001, passes `pip check` and API/UI imports,
-  contains no build backend or wheelhouse, and reports zero HIGH/CRITICAL findings under the
-  current Trivy database. The reproducible `watchdog` wheel has the same exact SHA-256 on
-  two independent arm64 builds and amd64; Docker reports a local image size of 180,197,459 bytes;
-- the final internal-browser operations matrix passes all six states at desktop and mobile with
-  zero console warnings/errors, overflow, injected scripts, protected-data hits, or dangerous
-  actions, followed by exact listener/state cleanup; and
-- candidate/history secret and artifact scans pass before commit. Static provider/cluster/release
-  contracts are not operated proof: production and release remain NO-GO pending operated external
-  provider, cluster, retention, cutover/rollback, release, and review evidence listed in the M29
-  handoff.
+- focused M29 unit/security/manifest/observability/backup/web evidence passes 316 tests in
+  17.74 seconds. The final release/supply-chain cut passes 154 tests, and
+  `make supply-chain-static` passes over 894 candidate files and 23 direct licenses
+  with only the expected dirty-tree warning;
+- a clean reset/migrate/check reports schema v12, all eight distinct control credentials, no
+  pending migration, and verified source/control separation. The focused PostgreSQL
+  backup/restore cut passes 6 tests with 5 deselected in 5.96 seconds;
+- the Kubernetes contract is 63 resources and includes the hourly backup CronJob plus exact active
+  PrometheusRule. Its focused local manifest/render contract passes; target-cluster server-side
+  validation and enforcement remain external;
+- active observability is closed at eight produced metric families, six alerts, three SLOs, and
+  eight panels. SIEM and uncomposed signals are inactive until they have lifecycle-owned producers
+  and operated destinations;
+- the managed web wrapper, loopback readiness check, and Operations-unavailable state are
+  implemented. The final browser record passes all six development states at desktop and mobile,
+  renders production unavailable at 1280x720 and 390x844, and ends with a clean console, no
+  overflow/XSS/protected-data/dangerous-action finding, and exact cleanup;
+- the runtime's exact five-APK amd64/arm64 PostgreSQL-client closure and offline installation policy
+  are implemented. Local image
+  `sha256:db2a42ce187243c809a9fcc1272246fb914fbeefc9186b7a83b651014d015b79`
+  is 182236711 bytes, runs as 10001:10001, exposes `pg_dump`/`pg_restore` 16.14, passes `pip check`,
+  `ldd`, all entrypoint smoke, an exact 107-component SBOM, the zero-known-vulnerability
+  `pip-audit`, and Trivy HIGH/CRITICAL policy. It was built over stable product bytes before the
+  commit and its OCI revision label names prior HEAD
+  `9e8b69e1adce8e144b345d3b0d33482558804dc6`, so it is local pre-commit evidence, not a release;
+- full integration passes 161 with 11 explicit skips and 3327 deselected in 250.42 seconds; the
+  skips are unavailable DataHub credentials plus the retained M27 small fixture. Full acceptance
+  passes 43 with 4 DataHub-credential skips and 3452 deselected in 48.51 seconds. Deterministic
+  evaluation passes 11 tables/465 rows with `live_llm=not_run`, and the installed runtime wheel
+  verifies packaged migrations 1–12 and all current entrypoints;
+- scale correctness passes 25 tests in 3.16 seconds; the PostgreSQL postflight passes 8 with
+  4 deselected in 4.41 seconds and the correctness policy passes. Recovery policy passes with
+  fingerprint `24bdecb8bcb8faab8ba83d64eadf201c0b1d31142ebab773b012735f8f6f34ae`;
+  and
+- the seven-job release topology passes local Actionlint 1.7.12, ShellCheck 0.11.0, static policy,
+  154 adversarial tests, and independent review with P0/P1/P2 = 0 at workflow SHA-256
+  `9979c54be6ba39d1d7b606e6d882aa10e9868bb9d003482b30a780ee104d1f26`;
+  final `make check` passes 3335 tests with 214 deselected in 1234.82 seconds, Ruff over 608 files,
+  and strict mypy over 308 files; and
+- current-byte coverage passes 3534 tests with 14 external skips and 1 deselected at 81.17% in
+  4149.89 seconds, above the required 80%; and
+- worktree/staged/history secret scans pass; exact-revision scan, stage/commit/push, and hosted
+  checks remain pending. D123 records local acceptance. Static provider/cluster/release contracts
+  are not operated proof:
+  production and release remain NO-GO pending external provider, cluster, telemetry, retention,
+  cutover/rollback, exclusive Release/GHCR writers, immutable Releases, protected release, and
+  independent review evidence listed in the M29 handoff.
 
 ## Known risks
 
@@ -1437,6 +1493,10 @@ M29 accepted local evidence on 2026-07-29:
 - PowerShell bootstrap behavior is statically reviewed but unverified on Windows.
 - The draft PR is publication evidence, not a signed release candidate. Strict `make release-clean`,
   exact-commit deployment, external review, and the remaining production gates are still required.
+- Repository inspection found no `production-release` environment, unprotected `main`, zero
+  rulesets, and Immutable Releases disabled. Exclusive GitHub Release/GHCR package write authority
+  is also not operated or proven. All are external fail-closed prerequisites for the manual
+  promotion workflow.
 - The first hosted GitHub Actions run proved that local installed packages, ignored signed
   evidence, persistent DataHub state, and terminal color could mask clean-checkout failures. The
   tracked correction removes those assumptions; the current PR check status remains the
@@ -1603,9 +1663,10 @@ M29 accepted local evidence on 2026-07-29:
   case/request digest, it must not be described as native content-derived per-case identity.
 - M27's final whole-tree migration/service/package/quality/81.47%-coverage/scale/diff matrix
   passes. M28's final schema/service/package/quality/81.76%-coverage/scale/diff and desktop/mobile
-  browser matrices also pass locally. M29's reproducible local baseline passes, while the
-  dirty-tree/hosted release boundary, operated remote production controls, M30, and M31 remain
-  open.
+  browser matrices also pass locally. M29's current schema-v12/service/package/local-image/browser/
+  recovery/scale/release-topology/quality/current-byte coverage and precommit secret-scan evidence
+  passes, but exact-revision scan, publication, and operated remote production controls remain open.
+  Current 81.17% coverage supersedes D115's historical 81.09% baseline.
 - M29's evidence verifier accepts only CycloneDX 1.5 and 1.6. This closes the hosted Trivy 1.6
   compatibility found by run `30520807060` without relaxing complete runtime-component,
   artifact-digest, source-revision, lock, or provenance bindings; every other schema version
@@ -1632,10 +1693,13 @@ browser evidence, and the final matrix passing.
 M28 — governed connector routing, explicit dialects, immutable generation identity, and query-cost
 preflight — is complete and accepted locally. Its exact final automated and Codex internal-browser
 desktop/390x844 matrices are recorded in `tasks/M28_HANDOFF.md`.
-M29 — operations and supply-chain hardening — has an accepted reproducible local baseline and
-remains a production/release NO-GO. Its checked-in contracts and local drills are not operated
-evidence; external rotation, cluster admission, alert delivery, immutable retention, external
-cutover/rollback, protected release provenance, M30, and M31 still require separate acceptance.
+M29 — operations and supply-chain hardening — has closed its current focused, schema/service,
+release/supply-chain, quality, coverage, package, local-image, browser, recovery, evaluation,
+wheel, scale, and precommit secret-scan evidence and is accepted locally under D123. Exact-revision
+scan and publication remain pending. It remains a production/release NO-GO. Its checked-in contracts and
+local drills are not operated evidence; external rotation, cluster admission, active alert/SIEM
+delivery, immutable retention, external cutover/rollback, exclusive Release/GHCR writer control,
+immutable Releases, protected release provenance, M30, and M31 still require separate acceptance.
 M17/M18 release work remains independently blocked on a reviewed clean commit, strict
 `make release-clean`, exact-commit deployment, public/incognito and cold-start evidence, final
 media/links/checksums, and external reviewer sign-off.

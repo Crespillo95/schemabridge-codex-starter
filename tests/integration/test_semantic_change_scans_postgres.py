@@ -86,6 +86,15 @@ class _DatabaseUrls:
     reconciler: str
 
 
+def _database_clock(dsn: str) -> datetime:
+    with psycopg.connect(dsn) as connection:
+        row = connection.execute("SELECT clock_timestamp()").fetchone()
+    assert row is not None
+    value = row[0]
+    assert isinstance(value, datetime)
+    return value
+
+
 def _role_dsn(role: str, database: str) -> str:
     return f"postgresql://{role}:{role}@127.0.0.1:55434/{database}"
 
@@ -124,7 +133,7 @@ def scan_database() -> Iterator[_DatabaseUrls]:
         )
     try:
         migrated = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert migrated.inspection.current_version == 11
+        assert migrated.inspection.current_version == 12
         yield urls
     finally:
         with psycopg.connect(admin_dsn, autocommit=True) as connection:
@@ -586,7 +595,7 @@ def test_retry_and_terminal_failure_are_closed_and_database_timed(
     )
     assert claimed is not None
     caller_failed_at = NOW
-    before_failure = datetime.now(UTC)
+    before_failure = _database_clock(scan_database.reconciler)
     retry = store.fail(
         scope.workspace_id,
         claimed.scan_id,
@@ -598,8 +607,12 @@ def test_retry_and_terminal_failure_are_closed_and_database_timed(
         retry_at=caller_failed_at + semantic_change_scan_retry_delay(1),
         retain_until=None,
     )
+    after_failure = _database_clock(scan_database.reconciler)
     assert retry.status is SemanticChangeScanStatus.RETRY_WAIT
-    assert before_failure <= retry.updated_at <= datetime.now(UTC)
+    assert before_failure <= retry.updated_at <= after_failure
+    assert retry.failure is not None
+    assert retry.failure.occurred_at == retry.updated_at
+    assert retry.available_at == retry.updated_at + semantic_change_scan_retry_delay(1)
 
     terminal_scope = _scope()
     terminal_request = _registry_request(
@@ -615,6 +628,7 @@ def test_retry_and_terminal_failure_are_closed_and_database_timed(
     )
     assert terminal_claim is not None
     assert terminal_claim.scan_id == terminal_request.scan_id
+    before_terminal_failure = _database_clock(scan_database.reconciler)
     terminal = store.fail(
         terminal_scope.workspace_id,
         terminal_claim.scan_id,
@@ -626,8 +640,13 @@ def test_retry_and_terminal_failure_are_closed_and_database_timed(
         retry_at=None,
         retain_until=caller_failed_at + timedelta(days=30),
     )
+    after_terminal_failure = _database_clock(scan_database.reconciler)
     assert terminal.status is SemanticChangeScanStatus.FAILED
+    assert before_terminal_failure <= terminal.updated_at <= after_terminal_failure
     assert terminal.completed_at is not None
+    assert terminal.completed_at == terminal.updated_at
+    assert terminal.failure is not None
+    assert terminal.failure.occurred_at == terminal.updated_at
     assert terminal.retain_until == terminal.completed_at + timedelta(days=30)
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 from collections.abc import Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -13,6 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Barrier
+from urllib.parse import unquote, urlsplit
 from uuid import uuid4
 
 import psycopg
@@ -275,7 +277,7 @@ def fresh_restore_dsn() -> Iterator[str]:
 
 
 @pytest.fixture
-def fresh_backup_source_dsns() -> Iterator[tuple[str, str, str]]:
+def fresh_backup_source_dsns() -> Iterator[tuple[str, str, str, str]]:
     """Provide an isolated migrated source so backup tests never capture operator state."""
 
     database = f"schemabridge_backup_{uuid4().hex[:20]}"
@@ -294,10 +296,11 @@ def fresh_backup_source_dsns() -> Iterator[tuple[str, str, str]]:
     reconciler_dsn = (
         f"postgresql://schemabridge_reconciler:schemabridge_reconciler@127.0.0.1:55434/{database}"
     )
+    backup_dsn = f"postgresql://schemabridge_backup:schemabridge_backup@127.0.0.1:55434/{database}"
     try:
         migrated = PostgresControlPlaneMigrator(migrator_dsn, MIGRATIONS).migrate()
         assert migrated.inspection.is_current
-        yield migrator_dsn, runtime_dsn, reconciler_dsn
+        yield migrator_dsn, runtime_dsn, reconciler_dsn, backup_dsn
     finally:
         with psycopg.connect(ADMIN_DSN, autocommit=True) as connection:
             connection.execute(
@@ -326,6 +329,273 @@ def _governed_version(
         publication_approval_id=f"integration-publication-v{version}",
         trust=RegistryVersionTrust.STRICT,
     )
+
+
+def test_backup_identity_reads_complete_schema_and_cannot_write(
+    fresh_backup_source_dsns: tuple[str, str, str, str],
+) -> None:
+    _, _, _, backup_dsn = fresh_backup_source_dsns
+    expected_database = unquote(urlsplit(backup_dsn).path.removeprefix("/"))
+
+    with psycopg.connect(backup_dsn) as connection:
+        row = connection.execute(
+            """
+            SELECT
+                session_user,
+                current_user,
+                current_database(),
+                role.rolcanlogin,
+                role.rolsuper,
+                role.rolcreatedb,
+                role.rolcreaterole,
+                role.rolreplication,
+                role.rolbypassrls,
+                role.rolinherit,
+                NOT EXISTS (
+                    SELECT 1
+                    FROM pg_catalog.pg_auth_members AS membership
+                    WHERE membership.member = role.oid
+                      AND (
+                          membership.inherit_option
+                          OR membership.set_option
+                      )
+                ),
+                current_setting('default_transaction_read_only')::BOOLEAN,
+                current_setting('transaction_read_only')::BOOLEAN,
+                (
+                    SELECT setting::BIGINT
+                    FROM pg_catalog.pg_settings
+                    WHERE name = 'statement_timeout'
+                ),
+                (
+                    SELECT count(*)
+                    FROM schemabridge_control.schema_migrations
+                )
+            FROM pg_catalog.pg_roles AS role
+            WHERE role.rolname = current_user
+            """
+        ).fetchone()
+        assert row == (
+            "schemabridge_backup",
+            "schemabridge_backup",
+            expected_database,
+            True,
+            False,
+            False,
+            False,
+            False,
+            False,
+            False,
+            True,
+            True,
+            True,
+            900_000,
+            12,
+        )
+
+    with (
+        psycopg.connect(backup_dsn) as connection,
+        pytest.raises(psycopg.errors.InsufficientPrivilege),
+    ):
+        connection.execute("SET ROLE schemabridge_migrator")
+
+    with (
+        psycopg.connect(backup_dsn) as connection,
+        pytest.raises(psycopg.errors.ReadOnlySqlTransaction),
+    ):
+        connection.execute(
+            """
+            INSERT INTO schemabridge_control.schema_migrations (
+                version,
+                name,
+                checksum,
+                applied_at
+            )
+            VALUES (9999, 'forbidden', %s, statement_timestamp())
+            """,
+            ("f" * 64,),
+        )
+
+
+def _assert_backup_posture_rejected(
+    backup_dsn: str,
+    destination: Path,
+) -> None:
+    def forbidden_runner(
+        command: Sequence[str],
+        environment: Mapping[str, str],
+        timeout_seconds: int,
+    ) -> int:
+        del command, environment, timeout_seconds
+        raise AssertionError("pg_dump must not run for an unsafe backup identity")
+
+    with pytest.raises(ControlPlaneOperationError) as raised:
+        PostgresControlPlaneBackup(
+            backup_dsn,
+            MIGRATIONS,
+            AUDIT_KEYS,
+            "v1",
+            runner=forbidden_runner,
+        ).create_backup(destination)
+
+    assert raised.value.code is ControlPlaneOperationErrorCode.BACKUP_FAILED
+    assert str(raised.value) == "control-plane backup identity posture is invalid"
+    assert backup_dsn not in str(raised.value)
+    assert not tuple(destination.glob("*.dump"))
+    assert not tuple(destination.glob("*.manifest.json"))
+
+
+def test_backup_rechecks_superuser_membership_and_session_settings_before_pg_dump(
+    tmp_path: Path,
+    fresh_backup_source_dsns: tuple[str, str, str, str],
+) -> None:
+    _, _, _, backup_dsn = fresh_backup_source_dsns
+    database = unquote(urlsplit(backup_dsn).path.removeprefix("/"))
+    parent_role = f"schemabridge_backup_parent_{uuid4().hex[:16]}"
+
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as admin:
+        admin.execute("ALTER ROLE schemabridge_backup SUPERUSER")
+    try:
+        _assert_backup_posture_rejected(backup_dsn, tmp_path / "superuser")
+    finally:
+        with psycopg.connect(ADMIN_DSN, autocommit=True) as admin:
+            admin.execute("ALTER ROLE schemabridge_backup NOSUPERUSER")
+
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as admin:
+        admin.execute(sql.SQL("CREATE ROLE {} NOLOGIN").format(sql.Identifier(parent_role)))
+        admin.execute(
+            sql.SQL("GRANT {} TO schemabridge_backup").format(sql.Identifier(parent_role))
+        )
+    try:
+        _assert_backup_posture_rejected(backup_dsn, tmp_path / "membership")
+    finally:
+        with psycopg.connect(ADMIN_DSN, autocommit=True) as admin:
+            admin.execute(
+                sql.SQL("REVOKE {} FROM schemabridge_backup").format(sql.Identifier(parent_role))
+            )
+            admin.execute(sql.SQL("DROP ROLE {}").format(sql.Identifier(parent_role)))
+
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as admin:
+        admin.execute(
+            sql.SQL(
+                "ALTER ROLE schemabridge_backup IN DATABASE {} "
+                "SET default_transaction_read_only TO off"
+            ).format(sql.Identifier(database))
+        )
+    try:
+        _assert_backup_posture_rejected(backup_dsn, tmp_path / "read-write-default")
+    finally:
+        with psycopg.connect(ADMIN_DSN, autocommit=True) as admin:
+            admin.execute(
+                sql.SQL(
+                    "ALTER ROLE schemabridge_backup IN DATABASE {} "
+                    "RESET default_transaction_read_only"
+                ).format(sql.Identifier(database))
+            )
+
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as admin:
+        admin.execute(
+            sql.SQL(
+                "ALTER ROLE schemabridge_backup IN DATABASE {} SET statement_timeout TO 0"
+            ).format(sql.Identifier(database))
+        )
+    try:
+        _assert_backup_posture_rejected(backup_dsn, tmp_path / "unbounded-timeout")
+    finally:
+        with psycopg.connect(ADMIN_DSN, autocommit=True) as admin:
+            admin.execute(
+                sql.SQL(
+                    "ALTER ROLE schemabridge_backup IN DATABASE {} RESET statement_timeout"
+                ).format(sql.Identifier(database))
+            )
+
+
+def test_schema_v12_migration_rejects_unsafe_backup_role_posture(
+    tmp_path: Path,
+) -> None:
+    database = f"schemabridge_backup_migration_{uuid4().hex[:16]}"
+    parent_role = f"schemabridge_backup_parent_{uuid4().hex[:16]}"
+    migrations_v11 = tmp_path / "migrations-v11"
+    migrations_v11.mkdir()
+    for migration in sorted(MIGRATIONS.glob("*.sql")):
+        if migration.name < "0012_backup_identity.sql":
+            shutil.copy2(migration, migrations_v11 / migration.name)
+
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as admin:
+        admin.execute(
+            sql.SQL("CREATE DATABASE {} OWNER schemabridge_migrator").format(
+                sql.Identifier(database)
+            )
+        )
+        admin.execute(sql.SQL("CREATE ROLE {} NOLOGIN").format(sql.Identifier(parent_role)))
+    migrator_dsn = (
+        f"postgresql://schemabridge_migrator:schemabridge_migrator@127.0.0.1:55434/{database}"
+    )
+    version_11 = PostgresControlPlaneMigrator(migrator_dsn, migrations_v11)
+    version_12 = PostgresControlPlaneMigrator(migrator_dsn, MIGRATIONS)
+
+    def assert_migration_rejected() -> None:
+        with pytest.raises(ControlPlaneMigrationError) as raised:
+            version_12.migrate()
+        assert raised.value.code is ControlPlaneMigrationErrorCode.APPLY_FAILED
+        assert str(raised.value) == "control-plane migration failed and was rolled back"
+        assert migrator_dsn not in str(raised.value)
+        assert version_11.require_current().current_version == 11
+
+    try:
+        assert version_11.migrate().inspection.current_version == 11
+
+        with psycopg.connect(ADMIN_DSN, autocommit=True) as admin:
+            admin.execute("ALTER ROLE schemabridge_backup SUPERUSER")
+        try:
+            assert_migration_rejected()
+        finally:
+            with psycopg.connect(ADMIN_DSN, autocommit=True) as admin:
+                admin.execute("ALTER ROLE schemabridge_backup NOSUPERUSER")
+
+        with psycopg.connect(ADMIN_DSN, autocommit=True) as admin:
+            admin.execute(
+                sql.SQL("GRANT {} TO schemabridge_backup").format(sql.Identifier(parent_role))
+            )
+        try:
+            assert_migration_rejected()
+        finally:
+            with psycopg.connect(ADMIN_DSN, autocommit=True) as admin:
+                admin.execute(
+                    sql.SQL("REVOKE {} FROM schemabridge_backup").format(
+                        sql.Identifier(parent_role)
+                    )
+                )
+
+        with psycopg.connect(ADMIN_DSN, autocommit=True) as admin:
+            admin.execute(
+                sql.SQL(
+                    "ALTER ROLE schemabridge_backup IN DATABASE {} SET statement_timeout TO 0"
+                ).format(sql.Identifier(database))
+            )
+        try:
+            assert_migration_rejected()
+        finally:
+            with psycopg.connect(ADMIN_DSN, autocommit=True) as admin:
+                admin.execute(
+                    sql.SQL(
+                        "ALTER ROLE schemabridge_backup IN DATABASE {} RESET statement_timeout"
+                    ).format(sql.Identifier(database))
+                )
+
+        migrated = version_12.migrate()
+        assert migrated.inspection.current_version == 12
+        assert migrated.applied_versions == (12,)
+    finally:
+        with psycopg.connect(ADMIN_DSN, autocommit=True) as admin:
+            admin.execute("ALTER ROLE schemabridge_backup NOSUPERUSER")
+            admin.execute(
+                sql.SQL("REVOKE {} FROM schemabridge_backup").format(sql.Identifier(parent_role))
+            )
+            admin.execute(
+                sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(database))
+            )
+            admin.execute(sql.SQL("DROP ROLE IF EXISTS {}").format(sql.Identifier(parent_role)))
 
 
 def _confirmation(action: str) -> RegistryActivationConfirmation:
@@ -629,9 +899,9 @@ class _PreparedControlBackup:
 @pytest.fixture
 def prepared_control_backup(
     tmp_path: Path,
-    fresh_backup_source_dsns: tuple[str, str, str],
+    fresh_backup_source_dsns: tuple[str, str, str, str],
 ) -> _PreparedControlBackup:
-    operator_dsn, runtime_dsn, _ = fresh_backup_source_dsns
+    operator_dsn, runtime_dsn, _, backup_dsn = fresh_backup_source_dsns
     scope = _scope()
     runtime = PostgresRegistryControlStore(runtime_dsn, AUDIT_KEYS, "v1")
     versions = _versions(scope)
@@ -654,7 +924,7 @@ def prepared_control_backup(
     )
     tools = _DockerPostgresTools()
     archive, manifest_path, manifest = PostgresControlPlaneBackup(
-        operator_dsn,
+        backup_dsn,
         MIGRATIONS,
         AUDIT_KEYS,
         "v1",
@@ -1137,7 +1407,7 @@ def test_signed_backup_restores_exact_state_into_a_fresh_database(
     assert evidence.archive.stat().st_mode & 0o077 == 0
     assert evidence.manifest_path.stat().st_mode & 0o077 == 0
     manifest = evidence.manifest
-    assert manifest.table_counts["schema_migrations"] == 11
+    assert manifest.table_counts["schema_migrations"] == 12
     assert manifest.table_counts["execution_jobs"] == 0
     assert manifest.table_counts["execution_job_events"] == 0
     assert manifest.table_counts["registry_active_pointers"] == 1
@@ -1159,7 +1429,7 @@ def test_signed_backup_restores_exact_state_into_a_fresh_database(
 
     verification = restore.restore_backup(evidence.archive, evidence.manifest_path)
 
-    assert verification.schema_version == 11
+    assert verification.schema_version == 12
     assert verification.schema_checksum == manifest.schema_checksum
     assert verification.state_sha256 == manifest.state_sha256
     assert verification.table_counts == manifest.table_counts

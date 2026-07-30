@@ -49,6 +49,7 @@ def test_runtime_wheel_contract_matches_every_current_packaged_asset() -> None:
         (9, "tenant_connector_routing"),
         (10, "operational_observer"),
         (11, "connector_secret_versions"),
+        (12, "backup_identity"),
     )
     migration_files = sorted((root / "migrations" / "control_plane").glob("*.sql"))
     assert (
@@ -68,6 +69,7 @@ def test_runtime_wheel_contract_matches_every_current_packaged_asset() -> None:
         "schemabridge-semantic-change",
         "schemabridge-semantic-profile-worker",
         "schemabridge-semantic-reconciler",
+        "schemabridge-web",
         "schemabridge-worker",
     )
     assert set(HELP_CAPABLE_RUNTIME_COMMANDS) < set(scripts)

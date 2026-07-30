@@ -6,7 +6,11 @@ from schemabridge.adapters.observability.contracts import (
     validate_observability_bundle,
 )
 from schemabridge.adapters.observability.metrics import (
+    COMPOSED_OPERATIONAL_METRIC_NAMES,
+    COMPOSED_OPERATIONAL_METRIC_PRODUCERS,
     OPERATIONAL_METRICS,
+    UNCOMPOSED_OPERATIONAL_METRIC_NAMES,
+    ComposedMetricProducer,
     MetricContractError,
     MetricDefinition,
     MetricKind,
@@ -30,7 +34,11 @@ from schemabridge.adapters.observability.structured_logging import (
 )
 
 __all__ = [
+    "COMPOSED_OPERATIONAL_METRIC_NAMES",
+    "COMPOSED_OPERATIONAL_METRIC_PRODUCERS",
     "OPERATIONAL_METRICS",
+    "UNCOMPOSED_OPERATIONAL_METRIC_NAMES",
+    "ComposedMetricProducer",
     "LogOutcome",
     "LogSeverity",
     "MetricContractError",

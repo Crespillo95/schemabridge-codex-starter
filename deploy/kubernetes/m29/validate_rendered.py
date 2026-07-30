@@ -16,16 +16,19 @@ import yaml
 
 MAX_MANIFEST_BYTES: Final = 4 * 1024 * 1024
 NAMESPACE: Final = "schemabridge-system"
-REQUIRED_SECRET_OBJECTS: Final = 9
-SECRET_OBJECT_QUOTA: Final = 12
+REQUIRED_SECRET_OBJECTS: Final = 10
+SECRET_OBJECT_QUOTA: Final = 13
 ZERO_DIGEST: Final = "0" * 64
 IMAGE_PATTERN: Final = re.compile(r"^[a-z0-9][a-z0-9._:/-]*@sha256:[0-9a-f]{64}$")
 SAFE_NAME_PATTERN: Final = re.compile(r"^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?$")
 KV_MOUNT_PATTERN: Final = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
 OPAQUE_BINDING_PATTERN: Final = re.compile(r"^[a-z][a-z0-9._:-]{2,199}$")
 EXTERNAL_SECRET_NAME_PATTERN: Final = re.compile(
-    r"^schemabridge-external-(web|api|worker|catalog|profile|reconciler|observer)"
+    r"^schemabridge-external-(web|api|worker|catalog|profile|reconciler|observer|backup)"
     r"-v[1-9][0-9]*$"
+)
+ACTIVE_ALERT_RULES_PATH: Final = (
+    Path(__file__).resolve().parents[2] / "observability" / "alert-rules.yaml"
 )
 PLACEHOLDER_PATTERNS: Final = (
     re.compile(r"\.invalid\b", re.IGNORECASE),
@@ -66,16 +69,17 @@ EXPECTED_CAPABILITIES: Final = {
     "profile": {"secret-manager", "control-worker", "source-profile", "datahub-registry"},
     "reconciler": {"secret-manager", "control-reconciler", "datahub-registry"},
     "migrator": {"secret-manager", "control-migrator"},
-    "backup": {"secret-manager", "control-backup", "backup-store"},
+    "backup": {"control-backup"},
     "observer": {"control-observer"},
 }
 EXPECTED_COMMANDS: Final = {
-    "web": ["streamlit"],
+    "web": ["schemabridge-web"],
     "api": ["schemabridge-api"],
     "worker": ["schemabridge-worker"],
     "catalog": ["schemabridge-catalog"],
     "profile": ["schemabridge-semantic-profile-worker"],
     "reconciler": ["schemabridge-semantic-reconciler"],
+    "backup": ["schemabridge-backup"],
     "observer": ["schemabridge-observer"],
 }
 EXPECTED_SECRET_ENV: Final = {
@@ -104,6 +108,10 @@ EXPECTED_SECRET_ENV: Final = {
         "SCHEMABRIDGE_CONTROL_RECONCILER_DATABASE_URL": "control-reconciler-dsn",
         "SCHEMABRIDGE_CONTROL_AUDIT_SIGNING_KEY": "control-audit-signing-key",
     },
+    "backup": {
+        "SCHEMABRIDGE_CONTROL_BACKUP_DATABASE_URL": "control-backup-dsn",
+        "SCHEMABRIDGE_CONTROL_AUDIT_SIGNING_KEY": "control-audit-signing-key",
+    },
     "observer": {
         "SCHEMABRIDGE_CONTROL_OBSERVER_DATABASE_URL": "control-observer-dsn",
     },
@@ -115,6 +123,7 @@ EXPECTED_FIELD_ENV: Final = {
     "catalog": {"SCHEMABRIDGE_CATALOG_INDEXER_ID": "metadata.name"},
     "profile": {"SCHEMABRIDGE_WORKER_ID": "metadata.name"},
     "reconciler": {"SCHEMABRIDGE_SEMANTIC_RECONCILER_ID": "metadata.name"},
+    "backup": {},
     "observer": {},
 }
 COMMON_MANAGED_CONFIG_KEYS: Final = frozenset(
@@ -252,9 +261,7 @@ EXPECTED_COMPONENT_CONFIG_KEYS: Final = {
     "observer": OBSERVER_CONFIG_KEYS,
 }
 RBAC_KINDS: Final = frozenset({"Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding"})
-WORKLOAD_KINDS: Final = frozenset(
-    {"Pod", "ReplicaSet", "StatefulSet", "DaemonSet", "Job", "CronJob"}
-)
+WORKLOAD_KINDS: Final = frozenset({"Pod", "ReplicaSet", "StatefulSet", "DaemonSet", "Job"})
 ALLOWED_API_VERSIONS: Final = {
     "Namespace": "v1",
     "ServiceAccount": "v1",
@@ -262,10 +269,12 @@ ALLOWED_API_VERSIONS: Final = {
     "ResourceQuota": "v1",
     "LimitRange": "v1",
     "Deployment": "apps/v1",
+    "CronJob": "batch/v1",
     "Service": "v1",
     "PodDisruptionBudget": "policy/v1",
     "NetworkPolicy": "networking.k8s.io/v1",
     "ServiceMonitor": "monitoring.coreos.com/v1",
+    "PrometheusRule": "monitoring.coreos.com/v1",
     "Ingress": "networking.k8s.io/v1",
 }
 
@@ -362,7 +371,8 @@ def _check_namespace(
 
     cluster_scoped = {"Namespace", "ClusterRole", "ClusterRoleBinding"}
     for document in documents:
-        if document.get("kind") in cluster_scoped:
+        kind = document.get("kind")
+        if isinstance(kind, str) and kind in cluster_scoped:
             continue
         metadata = _mapping(document.get("metadata"))
         if metadata.get("namespace") != NAMESPACE:
@@ -419,6 +429,33 @@ def _check_service_accounts(
     for account in accounts:
         if account.get("automountServiceAccountToken") is not False:
             errors.add("service_account_automount")
+        if _component(account) == "backup":
+            metadata = _mapping(account.get("metadata"))
+            if (
+                set(account)
+                != {
+                    "apiVersion",
+                    "kind",
+                    "metadata",
+                    "automountServiceAccountToken",
+                }
+                or set(metadata) != {"name", "namespace", "labels"}
+                or metadata.get("name") != "schemabridge-backup"
+                or metadata.get("namespace") != NAMESPACE
+                or _mapping(metadata.get("labels"))
+                not in (
+                    {
+                        "app.kubernetes.io/part-of": "schemabridge",
+                        "app.kubernetes.io/component": "backup",
+                    },
+                    {
+                        "app.kubernetes.io/part-of": "schemabridge",
+                        "app.kubernetes.io/component": "backup",
+                        "schemabridge.io/environment": "production",
+                    },
+                )
+            ):
+                errors.add("backup_service_account_contract")
     if "default" in names:
         errors.add("default_service_account")
 
@@ -437,15 +474,7 @@ def _check_container_security(
         errors.add("image_pull_policy")
     if container.get("command") != EXPECTED_COMMANDS[component]:
         errors.add("unknown_workload_command")
-    if component == "web" and _sequence(container.get("args")) != [
-        "run",
-        "streamlit_app.py",
-        "--server.address=0.0.0.0",
-        "--server.port=7860",
-        "--server.headless=true",
-        "--server.fileWatcherType=none",
-        "--browser.gatherUsageStats=false",
-    ]:
+    if component == "web" and "args" in container:
         errors.add("unknown_workload_command")
     security = _mapping(container.get("securityContext"))
     if (
@@ -466,9 +495,31 @@ def _check_container_security(
     for probe in ("startupProbe", "readinessProbe", "livenessProbe"):
         if not _mapping(container.get(probe)):
             errors.add("missing_probe")
+    if component == "web":
+        _check_web_probe_contract(container, errors)
     pre_stop = _mapping(_mapping(container.get("lifecycle")).get("preStop"))
     if not pre_stop:
         errors.add("missing_graceful_drain")
+
+
+def _check_web_probe_contract(
+    container: Mapping[str, Any],
+    errors: set[str],
+) -> None:
+    mechanisms = {"exec", "httpGet", "tcpSocket", "grpc"}
+    for probe_name in ("startupProbe", "readinessProbe"):
+        probe = _mapping(container.get(probe_name))
+        command = _mapping(probe.get("exec")).get("command")
+        if command != ["schemabridge-web", "--probe-ready"] or set(probe) & mechanisms != {"exec"}:
+            errors.add("web_probe_contract")
+    liveness = _mapping(container.get("livenessProbe"))
+    http_get = _mapping(liveness.get("httpGet"))
+    if http_get != {
+        "path": "/_stcore/health",
+        "port": "http",
+        "scheme": "HTTP",
+    } or set(liveness) & mechanisms != {"httpGet"}:
+        errors.add("web_probe_contract")
 
 
 def _check_identity_projection(
@@ -746,6 +797,343 @@ def _check_deployments(
             errors.add("unexpected_init_container")
 
 
+def _has_closed_labels(
+    metadata: Mapping[str, Any],
+    *,
+    name: str,
+    component: str,
+) -> bool:
+    labels = _mapping(metadata.get("labels"))
+    expected = {
+        "app.kubernetes.io/name": name,
+        "app.kubernetes.io/part-of": "schemabridge",
+        "app.kubernetes.io/component": component,
+    }
+    return labels in (
+        expected,
+        {**expected, "schemabridge.io/environment": "production"},
+    )
+
+
+def _check_backup_environment(
+    container: Mapping[str, Any],
+    errors: set[str],
+) -> None:
+    expected_values = {
+        "SCHEMABRIDGE_ENVIRONMENT": "production",
+        "SCHEMABRIDGE_COMPONENT": "backup",
+        "SCHEMABRIDGE_AUTH_MODE": "local-demo",
+        "SCHEMABRIDGE_CONTROL_PLANE_MODE": "postgres",
+        "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA": "schemabridge_control",
+        "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION": "12",
+        "SCHEMABRIDGE_CONTROL_AUDIT_KEY_VERSION": "v1",
+    }
+    expected_secrets = EXPECTED_SECRET_ENV["backup"]
+    environment = _sequence(container.get("env"))
+    entries = {
+        _mapping(item).get("name"): _mapping(item)
+        for item in environment
+        if isinstance(_mapping(item).get("name"), str)
+    }
+    if (
+        len(entries) != len(environment)
+        or set(entries) != {*expected_values, *expected_secrets}
+        or any(
+            entries[name] != {"name": name, "value": value}
+            for name, value in expected_values.items()
+        )
+    ):
+        errors.add("backup_runtime_environment")
+        return
+
+    external_secret_names: set[str] = set()
+    for variable, key in expected_secrets.items():
+        entry = entries[variable]
+        value_from = _mapping(entry.get("valueFrom"))
+        reference = _mapping(value_from.get("secretKeyRef"))
+        secret_name = reference.get("name")
+        if (
+            set(entry) != {"name", "valueFrom"}
+            or set(value_from) != {"secretKeyRef"}
+            or set(reference) != {"name", "key"}
+            or reference.get("key") != key
+            or not isinstance(secret_name, str)
+            or EXTERNAL_SECRET_NAME_PATTERN.fullmatch(secret_name) is None
+            or re.fullmatch(r"schemabridge-external-backup-v[1-9][0-9]*", secret_name) is None
+        ):
+            errors.add("backup_runtime_environment")
+            continue
+        external_secret_names.add(secret_name)
+    if len(external_secret_names) != 1:
+        errors.add("backup_runtime_environment")
+
+
+def _check_backup_cronjob(
+    documents: Sequence[Mapping[str, Any]],
+    errors: set[str],
+) -> None:
+    cronjobs = _resources(documents, "CronJob")
+    if len(cronjobs) != 1:
+        errors.add("backup_cronjob_set")
+        return
+    cronjob = cronjobs[0]
+    metadata = _mapping(cronjob.get("metadata"))
+    if (
+        set(cronjob) != {"apiVersion", "kind", "metadata", "spec"}
+        or cronjob.get("apiVersion") != "batch/v1"
+        or metadata.get("name") != "schemabridge-backup"
+        or metadata.get("namespace") != NAMESPACE
+        or set(metadata) != {"name", "namespace", "labels"}
+        or not _has_closed_labels(
+            metadata,
+            name="schemabridge-backup",
+            component="backup",
+        )
+    ):
+        errors.add("backup_cronjob_identity")
+
+    spec = _mapping(cronjob.get("spec"))
+    expected_spec_keys = {
+        "schedule",
+        "timeZone",
+        "concurrencyPolicy",
+        "suspend",
+        "startingDeadlineSeconds",
+        "successfulJobsHistoryLimit",
+        "failedJobsHistoryLimit",
+        "jobTemplate",
+    }
+    if (
+        set(spec) != expected_spec_keys
+        or spec.get("schedule") != "0 * * * *"
+        or spec.get("timeZone") != "Etc/UTC"
+        or spec.get("concurrencyPolicy") != "Forbid"
+        or spec.get("suspend") is not False
+        or spec.get("startingDeadlineSeconds") != 900
+        or spec.get("successfulJobsHistoryLimit") != 3
+        or spec.get("failedJobsHistoryLimit") != 3
+    ):
+        errors.add("backup_schedule_contract")
+
+    job_template = _mapping(spec.get("jobTemplate"))
+    job_metadata = _mapping(job_template.get("metadata"))
+    job_spec = _mapping(job_template.get("spec"))
+    if (
+        set(job_template) != {"metadata", "spec"}
+        or set(job_metadata) != {"labels"}
+        or not _has_closed_labels(
+            job_metadata,
+            name="schemabridge-backup",
+            component="backup",
+        )
+        or set(job_spec)
+        != {
+            "backoffLimit",
+            "activeDeadlineSeconds",
+            "ttlSecondsAfterFinished",
+            "template",
+        }
+        or job_spec.get("backoffLimit") != 1
+        or job_spec.get("activeDeadlineSeconds") != 1800
+        or job_spec.get("ttlSecondsAfterFinished") != 86400
+    ):
+        errors.add("backup_job_contract")
+
+    pod_template = _mapping(job_spec.get("template"))
+    pod_metadata = _mapping(pod_template.get("metadata"))
+    pod = _mapping(pod_template.get("spec"))
+    if (
+        set(pod_template) != {"metadata", "spec"}
+        or set(pod_metadata) != {"labels"}
+        or not _has_closed_labels(
+            pod_metadata,
+            name="schemabridge-backup",
+            component="backup",
+        )
+        or set(pod)
+        != {
+            "serviceAccountName",
+            "automountServiceAccountToken",
+            "enableServiceLinks",
+            "hostNetwork",
+            "hostPID",
+            "hostIPC",
+            "restartPolicy",
+            "terminationGracePeriodSeconds",
+            "securityContext",
+            "containers",
+            "volumes",
+        }
+        or pod.get("serviceAccountName") != "schemabridge-backup"
+        or pod.get("automountServiceAccountToken") is not False
+        or pod.get("enableServiceLinks") is not False
+        or pod.get("hostNetwork") is not False
+        or pod.get("hostPID") is not False
+        or pod.get("hostIPC") is not False
+        or pod.get("restartPolicy") != "Never"
+        or pod.get("terminationGracePeriodSeconds") != 60
+    ):
+        errors.add("backup_pod_contract")
+
+    if _mapping(pod.get("securityContext")) != {
+        "runAsNonRoot": True,
+        "runAsUser": 10001,
+        "runAsGroup": 10001,
+        "fsGroup": 10001,
+        "fsGroupChangePolicy": "OnRootMismatch",
+        "seccompProfile": {"type": "RuntimeDefault"},
+    }:
+        errors.add("backup_pod_security")
+
+    containers = _sequence(pod.get("containers"))
+    if len(containers) != 1 or not isinstance(containers[0], Mapping):
+        errors.add("backup_container_count")
+        return
+    container = containers[0]
+    if set(container) != {
+        "name",
+        "image",
+        "imagePullPolicy",
+        "command",
+        "args",
+        "env",
+        "resources",
+        "securityContext",
+        "volumeMounts",
+    }:
+        errors.add("backup_container_contract")
+    image = container.get("image")
+    if not isinstance(image, str) or IMAGE_PATTERN.fullmatch(image) is None:
+        errors.add("mutable_image")
+    elif image.endswith(ZERO_DIGEST) or ".invalid/" in image:
+        errors.add("placeholder_image")
+    deployment_images: set[str] = set()
+    for deployment in _resources(documents, "Deployment"):
+        deployment_pod = _mapping(
+            _mapping(_mapping(deployment.get("spec")).get("template")).get("spec")
+        )
+        deployment_containers = _sequence(deployment_pod.get("containers"))
+        if len(deployment_containers) == 1:
+            deployment_image = _mapping(deployment_containers[0]).get("image")
+            if isinstance(deployment_image, str):
+                deployment_images.add(deployment_image)
+    if len(deployment_images) != 1 or image not in deployment_images:
+        errors.add("workload_image_contract")
+    if (
+        container.get("name") != "backup"
+        or container.get("imagePullPolicy") != "IfNotPresent"
+        or container.get("command") != EXPECTED_COMMANDS["backup"]
+        or container.get("args") != ["--destination", "/var/lib/schemabridge/backups/hourly"]
+    ):
+        errors.add("backup_command")
+    _check_backup_environment(container, errors)
+    if _mapping(container.get("resources")) != {
+        "requests": {
+            "cpu": "100m",
+            "memory": "128Mi",
+            "ephemeral-storage": "64Mi",
+        },
+        "limits": {
+            "cpu": "1",
+            "memory": "1Gi",
+            "ephemeral-storage": "512Mi",
+        },
+    }:
+        errors.add("backup_resource_bounds")
+    if _mapping(container.get("securityContext")) != {
+        "runAsNonRoot": True,
+        "runAsUser": 10001,
+        "runAsGroup": 10001,
+        "allowPrivilegeEscalation": False,
+        "readOnlyRootFilesystem": True,
+        "capabilities": {"drop": ["ALL"]},
+    }:
+        errors.add("backup_container_security")
+    if _sequence(container.get("volumeMounts")) != [
+        {
+            "name": "backup-store",
+            "mountPath": "/var/lib/schemabridge/backups",
+        },
+        {
+            "name": "trust-bundle",
+            "mountPath": "/var/run/secrets/schemabridge/trust",
+            "readOnly": True,
+        },
+        {"name": "runtime-tmp", "mountPath": "/tmp"},
+    ] or _sequence(pod.get("volumes")) != [
+        {
+            "name": "backup-store",
+            "persistentVolumeClaim": {"claimName": "schemabridge-backup-store-v1"},
+        },
+        {
+            "name": "trust-bundle",
+            "configMap": {
+                "name": "schemabridge-trust-bundle",
+                "defaultMode": 0o444,
+                "items": [{"key": "ca.crt", "path": "ca.crt"}],
+            },
+        },
+        {
+            "name": "runtime-tmp",
+            "emptyDir": {"medium": "Memory", "sizeLimit": "256Mi"},
+        },
+    ]:
+        errors.add("backup_storage_contract")
+
+
+def _load_active_alert_groups(errors: set[str]) -> Sequence[Any] | None:
+    try:
+        metadata = ACTIVE_ALERT_RULES_PATH.lstat()
+        if (
+            stat.S_ISLNK(metadata.st_mode)
+            or not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_size > MAX_MANIFEST_BYTES
+        ):
+            raise OSError
+        contract = load_documents(ACTIVE_ALERT_RULES_PATH.read_text(encoding="utf-8"))
+    except (ManifestValidationError, OSError, UnicodeError):
+        errors.add("prometheus_rule_contract")
+        return None
+    if (
+        len(contract) != 1
+        or set(contract[0]) != {"groups"}
+        or not _sequence(contract[0].get("groups"))
+    ):
+        errors.add("prometheus_rule_contract")
+        return None
+    return _sequence(contract[0].get("groups"))
+
+
+def _check_prometheus_rule(
+    documents: Sequence[Mapping[str, Any]],
+    errors: set[str],
+) -> None:
+    resources = _resources(documents, "PrometheusRule")
+    canonical_groups = _load_active_alert_groups(errors)
+    if len(resources) != 1:
+        errors.add("prometheus_rule_set")
+        return
+    resource = resources[0]
+    metadata = _mapping(resource.get("metadata"))
+    if (
+        set(resource) != {"apiVersion", "kind", "metadata", "spec"}
+        or resource.get("apiVersion") != "monitoring.coreos.com/v1"
+        or metadata.get("name") != "schemabridge-active-alerts"
+        or metadata.get("namespace") != NAMESPACE
+        or set(metadata) != {"name", "namespace", "labels"}
+        or not _has_closed_labels(
+            metadata,
+            name="schemabridge-active-alerts",
+            component="observability",
+        )
+    ):
+        errors.add("prometheus_rule_identity")
+    if canonical_groups is not None and _mapping(resource.get("spec")) != {
+        "groups": canonical_groups
+    }:
+        errors.add("prometheus_rule_contract")
+
+
 def _check_config(
     documents: Sequence[Mapping[str, Any]],
     errors: set[str],
@@ -812,7 +1200,7 @@ def _check_config(
                 "SCHEMABRIDGE_COMPONENT": "observer",
                 "SCHEMABRIDGE_CONTROL_PLANE_MODE": "postgres",
                 "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA": "schemabridge_control",
-                "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION": "11",
+                "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION": "12",
                 "SCHEMABRIDGE_LOG_LEVEL": "INFO",
                 "SCHEMABRIDGE_OBSERVER_BIND_HOST": "0.0.0.0",
                 "SCHEMABRIDGE_OBSERVER_PORT": "9464",
@@ -1029,7 +1417,6 @@ def _check_network_policies(
             errors.add("component_ingress")
         egress = _sequence(spec.get("egress"))
         has_dns = False
-        has_telemetry = False
         capabilities: set[str] = set()
         for rule in egress:
             rule_map = _mapping(rule)
@@ -1056,12 +1443,6 @@ def _check_network_policies(
                     and {("UDP", 53), ("TCP", 53)} <= ports
                 ):
                     has_dns = True
-                if (
-                    namespace_labels.get("kubernetes.io/metadata.name") == "observability"
-                    and pod_labels.get("app.kubernetes.io/name") == "opentelemetry-collector"
-                    and ("TCP", 4317) in ports
-                ):
-                    has_telemetry = True
                 capability = pod_labels.get("schemabridge.io/egress-capability")
                 recognized_peer = False
                 if isinstance(capability, str):
@@ -1076,32 +1457,21 @@ def _check_network_policies(
                         and ports == {("TCP", 443)}
                     )
                 elif (
-                    (
-                        namespace_labels == {}
-                        and pod_labels == {"app.kubernetes.io/component": "api"}
-                        and ports == {("TCP", 8520)}
-                        and component == "web"
-                    )
-                    or (
-                        has_dns
-                        and namespace_labels == {"kubernetes.io/metadata.name": "kube-system"}
-                        and pod_labels == {"k8s-app": "kube-dns"}
-                        and ports == {("TCP", 53), ("UDP", 53)}
-                    )
-                    or (
-                        has_telemetry
-                        and namespace_labels == {"kubernetes.io/metadata.name": "observability"}
-                        and pod_labels == {"app.kubernetes.io/name": "opentelemetry-collector"}
-                        and ports == {("TCP", 4317)}
-                    )
+                    namespace_labels == {}
+                    and pod_labels == {"app.kubernetes.io/component": "api"}
+                    and ports == {("TCP", 8520)}
+                    and component == "web"
+                ) or (
+                    has_dns
+                    and namespace_labels == {"kubernetes.io/metadata.name": "kube-system"}
+                    and pod_labels == {"k8s-app": "kube-dns"}
+                    and ports == {("TCP", 53), ("UDP", 53)}
                 ):
                     recognized_peer = True
                 if not recognized_peer:
                     errors.add("unapproved_egress_peer")
         if not has_dns:
             errors.add("dns_egress")
-        if component != "observer" and not has_telemetry:
-            errors.add("telemetry_egress")
         if capabilities != EXPECTED_CAPABILITIES[component]:
             errors.add("capability_egress")
         if component == "observer" and "secret-manager" in capabilities:
@@ -1211,6 +1581,7 @@ def _check_resilience(
             "limits.memory",
         }
         <= set(quota_hard)
+        or quota_hard.get("persistentvolumeclaims") != "4"
     ):
         errors.add("namespace_resource_bounds")
     if (
@@ -1470,7 +1841,7 @@ def _check_forbidden_surfaces(
     documents: Sequence[Mapping[str, Any]],
     errors: set[str],
 ) -> None:
-    kinds = {item.get("kind") for item in documents}
+    kinds = {kind for item in documents if isinstance((kind := item.get("kind")), str)}
     if "Secret" in kinds:
         errors.add("embedded_secret")
     if kinds & RBAC_KINDS:
@@ -1538,12 +1909,14 @@ def validate_documents(
     _check_namespace(documents, errors)
     _check_service_accounts(documents, errors)
     _check_deployments(documents, errors)
+    _check_backup_cronjob(documents, errors)
     _check_config(documents, errors)
     _check_api_probe_host_contract(documents, errors)
     _check_network_policies(documents, errors)
     _check_ingress_and_services(documents, errors)
     _check_resilience(documents, errors)
     _check_observer_contract(documents, errors)
+    _check_prometheus_rule(documents, errors)
     _check_forbidden_surfaces(documents, errors)
     if errors:
         raise ManifestValidationError(errors)

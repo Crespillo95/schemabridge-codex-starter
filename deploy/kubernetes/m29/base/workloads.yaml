@@ -61,15 +61,7 @@ spec:
         - name: web
           image: registry.invalid/schemabridge/runtime@sha256:0000000000000000000000000000000000000000000000000000000000000000
           imagePullPolicy: IfNotPresent
-          command: ["streamlit"]
-          args:
-            - run
-            - streamlit_app.py
-            - --server.address=0.0.0.0
-            - --server.port=7860
-            - --server.headless=true
-            - --server.fileWatcherType=none
-            - --browser.gatherUsageStats=false
+          command: ["schemabridge-web"]
           envFrom:
             - configMapRef:
                 name: schemabridge-remote-secret-config
@@ -106,20 +98,16 @@ spec:
               containerPort: 7860
               protocol: TCP
           startupProbe:
-            httpGet:
-              path: /_stcore/health
-              port: http
-              scheme: HTTP
+            exec:
+              command: ["schemabridge-web", "--probe-ready"]
             periodSeconds: 5
-            timeoutSeconds: 3
+            timeoutSeconds: 10
             failureThreshold: 30
           readinessProbe:
-            httpGet:
-              path: /_stcore/health
-              port: http
-              scheme: HTTP
+            exec:
+              command: ["schemabridge-web", "--probe-ready"]
             periodSeconds: 10
-            timeoutSeconds: 3
+            timeoutSeconds: 10
             failureThreshold: 3
           livenessProbe:
             httpGet:

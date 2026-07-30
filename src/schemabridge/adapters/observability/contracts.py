@@ -10,7 +10,11 @@ from typing import NoReturn, cast
 
 import yaml
 
-from schemabridge.adapters.observability.metrics import OPERATIONAL_METRICS
+from schemabridge.adapters.observability.metrics import (
+    COMPOSED_OPERATIONAL_METRIC_NAMES,
+    OPERATIONAL_METRICS,
+    UNCOMPOSED_OPERATIONAL_METRIC_NAMES,
+)
 from schemabridge.adapters.observability.structured_logging import (
     PUBLIC_LOG_FIELD_NAMES,
     TELEMETRY_SCHEMA_VERSION,
@@ -18,6 +22,18 @@ from schemabridge.adapters.observability.structured_logging import (
 
 _METRIC_REFERENCE = re.compile(r"\bschemabridge_[a-z0-9_]+\b")
 _ABSENT_METRIC_REFERENCE = re.compile(r"\babsent_over_time\s*\(\s*(schemabridge_[a-z0-9_]+)")
+_PROMQL_TOKEN = re.compile(
+    r"""
+    (?P<space>\s+)
+    |(?P<string>"(?:\\.|[^"\\])*")
+    |(?P<duration>(?:0|[1-9][0-9]*)(?:ms|s|m|h|d|w|y))
+    |(?P<number>(?:0|[1-9][0-9]*)(?:\.[0-9]+)?)
+    |(?P<operator>=~|!~|==|!=|>=|<=|[=<>+\-*/%^])
+    |(?P<identifier>[A-Za-z_:][A-Za-z0-9_:]*)
+    |(?P<punctuation>[{}\[\](),])
+    """,
+    re.VERBOSE,
+)
 _SAFE_IDENTIFIER = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
 _SAFE_DIAGNOSTICS = frozenset(
     {
@@ -56,116 +72,85 @@ _REQUIRED_FORBIDDEN_SIEM_FIELDS = frozenset(
         "username",
     }
 )
-_FAIL_CLOSED_ALERT_TOKENS = {
-    "SchemaBridgeApiAvailability": frozenset(
-        {
-            'up{job="schemabridge-api"}==0',
-            'absent_over_time(up{job="schemabridge-api"}[5m])',
-        }
-    ),
-    "SchemaBridgeApiP95Latency": frozenset(
-        {('rate(schemabridge_http_request_duration_seconds_bucket{service="api"}[10m])')}
-    ),
-    "SchemaBridgeQueueBacklog": frozenset(
-        {
-            'up{job="schemabridge-observer"}==0',
-            'absent_over_time(up{job="schemabridge-observer"}[5m])',
-            *(
-                f'absent_over_time(schemabridge_queue_depth{{queue="{queue}"}}[5m])'
-                for queue in ("execution", "catalog", "profile", "reconciliation")
-            ),
-            *(
-                f'absent_over_time(schemabridge_queue_oldest_age_seconds{{queue="{queue}"}}[5m])'
-                for queue in ("execution", "catalog", "profile", "reconciliation")
-            ),
-        }
-    ),
-    "SchemaBridgeUnsafeJobTransitions": frozenset(
-        {
-            (
-                "increase("
-                "schemabridge_job_transitions_total"
-                '{transition=~"lease_reclaimed|dead_lettered|authorization_stale"}'
-                "[15m])"
-            )
-        }
-    ),
-    "SchemaBridgeSourceFailureRate": frozenset(
-        {('rate(schemabridge_source_operations_total{outcome=~"timeout|error"}[10m])')}
-    ),
-    "SchemaBridgeRuntimeSecurityControlFailure": frozenset(
-        {"increase(schemabridge_runtime_control_failures_total[5m])"}
-    ),
-    "SchemaBridgeBackupStale": frozenset({"absent_over_time(schemabridge_backup_age_seconds[5m])"}),
-    "SchemaBridgeRestoreDrillStale": frozenset(
-        {"absent_over_time(schemabridge_restore_drill_age_seconds[5m])"}
-    ),
-    "SchemaBridgeIntegrityFailure": frozenset(
-        {"increase(schemabridge_integrity_failures_total[5m])>0"}
-    ),
-    "SchemaBridgeReleasePolicyFailure": frozenset(
-        {'schemabridge_release_policy_checks_total{outcome="error"}[15m]'}
-    ),
-    "SchemaBridgeCapacitySaturation": frozenset(
-        {
-            (
-                "absent_over_time("
-                "schemabridge_capacity_utilization_ratio"
-                f'{{resource="{resource}"}}[5m])'
-            )
-            for resource in ("worker", "database_pool", "queue", "telemetry_buffer")
-        }
-    ),
-    "SchemaBridgeProcessNotReady": frozenset(
-        {
-            *(
-                f'up{{job="schemabridge-{service}"}}==0'
-                for service in (
-                    "api",
-                    "worker",
-                    "catalog",
-                    "profile",
-                    "reconciler",
-                    "observer",
-                )
-            ),
-            *(
-                f'absent_over_time(up{{job="schemabridge-{service}"}}[5m])'
-                for service in (
-                    "api",
-                    "worker",
-                    "catalog",
-                    "profile",
-                    "reconciler",
-                    "observer",
-                )
-            ),
-            *(
-                f'absent_over_time(schemabridge_process_ready{{service="{service}"}}[5m])'
-                for service in (
-                    "api",
-                    "worker",
-                    "catalog",
-                    "profile",
-                    "reconciler",
-                    "observer",
-                )
-            ),
-        }
-    ),
-    "SchemaBridgeProcessRestartLoop": frozenset(
-        {"increase(schemabridge_process_restarts_total[15m])>3"}
-    ),
-    "SchemaBridgeTelemetryLoss": frozenset(
-        {
-            'up{job="schemabridge-observer"}==0',
-            'absent_over_time(up{job="schemabridge-observer"}[5m])',
-            "absent_over_time(schemabridge_telemetry_exports_total[5m])",
-        }
-    ),
-    "SchemaBridgeReconciliationStale": frozenset(
-        {"absent_over_time(schemabridge_reconciliation_age_seconds[5m])"}
-    ),
+_EXPECTED_ALERT_EXPRESSIONS = {
+    "SchemaBridgeApiAvailability": """
+        (
+          sum(rate(schemabridge_http_requests_total{service="api"}[10m])) > 0
+          and
+          (
+            sum(rate(schemabridge_http_requests_total{service="api",outcome="success"}[10m]))
+            /
+            clamp_min(sum(rate(schemabridge_http_requests_total{service="api"}[10m])), 0.001)
+            < 0.995
+          )
+        )
+        or on() (up{job="schemabridge-api"} == 0)
+        or on() absent_over_time(up{job="schemabridge-api"}[5m])
+    """,
+    "SchemaBridgeApiP95Latency": """
+        histogram_quantile(
+          0.95,
+          sum by (le) (
+            rate(schemabridge_http_request_duration_seconds_bucket{service="api"}[10m])
+          )
+        ) > 0.75
+    """,
+    "SchemaBridgeAuthorizationDenials": """
+        sum(increase(schemabridge_http_authorization_denials_total{service="api"}[10m]))
+        > 25
+    """,
+    "SchemaBridgeQueueBacklog": """
+        (
+          max by (queue) (schemabridge_queue_depth) > 1000
+          or
+          max by (queue) (schemabridge_queue_oldest_age_seconds) > 300
+        )
+        or on(queue)
+        absent_over_time(schemabridge_queue_depth{queue="execution"}[5m])
+        or on(queue)
+        absent_over_time(schemabridge_queue_depth{queue="catalog"}[5m])
+        or on(queue)
+        absent_over_time(schemabridge_queue_depth{queue="profile"}[5m])
+        or on(queue)
+        absent_over_time(schemabridge_queue_depth{queue="reconciliation"}[5m])
+        or on(queue)
+        absent_over_time(
+          schemabridge_queue_oldest_age_seconds{queue="execution"}[5m]
+        )
+        or on(queue)
+        absent_over_time(
+          schemabridge_queue_oldest_age_seconds{queue="catalog"}[5m]
+        )
+        or on(queue)
+        absent_over_time(
+          schemabridge_queue_oldest_age_seconds{queue="profile"}[5m]
+        )
+        or on(queue)
+        absent_over_time(
+          schemabridge_queue_oldest_age_seconds{queue="reconciliation"}[5m]
+        )
+        or on() (up{job="schemabridge-observer"} == 0)
+        or on() absent_over_time(up{job="schemabridge-observer"}[5m])
+    """,
+    "SchemaBridgeUnsafeJobTransitions": """
+        sum by (queue) (
+          increase(
+            schemabridge_job_transitions_total{
+              transition=~"dead_lettered|authorization_stale"
+            }[15m]
+          )
+        ) > 0
+    """,
+    "SchemaBridgeSourceFailureRate": """
+        sum by (capability) (
+          rate(schemabridge_source_operations_total{outcome=~"timeout|error"}[10m])
+        )
+        /
+        clamp_min(
+          sum by (capability) (rate(schemabridge_source_operations_total[10m])),
+          0.001
+        ) > 0.05
+    """,
 }
 
 _EXPECTED_ALERT_METRICS = {
@@ -181,20 +166,7 @@ _EXPECTED_ALERT_METRICS = {
         }
     ),
     "SchemaBridgeUnsafeJobTransitions": frozenset({"schemabridge_job_transitions_total"}),
-    "SchemaBridgeCancellationLatency": frozenset({"schemabridge_job_cancellation_latency_seconds"}),
     "SchemaBridgeSourceFailureRate": frozenset({"schemabridge_source_operations_total"}),
-    "SchemaBridgeRuntimeSecurityControlFailure": frozenset(
-        {"schemabridge_runtime_control_failures_total"}
-    ),
-    "SchemaBridgeBackupStale": frozenset({"schemabridge_backup_age_seconds"}),
-    "SchemaBridgeRestoreDrillStale": frozenset({"schemabridge_restore_drill_age_seconds"}),
-    "SchemaBridgeIntegrityFailure": frozenset({"schemabridge_integrity_failures_total"}),
-    "SchemaBridgeReleasePolicyFailure": frozenset({"schemabridge_release_policy_checks_total"}),
-    "SchemaBridgeCapacitySaturation": frozenset({"schemabridge_capacity_utilization_ratio"}),
-    "SchemaBridgeProcessNotReady": frozenset({"schemabridge_process_ready"}),
-    "SchemaBridgeProcessRestartLoop": frozenset({"schemabridge_process_restarts_total"}),
-    "SchemaBridgeTelemetryLoss": frozenset({"schemabridge_telemetry_exports_total"}),
-    "SchemaBridgeReconciliationStale": frozenset({"schemabridge_reconciliation_age_seconds"}),
 }
 
 # These gauges/exports are periodic contracts: missing samples are evidence of
@@ -207,12 +179,55 @@ _PERIODIC_ALERT_METRICS = {
             "schemabridge_queue_oldest_age_seconds",
         }
     ),
-    "SchemaBridgeBackupStale": frozenset({"schemabridge_backup_age_seconds"}),
-    "SchemaBridgeRestoreDrillStale": frozenset({"schemabridge_restore_drill_age_seconds"}),
-    "SchemaBridgeCapacitySaturation": frozenset({"schemabridge_capacity_utilization_ratio"}),
-    "SchemaBridgeProcessNotReady": frozenset({"schemabridge_process_ready"}),
-    "SchemaBridgeTelemetryLoss": frozenset({"schemabridge_telemetry_exports_total"}),
-    "SchemaBridgeReconciliationStale": frozenset({"schemabridge_reconciliation_age_seconds"}),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class _SloIndicatorContract:
+    category: str
+    indicator_type: str
+    fields: frozenset[str]
+    metrics: tuple[str, ...]
+
+
+_EXPECTED_SLO_INDICATORS = {
+    "api_availability": _SloIndicatorContract(
+        category="availability",
+        indicator_type="success_ratio",
+        fields=frozenset(
+            {
+                "type",
+                "metrics",
+                "good_outcome",
+                "total_outcomes",
+            }
+        ),
+        metrics=("schemabridge_http_requests_total",),
+    ),
+    "api_latency": _SloIndicatorContract(
+        category="latency",
+        indicator_type="histogram_threshold_ratio",
+        fields=frozenset(
+            {
+                "type",
+                "metrics",
+                "threshold_seconds",
+            }
+        ),
+        metrics=("schemabridge_http_request_duration_seconds",),
+    ),
+    "queue_freshness": _SloIndicatorContract(
+        category="freshness",
+        indicator_type="age_threshold_ratio",
+        fields=frozenset(
+            {
+                "type",
+                "metrics",
+                "queue_threshold_seconds",
+            }
+        ),
+        metrics=("schemabridge_queue_oldest_age_seconds",),
+    ),
 }
 
 
@@ -229,7 +244,9 @@ class ObservabilityBundleReport:
     slos: int
     dashboard_panels: int
     runbooks: int
-    siem_loss_metric: str
+    composed_metrics: int
+    uncomposed_metrics: int
+    siem_status: str
 
 
 def _reject() -> NoReturn:
@@ -252,32 +269,38 @@ def validate_observability_bundle(root: Path) -> ObservabilityBundleReport:
         "schema_version",
         "alerts",
         "slos",
-        "siem",
         "dashboard",
         "runbooks_directory",
+        "inactive_siem",
     }
     if set(manifest) != expected_manifest:
         _reject()
 
     alerts_name = _safe_relative_filename(manifest.get("alerts"), ".yaml")
     slos_name = _safe_relative_filename(manifest.get("slos"), ".yaml")
-    siem_name = _safe_relative_filename(manifest.get("siem"), ".yaml")
     dashboard_name = _safe_relative_filename(manifest.get("dashboard"), ".yaml")
     runbooks_name = _safe_relative_directory(manifest.get("runbooks_directory"))
+    inactive_siem_name = _safe_inactive_filename(manifest.get("inactive_siem"), ".yaml")
 
     alerts_path = _required_file(resolved_root, alerts_name)
     slos_path = _required_file(resolved_root, slos_name)
-    siem_path = _required_file(resolved_root, siem_name)
     runbooks_root = _required_directory(resolved_root, runbooks_name)
+    inactive_siem_path = _required_file(resolved_root, inactive_siem_name)
 
-    known_metrics = {item.name for item in OPERATIONAL_METRICS}
+    known_metrics = set(COMPOSED_OPERATIONAL_METRIC_NAMES)
+    registered_metrics = {item.name for item in OPERATIONAL_METRICS}
     page_alerts, referenced_runbooks, alert_names = _validate_alerts(
         _load_mapping(alerts_path),
         known_metrics=known_metrics,
         bundle_root=resolved_root,
     )
     slo_count = _validate_slos(_load_mapping(slos_path), known_metrics=known_metrics)
-    loss_metric = _validate_siem(_load_mapping(siem_path), known_metrics=known_metrics)
+    inactive_loss_metric = _validate_siem(
+        _load_mapping(inactive_siem_path),
+        known_metrics=registered_metrics,
+    )
+    if inactive_loss_metric not in UNCOMPOSED_OPERATIONAL_METRIC_NAMES:
+        _reject()
     dashboard_panels = _validate_dashboard(
         _load_mapping(_required_file(resolved_root, dashboard_name)),
         known_metrics=known_metrics,
@@ -294,7 +317,9 @@ def validate_observability_bundle(root: Path) -> ObservabilityBundleReport:
         slos=slo_count,
         dashboard_panels=dashboard_panels,
         runbooks=runbook_count,
-        siem_loss_metric=loss_metric,
+        composed_metrics=len(COMPOSED_OPERATIONAL_METRIC_NAMES),
+        uncomposed_metrics=len(UNCOMPOSED_OPERATIONAL_METRIC_NAMES),
+        siem_status="validated_not_composed",
     )
 
 
@@ -331,17 +356,15 @@ def _validate_alerts(
         alert_names.add(alert_name)
 
         expression = _as_nonempty_string(rule.get("expr"))
+        expected_expression = _EXPECTED_ALERT_EXPRESSIONS.get(alert_name)
+        if expected_expression is None or _promql_tokens(expression) != _promql_tokens(
+            expected_expression
+        ):
+            _reject()
         references = _metric_references(expression, known_metrics)
         expected_references = _EXPECTED_ALERT_METRICS.get(alert_name)
         if expected_references is None or references != expected_references:
             _reject()
-        required_fail_closed_tokens = _FAIL_CLOSED_ALERT_TOKENS.get(alert_name)
-        if required_fail_closed_tokens is not None:
-            compact_expression = re.sub(r"\s+", "", expression)
-            if not required_fail_closed_tokens <= {
-                token for token in required_fail_closed_tokens if token in compact_expression
-            }:
-                _reject()
         _as_nonempty_string(rule.get("for"))
 
         labels = _as_mapping(rule.get("labels"))
@@ -383,11 +406,12 @@ def _validate_alerts(
         runbooks.add(runbook_path)
         if severity == "page":
             page_alerts += 1
-    if page_alerts < 8:
+    if page_alerts < 5:
         _reject()
-    if alert_names != _EXPECTED_ALERT_METRICS.keys():
-        _reject()
-    if not _FAIL_CLOSED_ALERT_TOKENS.keys() <= alert_names:
+    if (
+        alert_names != _EXPECTED_ALERT_METRICS.keys()
+        or alert_names != _EXPECTED_ALERT_EXPRESSIONS.keys()
+    ):
         _reject()
     return page_alerts, runbooks, alert_names
 
@@ -470,6 +494,23 @@ def _metric_references(expression: str, known_metrics: set[str]) -> set[str]:
     return references
 
 
+def _promql_tokens(expression: str) -> tuple[str, ...]:
+    """Tokenize the closed active PromQL subset and reject every unknown byte."""
+
+    tokens: list[str] = []
+    position = 0
+    while position < len(expression):
+        matched = _PROMQL_TOKEN.match(expression, position)
+        if matched is None:
+            _reject()
+        position = matched.end()
+        if matched.lastgroup != "space":
+            tokens.append(matched.group())
+    if not tokens:
+        _reject()
+    return tuple(tokens)
+
+
 def _absence_guarded_metric_references(
     expression: str,
     known_metrics: set[str],
@@ -520,7 +561,13 @@ def _validate_slos(payload: Mapping[str, object], *, known_metrics: set[str]) ->
         identifier = _as_nonempty_string(slo.get("id"))
         category = _as_nonempty_string(slo.get("category"))
         owner = _as_nonempty_string(slo.get("owner"))
-        if identifier in identifiers or _SAFE_IDENTIFIER.fullmatch(owner) is None:
+        contract = _EXPECTED_SLO_INDICATORS.get(identifier)
+        if (
+            identifier in identifiers
+            or contract is None
+            or category != contract.category
+            or _SAFE_IDENTIFIER.fullmatch(owner) is None
+        ):
             _reject()
         identifiers.add(identifier)
         categories.add(category)
@@ -531,14 +578,35 @@ def _validate_slos(payload: Mapping[str, object], *, known_metrics: set[str]) ->
             _reject()
 
         indicator = _as_mapping(slo.get("indicator"))
-        _as_nonempty_string(indicator.get("type"))
-        metrics = _as_sequence(indicator.get("metrics"))
-        if not metrics:
+        if (
+            set(indicator) != contract.fields
+            or _as_nonempty_string(indicator.get("type")) != contract.indicator_type
+        ):
             _reject()
-        for metric in metrics:
-            if _as_nonempty_string(metric) not in known_metrics:
+        metrics = _as_sequence(indicator.get("metrics"))
+        normalized_metrics = tuple(_as_nonempty_string(metric) for metric in metrics)
+        if normalized_metrics != contract.metrics:
+            _reject()
+        for metric in normalized_metrics:
+            if metric not in known_metrics:
                 _reject()
-    if categories != {"availability", "latency", "freshness", "correctness"}:
+
+        if contract.indicator_type == "success_ratio":
+            if indicator.get("good_outcome") != "success" or _as_sequence(
+                indicator.get("total_outcomes")
+            ) != ["success", "error", "denied"]:
+                _reject()
+        elif contract.indicator_type == "histogram_threshold_ratio":
+            _as_positive_number(indicator.get("threshold_seconds"))
+        elif contract.indicator_type == "age_threshold_ratio":
+            _as_positive_int(indicator.get("queue_threshold_seconds"))
+        else:
+            _reject()
+    if identifiers != set(_EXPECTED_SLO_INDICATORS) or categories != {
+        "availability",
+        "latency",
+        "freshness",
+    }:
         _reject()
     return len(slos)
 
@@ -681,6 +749,19 @@ def _safe_relative_directory(value: object) -> str:
     return relative
 
 
+def _safe_inactive_filename(value: object, suffix: str) -> str:
+    relative = _as_nonempty_string(value)
+    path = Path(relative)
+    if (
+        path.is_absolute()
+        or len(path.parts) != 2
+        or path.parts[0] != "inactive"
+        or path.suffix != suffix
+    ):
+        _reject()
+    return relative
+
+
 def _safe_runbook_path(root: Path, reference: str) -> Path:
     relative = Path(reference)
     if (
@@ -721,6 +802,15 @@ def _as_fraction(value: object) -> float:
         _reject()
     converted = float(value)
     if not 0 <= converted <= 1:
+        _reject()
+    return converted
+
+
+def _as_positive_number(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        _reject()
+    converted = float(value)
+    if not 0 < converted <= 86_400:
         _reject()
     return converted
 

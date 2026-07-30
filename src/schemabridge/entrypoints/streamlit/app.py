@@ -26,9 +26,6 @@ from schemabridge.bootstrap import (
 from schemabridge.domain.identity import AuthenticatedPrincipal
 from schemabridge.domain.intents import IntentAlternativeId
 from schemabridge.domain.workflows import fingerprint_payload
-from schemabridge.entrypoints.streamlit.auth_config import (
-    validate_streamlit_auth_configuration,
-)
 from schemabridge.entrypoints.streamlit.components import (
     PageAction,
     PageActionKind,
@@ -42,8 +39,8 @@ from schemabridge.entrypoints.streamlit.components import (
     render_relationships,
     render_semantic_models,
 )
-from schemabridge.entrypoints.streamlit.m29_operations_scenario import (
-    render_m29_operations_scenario,
+from schemabridge.entrypoints.streamlit.m29_operations_page import (
+    render_m29_operations_page,
 )
 from schemabridge.entrypoints.streamlit.query_studio import (
     clear_query_studio_state,
@@ -258,7 +255,7 @@ def main() -> None:
     elif page == "Decisions":
         render_decisions(view)
     else:
-        render_m29_operations_scenario()
+        render_m29_operations_page(runtime.profile)
 
     if pending_action is not None:
         _perform_action(service, view, pending_action)
@@ -312,7 +309,7 @@ def _preflight_oidc(
 ) -> None:
     try:
         raw_secrets = st.secrets.to_dict()
-        validate_streamlit_auth_configuration(raw_secrets, runtime)
+        runtime.require_auth_configuration(raw_secrets)
     except Exception:
         _stop_for_runtime_configuration(
             "before reading the authenticated session",

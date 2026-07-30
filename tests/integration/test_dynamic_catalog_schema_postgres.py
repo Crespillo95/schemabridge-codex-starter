@@ -1,4 +1,4 @@
-"""PostgreSQL catalog schema, CAS, admission, and seven-role privilege proof."""
+"""PostgreSQL catalog schema, CAS, admission, and eight-role privilege proof."""
 
 from __future__ import annotations
 
@@ -68,6 +68,7 @@ class _DatabaseUrls:
     worker: str
     catalog: str
     observer: str
+    backup: str
 
 
 def _role_dsn(role: str, database: str) -> str:
@@ -84,6 +85,7 @@ def _database_urls(database: str) -> _DatabaseUrls:
         worker=_role_dsn("schemabridge_worker", database),
         catalog=_role_dsn("schemabridge_catalog", database),
         observer=_role_dsn("schemabridge_observer", database),
+        backup=_role_dsn("schemabridge_backup", database),
     )
 
 
@@ -111,6 +113,13 @@ def _create_database(database: str) -> _DatabaseUrls:
             pytest.fail(
                 "schemabridge_observer role is missing; recreate the M29 control-plane service"
             )
+        backup_role = connection.execute(
+            "SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'schemabridge_backup'"
+        ).fetchone()
+        if backup_role is None:
+            pytest.fail(
+                "schemabridge_backup role is missing; recreate the M29 control-plane service"
+            )
         connection.execute(
             sql.SQL("CREATE DATABASE {} OWNER schemabridge_migrator").format(
                 sql.Identifier(database)
@@ -129,7 +138,8 @@ def _create_database(database: str) -> _DatabaseUrls:
                     schemabridge_api,
                     schemabridge_worker,
                     schemabridge_catalog,
-                    schemabridge_observer
+                    schemabridge_observer,
+                    schemabridge_backup
                 """
             ).format(sql.Identifier(database))
         )
@@ -158,8 +168,8 @@ def catalog_database(tmp_path_factory: pytest.TempPathFactory) -> Iterator[_Data
             PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).require_current()
         assert stale.value.code is ControlPlaneMigrationErrorCode.SCHEMA_NOT_CURRENT
         upgraded = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert upgraded.applied_versions == (4, 5, 6, 7, 8, 9, 10, 11)
-        assert upgraded.inspection.current_version == 11
+        assert upgraded.applied_versions == (4, 5, 6, 7, 8, 9, 10, 11, 12)
+        assert upgraded.inspection.current_version == 12
         yield urls
     finally:
         _drop_database(database)
@@ -251,8 +261,8 @@ def test_pristine_schema_reaches_exact_current_version() -> None:
     urls = _create_database(database)
     try:
         migrated = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert migrated.applied_versions == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
-        assert migrated.inspection.current_version == 11
+        assert migrated.applied_versions == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+        assert migrated.inspection.current_version == 12
         with psycopg.connect(urls.migrator) as connection:
             tables = {
                 row[0]
@@ -293,7 +303,7 @@ def test_pristine_schema_reaches_exact_current_version() -> None:
         _drop_database(database)
 
 
-def test_seven_role_matrix_is_closed_and_catalog_cannot_activate_directly(
+def test_eight_role_matrix_is_closed_and_catalog_cannot_activate_directly(
     catalog_database: _DatabaseUrls,
 ) -> None:
     roles = {
@@ -304,6 +314,7 @@ def test_seven_role_matrix_is_closed_and_catalog_cannot_activate_directly(
         "worker": catalog_database.worker,
         "catalog": catalog_database.catalog,
         "observer": catalog_database.observer,
+        "backup": catalog_database.backup,
     }
     expected = {
         "migrator": (True, True, True, True, True, True, True, True),
@@ -313,6 +324,7 @@ def test_seven_role_matrix_is_closed_and_catalog_cannot_activate_directly(
         "worker": (True, False, False, False, False, False, True, True),
         "catalog": (True, False, True, False, True, True, False, False),
         "observer": (False, False, False, False, False, False, False, False),
+        "backup": (True, True, True, False, False, True, True, False),
     }
     query = """
         SELECT
@@ -380,6 +392,7 @@ def test_seven_role_matrix_is_closed_and_catalog_cannot_activate_directly(
         "worker": (False, False, False, False, False, False, False, False, False),
         "catalog": (False, False, False, False, False, True, True, True, True),
         "observer": (False, False, False, False, False, False, False, False, False),
+        "backup": (False, False, False, False, False, False, False, False, False),
     }
     for role, dsn in roles.items():
         with psycopg.connect(dsn) as connection:
@@ -502,6 +515,7 @@ def test_seven_role_matrix_is_closed_and_catalog_cannot_activate_directly(
         "worker": worker_allowed,
         "catalog": catalog_allowed,
         "observer": set(),
+        "backup": {(table_name, "SELECT") for table_name in table_names},
     }
     expected_memberships = {
         role: {"schemabridge_observer"} if role == "migrator" else set() for role in roles
@@ -543,6 +557,7 @@ def test_seven_role_matrix_is_closed_and_catalog_cannot_activate_directly(
                         "schemabridge_worker",
                         "schemabridge_catalog",
                         "schemabridge_observer",
+                        "schemabridge_backup",
                     ],
                 ),
             ).fetchall()
@@ -564,7 +579,7 @@ def test_seven_role_matrix_is_closed_and_catalog_cannot_activate_directly(
         )
 
 
-def test_v5_semantic_change_privileges_keep_the_seven_role_boundary(
+def test_v5_semantic_change_privileges_keep_the_eight_role_boundary(
     catalog_database: _DatabaseUrls,
 ) -> None:
     roles = {
@@ -575,6 +590,7 @@ def test_v5_semantic_change_privileges_keep_the_seven_role_boundary(
         "worker": catalog_database.worker,
         "catalog": catalog_database.catalog,
         "observer": catalog_database.observer,
+        "backup": catalog_database.backup,
     }
     tables = (
         "catalog_generation_changes",
@@ -610,6 +626,7 @@ def test_v5_semantic_change_privileges_keep_the_seven_role_boundary(
         "worker": set(),
         "catalog": set(),
         "observer": set(),
+        "backup": {(table, "SELECT") for table in tables},
     }
     view_names = (
         "semantic_catalog_evidence_projection",
@@ -634,6 +651,7 @@ def test_v5_semantic_change_privileges_keep_the_seven_role_boundary(
         "worker": {"semantic_context_gate_projection"},
         "catalog": set(),
         "observer": set(),
+        "backup": set(view_names),
     }
     for role, dsn in roles.items():
         with psycopg.connect(dsn) as connection:
@@ -750,7 +768,7 @@ def test_v5_semantic_change_privileges_keep_the_seven_role_boundary(
             role == "migrator",
         )
         assert audit_capability == (
-            role in {"migrator", "runtime", "reconciler"},
+            role in {"migrator", "runtime", "reconciler", "backup"},
             role in {"migrator", "runtime", "reconciler"},
             role in {"migrator", "runtime", "reconciler"},
         )

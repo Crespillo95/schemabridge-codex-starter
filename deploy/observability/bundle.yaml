@@ -1,6 +1,6 @@
 schema_version: schemabridge.observability-bundle.v1
 alerts: alert-rules.yaml
 slos: slos.yaml
-siem: siem-export.yaml
 dashboard: dashboard.yaml
 runbooks_directory: runbooks
+inactive_siem: inactive/siem-export.yaml

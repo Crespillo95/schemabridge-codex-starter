@@ -1,4 +1,4 @@
-"""Real PostgreSQL proof for state-preserving and fail-closed upgrades to v11."""
+"""Real PostgreSQL proof for state-preserving and fail-closed upgrades to v12."""
 
 from __future__ import annotations
 
@@ -43,6 +43,7 @@ CONTROL_ROLES = (
     "schemabridge_worker",
     "schemabridge_catalog",
     "schemabridge_observer",
+    "schemabridge_backup",
 )
 
 
@@ -68,7 +69,7 @@ def _create_database(database: str) -> None:
             )
         }
         if available_roles != set(CONTROL_ROLES):
-            pytest.fail("the seven control-plane roles must exist before the v5 upgrade test")
+            pytest.fail("the eight control-plane roles must exist before the v5 upgrade test")
         connection.execute(
             sql.SQL("CREATE DATABASE {} OWNER schemabridge_migrator").format(
                 sql.Identifier(database)
@@ -219,7 +220,7 @@ def _settle_ai_attempt(
     return settled
 
 
-def test_v5_to_v11_preserves_state_and_keeps_runtime_non_migrating(
+def test_v5_to_v12_preserves_state_and_keeps_runtime_non_migrating(
     tmp_path: Path,
 ) -> None:
     database = f"schemabridge_m27_upgrade_{uuid4().hex[:12]}"
@@ -303,8 +304,8 @@ def test_v5_to_v11_preserves_state_and_keeps_runtime_non_migrating(
         release_migrator = PostgresControlPlaneMigrator(migrator_dsn, MIGRATIONS)
         known = release_migrator.known_migrations()
         upgraded = release_migrator.migrate()
-        assert upgraded.applied_versions == (6, 7, 8, 9, 10, 11)
-        assert upgraded.inspection.current_version == 11
+        assert upgraded.applied_versions == (6, 7, 8, 9, 10, 11, 12)
+        assert upgraded.inspection.current_version == 12
         assert upgraded.inspection.is_current is True
 
         with psycopg.connect(migrator_dsn) as connection:
@@ -398,6 +399,14 @@ def test_v5_to_v11_preserves_state_and_keeps_runtime_non_migrating(
             False,
             True,
         )
+        assert privileges["schemabridge_backup"] == (
+            False,
+            False,
+            True,
+            False,
+            False,
+            False,
+        )
         for role in (
             "schemabridge_reconciler",
             "schemabridge_api",
@@ -412,7 +421,7 @@ def test_v5_to_v11_preserves_state_and_keeps_runtime_non_migrating(
             repository_root=ROOT,
             settings=_runtime_settings(runtime_dsn),
         )
-        assert current_runtime.current_version == 11
+        assert current_runtime.current_version == 12
         with psycopg.connect(runtime_dsn) as connection:
             assert (
                 connection.execute(
@@ -432,7 +441,7 @@ def test_v5_to_v11_preserves_state_and_keeps_runtime_non_migrating(
         _drop_database(database)
 
 
-def test_v6_to_v11_aborts_on_invalid_historical_success_without_rewriting(
+def test_v6_to_v12_aborts_on_invalid_historical_success_without_rewriting(
     tmp_path: Path,
 ) -> None:
     database = f"schemabridge_m27_invalid_{uuid4().hex[:12]}"
@@ -584,12 +593,12 @@ def test_v6_to_v11_aborts_on_invalid_historical_success_without_rewriting(
         assert v6_migrator.require_current().current_version == 6
         pending = release_migrator.inspect()
         assert pending.current_version == 6
-        assert tuple(item.version for item in pending.pending) == (7, 8, 9, 10, 11)
+        assert tuple(item.version for item in pending.pending) == (7, 8, 9, 10, 11, 12)
     finally:
         _drop_database(database)
 
 
-def test_populated_v6_success_failure_and_expiry_upgrade_to_v11_with_exact_acl(
+def test_populated_v6_success_failure_and_expiry_upgrade_to_v12_with_exact_acl(
     tmp_path: Path,
 ) -> None:
     database = f"schemabridge_m27_populated_{uuid4().hex[:12]}"
@@ -736,8 +745,8 @@ def test_populated_v6_success_failure_and_expiry_upgrade_to_v11_with_exact_acl(
 
         release = PostgresControlPlaneMigrator(migrator_dsn, MIGRATIONS)
         upgraded_release = release.migrate()
-        assert upgraded_release.applied_versions == (8, 9, 10, 11)
-        assert upgraded_release.inspection.current_version == 11
+        assert upgraded_release.applied_versions == (8, 9, 10, 11, 12)
+        assert upgraded_release.inspection.current_version == 12
 
         with psycopg.connect(migrator_dsn) as connection:
             reservations_after = connection.execute(
@@ -783,6 +792,7 @@ def test_populated_v6_success_failure_and_expiry_upgrade_to_v11_with_exact_acl(
         assert audits_after == audits_before
         assert dict(privileges) == {
             "schemabridge_api": False,
+            "schemabridge_backup": False,
             "schemabridge_catalog": False,
             "schemabridge_migrator": True,
             "schemabridge_observer": False,
@@ -1005,6 +1015,6 @@ def test_v8_aborts_on_invalid_audit_derivation_without_rewriting(
         assert v7_migrator.require_current().current_version == 7
         pending = release.inspect()
         assert pending.current_version == 7
-        assert tuple(item.version for item in pending.pending) == (8, 9, 10, 11)
+        assert tuple(item.version for item in pending.pending) == (8, 9, 10, 11, 12)
     finally:
         _drop_database(database)

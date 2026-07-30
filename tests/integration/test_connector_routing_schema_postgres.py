@@ -99,6 +99,7 @@ CONTROL_ROLES = (
     "schemabridge_worker",
     "schemabridge_catalog",
     "schemabridge_observer",
+    "schemabridge_backup",
 )
 WORKSPACE_ID = "workspace-m28-routing"
 CONNECTION_ID = "connection-m28-routing"
@@ -242,7 +243,7 @@ def _create_database(database: str) -> _DatabaseUrls:
             )
         }
         if available_roles != set(CONTROL_ROLES):
-            pytest.fail("the seven control-plane roles must exist before the connector test")
+            pytest.fail("the eight control-plane roles must exist before the connector test")
         connection.execute(
             sql.SQL("CREATE DATABASE {} OWNER schemabridge_migrator").format(
                 sql.Identifier(database)
@@ -291,8 +292,8 @@ def connector_database(
         assert v8.inspection.current_version == 8
 
         upgraded = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert upgraded.applied_versions == (9, 10, 11)
-        assert upgraded.inspection.current_version == 11
+        assert upgraded.applied_versions == (9, 10, 11, 12)
+        assert upgraded.inspection.current_version == 12
         yield urls
     finally:
         _drop_database(database)
@@ -667,7 +668,7 @@ def test_rotated_oidc_job_resolves_exact_historical_connector_workspace() -> Non
     urls = _create_database(database)
     try:
         migrated = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert migrated.inspection.current_version == 11
+        assert migrated.inspection.current_version == 12
 
         observed_at = datetime.now(UTC) - timedelta(minutes=2)
         pair = _oidc_pair(
@@ -867,13 +868,13 @@ def test_rotated_oidc_job_resolves_exact_historical_connector_workspace() -> Non
         _drop_database(database)
 
 
-def test_pristine_schema_applies_versions_one_through_eleven() -> None:
+def test_pristine_schema_applies_versions_one_through_twelve() -> None:
     database = f"schemabridge_connector_pristine_{uuid4().hex[:12]}"
     urls = _create_database(database)
     try:
         migrated = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert migrated.applied_versions == tuple(range(1, 12))
-        assert migrated.inspection.current_version == 11
+        assert migrated.applied_versions == tuple(range(1, 13))
+        assert migrated.inspection.current_version == 12
         with psycopg.connect(urls.migrator) as connection:
             tables = {
                 str(row[0])
@@ -942,8 +943,10 @@ def test_v11_keeps_unversioned_history_closed_and_blocks_new_legacy_writes(
             ).fetchone()
         assert created is not None
 
-        upgraded = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
+        v11_migrations = _migration_subset(tmp_path / "control-v11", 11)
+        upgraded = PostgresControlPlaneMigrator(urls.migrator, v11_migrations).migrate()
         assert upgraded.applied_versions == (11,)
+        assert upgraded.inspection.current_version == 11
         with psycopg.connect(urls.migrator) as connection:
             legacy_visible = connection.execute(
                 """
@@ -1971,7 +1974,7 @@ def test_catalog_promotion_and_route_rotation_serialize_without_crossing(
     )
 
 
-def test_seven_role_acl_closes_tables_and_separates_connector_loaders(
+def test_eight_role_acl_closes_tables_and_separates_connector_loaders(
     connector_database: _DatabaseUrls,
 ) -> None:
     function_grants = {
@@ -2083,8 +2086,12 @@ def test_seven_role_acl_closes_tables_and_separates_connector_loaders(
             assert owner_row is not None
             activation_owners[label] = str(owner_row[0])
 
-    assert private_table_acl == {role: role == "schemabridge_migrator" for role in CONTROL_ROLES}
-    assert semantic_binding_acl == {role: role == "schemabridge_migrator" for role in CONTROL_ROLES}
+    assert private_table_acl == {
+        role: role in {"schemabridge_migrator", "schemabridge_backup"} for role in CONTROL_ROLES
+    }
+    assert semantic_binding_acl == {
+        role: role in {"schemabridge_migrator", "schemabridge_backup"} for role in CONTROL_ROLES
+    }
     assert observed_grants == expected_grants
     assert activation_owners == {
         "legacy_catalog_activation": "schemabridge_migrator",
@@ -2320,7 +2327,7 @@ def test_v9_preserves_terminal_legacy_job_without_inventing_a_target(
         _finish_legacy_job(urls.migrator)
 
         upgraded = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert upgraded.applied_versions == (9, 10, 11)
+        assert upgraded.applied_versions == (9, 10, 11, 12)
         with psycopg.connect(urls.migrator) as connection:
             legacy = connection.execute(
                 """
@@ -2444,7 +2451,7 @@ def test_v8_active_generation_stays_runtime_closed_until_v9_full_refresh(
         assert activated == (0, 0)
 
         upgraded = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert upgraded.applied_versions == (9, 10, 11)
+        assert upgraded.applied_versions == (9, 10, 11, 12)
         _apply_route(
             urls.migrator,
             _route_change_args(

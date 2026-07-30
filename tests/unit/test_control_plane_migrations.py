@@ -122,6 +122,10 @@ class _FakeConnection:
             if self.ddl_failure is not None:
                 raise self.ddl_failure
             return _Cursor([])
+        if "control-plane backup role posture is invalid for schema v12" in query:
+            if self.ddl_failure is not None:
+                raise self.ddl_failure
+            return _Cursor([])
         raise AssertionError(f"unexpected statement in fake connection: {normalized[:80]}")
 
     @contextmanager
@@ -197,6 +201,7 @@ def _known_identity(version: int = 1) -> tuple[str, str]:
         9: _MIGRATIONS / "0009_tenant_connector_routing.sql",
         10: _MIGRATIONS / "0010_operational_observer.sql",
         11: _MIGRATIONS / "0011_connector_secret_versions.sql",
+        12: _MIGRATIONS / "0012_backup_identity.sql",
     }[version]
     return (
         migration_path.stem.split("_", maxsplit=1)[1],
@@ -221,6 +226,7 @@ def _current_database() -> _FakeDatabase:
             (9, *_known_identity(9)),
             (10, *_known_identity(10)),
             (11, *_known_identity(11)),
+            (12, *_known_identity(12)),
         ],
     )
 
@@ -248,6 +254,7 @@ def test_known_migrations_are_ordered_and_checksum_exact_file_bytes() -> None:
         (9, "tenant_connector_routing"),
         (10, "operational_observer"),
         (11, "connector_secret_versions"),
+        (12, "backup_identity"),
     ]
     assert known[0].checksum == _known_identity()[1]
     assert known[1].checksum == _known_identity(2)[1]
@@ -260,6 +267,7 @@ def test_known_migrations_are_ordered_and_checksum_exact_file_bytes() -> None:
     assert known[8].checksum == _known_identity(9)[1]
     assert known[9].checksum == _known_identity(10)[1]
     assert known[10].checksum == _known_identity(11)[1]
+    assert known[11].checksum == _known_identity(12)[1]
     assert factory.calls == []
     assert connection.statements == []
 
@@ -270,7 +278,7 @@ def test_inspect_pristine_database_reports_pending_without_ddl() -> None:
     inspection = migrator.inspect()
 
     assert inspection.current_version == 0
-    assert inspection.expected_version == 11
+    assert inspection.expected_version == 12
     assert tuple(item.version for item in inspection.pending) == (
         1,
         2,
@@ -283,6 +291,7 @@ def test_inspect_pristine_database_reports_pending_without_ddl() -> None:
         9,
         10,
         11,
+        12,
     )
     assert not inspection.is_current
     assert factory.calls == [("postgresql://not-logged.invalid/control", 4)]
@@ -296,7 +305,7 @@ def test_require_current_only_reads_and_rejects_database_behind() -> None:
         migrator.require_current()
 
     assert raised.value.code is ControlPlaneMigrationErrorCode.SCHEMA_NOT_CURRENT
-    assert "current=0, expected=11" in str(raised.value)
+    assert "current=0, expected=12" in str(raised.value)
     _assert_no_ddl(connection)
 
 
@@ -306,7 +315,7 @@ def test_explicit_migrate_applies_all_pending_work_in_one_transaction() -> None:
 
     result = migrator.migrate()
 
-    assert result.applied_versions == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+    assert result.applied_versions == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
     assert not result.already_current
     assert result.inspection.is_current
     assert connection.transaction_count == 1
@@ -324,13 +333,14 @@ def test_explicit_migrate_applies_all_pending_work_in_one_transaction() -> None:
         (9, "tenant_connector_routing", _known_identity(9)[1]),
         (10, "operational_observer", _known_identity(10)[1]),
         (11, "connector_secret_versions", _known_identity(11)[1]),
+        (12, "backup_identity", _known_identity(12)[1]),
     ]
     statements = [query for query, _ in connection.statements]
     assert "pg_try_advisory_xact_lock" in statements[0]
     assert sum("CREATE SCHEMA schemabridge_control" in query for query in statements) == 1
     assert (
         sum("INSERT INTO schemabridge_control.schema_migrations" in query for query in statements)
-        == 11
+        == 12
     )
 
 
@@ -386,7 +396,8 @@ def test_concurrent_migrator_fails_without_schema_mutation() -> None:
                 (9, *_known_identity(9)),
                 (10, *_known_identity(10)),
                 (11, *_known_identity(11)),
-                (12, "future_release", "a" * 64),
+                (12, *_known_identity(12)),
+                (13, "future_release", "a" * 64),
             ],
             ControlPlaneMigrationErrorCode.SCHEMA_AHEAD,
         ),
@@ -552,7 +563,59 @@ def test_demo_control_plane_defines_non_inheriting_observer_login() -> None:
         "GRANT CONNECT ON DATABASE schemabridge_control",
         maxsplit=1,
     )[1]
-    assert "schemabridge_observer;" in connect_grant
+    assert "schemabridge_observer," in connect_grant
+
+
+def test_backup_identity_is_non_inheriting_read_only_and_migration_allowlisted() -> None:
+    roles_sql = (_REPOSITORY_ROOT / "demo/control_plane/init/001_roles.sql").read_text(
+        encoding="utf-8"
+    )
+    definition = roles_sql.split(
+        "CREATE ROLE schemabridge_backup",
+        maxsplit=1,
+    )[1].split(";", maxsplit=1)[0]
+
+    assert "LOGIN" in definition
+    assert "NOSUPERUSER" in definition
+    assert "NOCREATEDB" in definition
+    assert "NOCREATEROLE" in definition
+    assert "NOREPLICATION" in definition
+    assert "NOBYPASSRLS" in definition
+    assert "NOINHERIT" in definition
+    assert "SET default_transaction_read_only = on;" in roles_sql
+    assert "SET statement_timeout = '15min';" in roles_sql
+    assert (
+        "schemabridge_backup;"
+        in roles_sql.split(
+            "GRANT CONNECT ON DATABASE schemabridge_control",
+            maxsplit=1,
+        )[1]
+    )
+
+    migration_sql = (_MIGRATIONS / "0012_backup_identity.sql").read_text(encoding="utf-8")
+    assert "role.rolname = 'schemabridge_backup'" in migration_sql
+    assert "role.rolcanlogin" in migration_sql
+    assert "NOT role.rolsuper" in migration_sql
+    assert "NOT role.rolcreatedb" in migration_sql
+    assert "NOT role.rolcreaterole" in migration_sql
+    assert "NOT role.rolreplication" in migration_sql
+    assert "NOT role.rolbypassrls" in migration_sql
+    assert "NOT role.rolinherit" in migration_sql
+    assert "FROM pg_catalog.pg_auth_members AS membership" in migration_sql
+    assert "membership.inherit_option" in migration_sql
+    assert "membership.set_option" in migration_sql
+    assert "default_transaction_read_only" in migration_sql
+    assert "statement_timeout" in migration_sql
+    assert "statement_timeout_ms > 900000" in migration_sql
+    assert "control-plane backup role posture is invalid for schema v12" in migration_sql
+    assert "GRANT USAGE ON SCHEMA schemabridge_control" in migration_sql
+    assert "GRANT SELECT ON ALL TABLES IN SCHEMA schemabridge_control" in migration_sql
+    assert "GRANT SELECT ON ALL SEQUENCES IN SCHEMA schemabridge_control" in migration_sql
+    assert "ALTER ROLE schemabridge_backup" not in migration_sql
+    assert "GRANT INSERT" not in migration_sql
+    assert "GRANT UPDATE" not in migration_sql
+    assert "GRANT DELETE" not in migration_sql
+    assert "GRANT CREATE" not in migration_sql
 
 
 def test_observer_migration_is_fail_closed_and_exactly_read_allowlisted() -> None:

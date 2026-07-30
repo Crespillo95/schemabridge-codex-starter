@@ -23,6 +23,55 @@ COPY migrations ./migrations
 RUN python -m pip wheel --no-cache-dir --no-deps --no-build-isolation \
     --wheel-dir /tmp/dist .
 
+FROM python:3.13.14-alpine3.24@sha256:399babc8b49529dabfd9c922f2b5eea81d611e4512e3ed250d75bd2e7683f4b0 AS postgres-client-apks
+
+ARG TARGETARCH
+
+RUN set -eu; \
+    case "$TARGETARCH" in \
+      amd64) \
+        libpq_url=https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/libpq-18.4-r0.apk; \
+        libpq_sha256=145d0d57ce40baaf2d7191e66dc18b8872822642939a0264fd4fc1c73d6599f1; \
+        lz4_url=https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/lz4-libs-1.10.0-r1.apk; \
+        lz4_sha256=3ad4912ab8ecf5f6236fdb751f88243006b3a8f152684e455b781e16284dd298; \
+        postgresql_common_url=https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/postgresql-common-1.3-r0.apk; \
+        postgresql_common_sha256=749d8a88b56c84b415372655435600c749345113e21ce8fe9964f7e22345cbff; \
+        postgresql_client_url=https://dl-cdn.alpinelinux.org/alpine/v3.24/community/x86_64/postgresql16-client-16.14-r0.apk; \
+        postgresql_client_sha256=21409f4ee297e6805a6688ba7fc91c20f66f972e79865db42b550348b20381d5; \
+        zstd_url=https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/zstd-libs-1.5.7-r2.apk; \
+        zstd_sha256=23c6065b0049b2406441564bcf0032515a43f78e80d76fcb85535a3803ef5d4e \
+        ;; \
+      arm64) \
+        libpq_url=https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/libpq-18.4-r0.apk; \
+        libpq_sha256=d6e4808216810535808523980a78608569be2318cf05e6034ffb03f519e91a56; \
+        lz4_url=https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/lz4-libs-1.10.0-r1.apk; \
+        lz4_sha256=af6cbe553adda941e04ac40cf0123455b714d65392472389113e7d6dcebbd8d8; \
+        postgresql_common_url=https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/postgresql-common-1.3-r0.apk; \
+        postgresql_common_sha256=ecddbd6272f5034f30d78ff59634c07f862a13a2ad3d29078c0e7985b827fc73; \
+        postgresql_client_url=https://dl-cdn.alpinelinux.org/alpine/v3.24/community/aarch64/postgresql16-client-16.14-r0.apk; \
+        postgresql_client_sha256=d1a0095b8a4a42bd46136bec4117a64fc1f5282a0c46a01ff5642ad14bada995; \
+        zstd_url=https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/zstd-libs-1.5.7-r2.apk; \
+        zstd_sha256=2bb5136c89f5b0bbe1554c8915a3b520d5aa63ae2a51d4d821eb81698db5a818 \
+        ;; \
+      *) \
+        printf 'unsupported TARGETARCH: %s\n' "$TARGETARCH" >&2; \
+        exit 1 \
+        ;; \
+    esac; \
+    mkdir -p /postgres-client-apks; \
+    fetch_apk() { \
+      url="$1"; \
+      expected_sha256="$2"; \
+      destination="/postgres-client-apks/${url##*/}"; \
+      wget -q -T 60 -O "$destination" "$url"; \
+      printf '%s  %s\n' "$expected_sha256" "$destination" | sha256sum -c -; \
+    }; \
+    fetch_apk "$libpq_url" "$libpq_sha256"; \
+    fetch_apk "$lz4_url" "$lz4_sha256"; \
+    fetch_apk "$postgresql_common_url" "$postgresql_common_sha256"; \
+    fetch_apk "$postgresql_client_url" "$postgresql_client_sha256"; \
+    fetch_apk "$zstd_url" "$zstd_sha256"
+
 FROM python:3.13.14-alpine3.24@sha256:399babc8b49529dabfd9c922f2b5eea81d611e4512e3ed250d75bd2e7683f4b0
 
 ARG SCHEMABRIDGE_RELEASE_REF=release-ref-not-supplied
@@ -35,6 +84,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     SCHEMABRIDGE_RELEASE_REF=${SCHEMABRIDGE_RELEASE_REF}
 
+RUN --mount=from=postgres-client-apks,source=/postgres-client-apks,target=/postgres-client-apks,ro \
+    apk add --no-cache --no-network \
+    /postgres-client-apks/libpq-18.4-r0.apk \
+    /postgres-client-apks/lz4-libs-1.10.0-r1.apk \
+    /postgres-client-apks/postgresql-common-1.3-r0.apk \
+    /postgres-client-apks/postgresql16-client-16.14-r0.apk \
+    /postgres-client-apks/zstd-libs-1.5.7-r2.apk
 RUN adduser -D -u 10001 schemabridge
 WORKDIR /opt/schemabridge
 

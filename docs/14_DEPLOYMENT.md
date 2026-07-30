@@ -73,6 +73,14 @@ secret. Register the same URI with the provider. Managed startup rejects HTTP re
 URLs, a discovery origin different from the configured issuer, a client ID different from the
 configured audience, missing/placeholder/weak secrets, and token exposure.
 
+The private TOML check is implemented behind
+`application/ports/browser_auth.py` by
+`adapters/identity/streamlit_auth.py`. Only `bootstrap.py` composes that adapter into the
+Streamlit runtime options; the entrypoint passes `st.secrets` through the port and never imports
+the adapter. Preserve this one-way dependency when packaging or introducing another browser
+framework: bootstrap must not import the Streamlit entrypoint, and the adapter must not import
+bootstrap or any entrypoint.
+
 Set `SCHEMABRIDGE_OIDC_ALLOWED_TENANTS` to a non-empty JSON array of exact, case-sensitive tenant
 claim values (at most 256 values of at most 120 characters). Inject a unique, random,
 at-least-32-UTF-8-byte `SCHEMABRIDGE_PSEUDONYMIZATION_KEY` with at least eight distinct byte values
@@ -359,6 +367,16 @@ Python 3.13.14/Alpine 3.24 builder converts the verified `watchdog` sdist into t
 BuildKit mounts with `--no-index`. The vulnerability-fixed backend is isolated and hash-pinned in
 `requirements/watchdog-build.txt`, while CI audits it together with both frozen exports. Its
 version lock, SBOM, vulnerability scan, provenance, and digest binding are enforced by M29.
+
+The same Dockerfile supplies backup utilities through a separate closed Alpine 3.24 APK path.
+`TARGETARCH` permits only `amd64` → `x86_64` and `arm64` → `aarch64`; each branch fixes the
+official package URL, version, and architecture-specific SHA-256 for
+`postgresql16-client=16.14-r0`, `libpq=18.4-r0`, `lz4-libs=1.10.0-r1`,
+`zstd-libs=1.5.7-r2`, and `postgresql-common=1.3-r0`. A controlled stage downloads and
+hash-verifies those unchanged signed APKs. The final Python/Alpine stage installs them with
+`apk add --no-cache --no-network` through a read-only BuildKit mount, which preserves Alpine
+signature verification and package inventory while retaining neither the APK archives nor a
+PostgreSQL image stage. Raw client-library copies are not an accepted deployment topology.
 
 `make runtime-wheel-smoke` builds the current wheel, installs its runtime extras into an empty
 virtual environment and working directory, verifies that migrations are packaged, and composes
@@ -1154,7 +1172,20 @@ signed release identity, and M29–M31 remain required.
 long-running workloads—web, API, execution worker, catalog, profile, reconciler, and observer—with
 distinct service accounts and control identities. Connector workload identity exists only for web
 preflight, execution, catalog, and profile. Six internal metrics targets use port `9464`; API
-business traffic remains on `8520` and does not serve `/metrics`.
+business traffic remains on `8520` and does not serve `/metrics`. The same base contains one
+hourly bounded backup CronJob with its own read-only control identity and one PrometheusRule with
+only producer-backed active alert groups. The active alert expressions are the canonical PromQL
+token sequences from `deploy/observability/alert-rules.yaml`; the active SLO set is exactly
+`api_availability`, `api_latency`, and `queue_freshness`. Contract and manifest mutation tests
+reject semantic PromQL drift, malformed trailing syntax, changed SLO indicator shape/outcomes,
+uncomposed metrics, or a PrometheusRule that differs from the canonical group.
+
+There is no composed OTLP exporter in M29. The base intentionally has neither an
+OpenTelemetry-collector peer nor TCP/4317 egress, and the rendered validator rejects adding one.
+Structured JSON remains a bounded local process output and metrics are pulled through the six
+allowlisted `ServiceMonitor` targets. OTLP egress may be introduced only with a reviewed exporter,
+destination authentication, buffering/loss accounting, sanitized payload tests, and operated
+delivery evidence.
 
 The production overlay is intentionally non-deployable as committed. Before use, an operator must
 replace every `.invalid`, `replace-with-*`, all-zero digest, placeholder trust bundle, public host,
@@ -1180,7 +1211,19 @@ behavior.
 Managed runtime settings require exact-version HTTPS remote secrets with verified trust and
 projected audience-bound identity; no local/global fallback is permitted. Every control DSN uses
 verified TLS and the component-specific principal. The observer principal is exactly
-`schemabridge_observer` and receives only aggregate operational reads.
+`schemabridge_observer` and receives only aggregate operational reads. Schema v12 adds
+`schemabridge_backup`; that identity receives complete read-only control-schema access for
+transaction-consistent `pg_dump`, no migrator/runtime/source capability, and its CronJob reaches
+only the control-backup egress plane. Migration v12 requires the exact catalog posture: login
+enabled; `NOSUPERUSER`, `NOCREATEDB`, `NOCREATEROLE`, `NOREPLICATION`, `NOBYPASSRLS`, and
+`NOINHERIT`; no membership that permits inheritance or `SET ROLE`;
+`default_transaction_read_only=on`; a positive timeout of at most 15 minutes; and no
+role-and-database-specific read-only/timeout override. At backup time the runtime rechecks the
+observed role attributes, memberships, effective settings,
+`SESSION_USER = CURRENT_USER = schemabridge_backup`, the exact database, and an active read-only
+transaction before the snapshot or `pg_dump`. Storage attachment is through the external
+`schemabridge-backup-store-v1` PVC; provider-side encryption and immutable retention must be
+proved separately.
 
 The web ConfigMap explicitly sets execution and publication to `disabled`. Query Studio remains
 useful for bounded field matching, active-registry resolution, deterministic compilation,
@@ -1198,6 +1241,15 @@ inferred version and therefore return no executable private route. Rotate each r
 through the reviewed operator using binding artifact format v2, verify the exact external version,
 then drain/revoke the former credential. Never repair an unversioned route with direct SQL.
 
+Roll out `0012_backup_identity.sql` before enabling the CronJob. The role must already exist as the
+exact least-privilege `schemabridge_backup` principal provisioned outside application migrations;
+v12 fails closed and never repairs an unsafe role. A DSN username check is only configuration
+preflight and is not identity evidence. Validate a controlled backup, signed-pair read-back,
+write-denial and `SET ROLE`-denial tests, rejection before `pg_dump` after an unsafe posture
+mutation, and distinct-target restore before accepting the schedule. Verify that the tool child
+receives only `PATH` and the required `PG*` variables rather than the full workload environment.
+Restore and cutover remain separate explicit operator actions.
+
 Deployment acceptance additionally requires a clean immutable revision, frozen install,
 wheel/image SBOM and vulnerability evidence, signed protected-release provenance, actual
 provider rotation/revocation, real metrics/SIEM/page delivery, encrypted immutable remote backups,
@@ -1205,9 +1257,128 @@ a verified distinct-target recovery and rollback exercise, production capacity/S
 M30/M31, and external security/operator sign-off. Until those actions are operated, the profile is
 reference evidence and production/release remains NO-GO.
 
-The repository does not currently prove GitHub release protection. Before publishing, an operator
-must create the exact `production-release` environment, require independent reviewers, restrict
-eligible refs, and provision the environment-only
-`SCHEMABRIDGE_RELEASE_APPROVAL_SENTINEL`. The release workflow validates this 32–128-character
-sentinel as its first step and reruns the clean exact-revision release audit before registry
-authentication. A missing environment or sentinel blocks every publish/attestation step.
+Repository contents cannot prove the complete GitHub/GHCR release control plane. Before publishing,
+an operator must protect the default branch, create the exact `production-release` environment,
+require an independent reviewer with self-review and bypass disabled, restrict eligible tags, and
+provision the environment-only `SCHEMABRIDGE_RELEASE_APPROVAL_SENTINEL`. Attach a custom deployment
+protection rule backed by a current external administrator audit of every human, PAT, App,
+repository, and workflow able to perform a GHCR `PUT` or mutate GitHub Release contents. No
+available GitHub API proves that global exclusivity; missing or stale external evidence is NO-GO.
+The release is a manual dispatch from an existing annotated stable canonical SemVer tag exactly
+equal to `v$project_version`; prereleases are not deployable. The protected environment is entered
+by `audit`, `candidate`, `attest`, `promote`, and `release`, so one new promotion needs five
+sequential reviewer approvals.
+
+Before dispatching a new publication, open an externally recorded change window and freeze every
+push and merge to `main` until the final exact-ID/latest post-publication read-back succeeds. Bind
+that record to the exact source SHA, ticket/change-window, administrator, and independent reviewer;
+each of the five environment approvals must confirm that the same freeze remains active. Close it
+only after recording the unchanged final HEAD and successful read-back. The exact
+already-published immutable `audit` no-op is read-only and does not need a mutation window.
+
+Cap every new-publication window at seven calendar days from protected `audit` start through the
+successful read-back. Do not dispatch unless all five approvals can finish inside that bound.
+Reaching the deadline stops approvals and enters preserved-state incident recovery. Both
+run-scoped artifacts retain 35 days only to provide a bounded 28-day investigation/recovery
+buffer; they must never be used to justify delayed publication, rerun, or redispatch.
+
+Authority is fixed to seven jobs:
+
+- `audit`: protected GET-only contents/packages/attestation reads plus the environment audit
+  token; rejects drafts, conflicting target state, and newer stable Release/GHCR tags before
+  build, or validates an exact immutable published historical no-op;
+- `prepare`: read-only actions/contents/packages; verifies exact source/default-branch HEAD,
+  CI/tag-ruleset metadata, and public/basic external state, builds and locally gates once,
+  then uploads a run-scoped prepared artifact. It receives no protected environment or audit
+  token;
+- `candidate`: read-only actions/contents plus `packages: write`, with inline programs and no
+  third-party action; creates `candidate-${{ github.sha }}` or adopts it on a same-job retry only
+  when its bounded manifest has the sealed config digest;
+- `scan`: read-only actions/contents/packages; uses an isolated pull credential for pinned Trivy,
+  erases it even on failure, binds scanner/DB identity, and emits the canonical run-scoped payload;
+- `attest`: read-only actions/contents plus `attestations: write`, `id-token: write`, and the
+  package permission required for OCI attestation;
+- `promote`: read-only actions/contents plus `packages: write`; promotes or verifies the exact
+  candidate manifest/config digest; and
+- `release`: `contents: write` plus actions/package/attestation reads; reconciles the public
+  Release and owns no package-write or OIDC authority.
+
+`GITHUB_TOKEN` is available when each job starts, before any step. The deployment control is
+therefore the minimal job split, not a claim that the sentinel delays token issuance. The four
+mutation-capable privileged jobs (`candidate`, `attest`, `promote`, and `release`) have no
+checkout, dependency setup, or repository-code execution. Their first inline step begins exactly
+with `set -euo pipefail`; `set +e` and `|| true` error bypasses are forbidden. It verifies the
+actual upstream artifact ID/digest/hash set, exact source and payload, peeled remote tag, current
+remote default-branch HEAD, current rules, and immutable-Releases setting; the sentinel follows
+and validates environment approval before the first external mutation. Protected `audit` is a
+separate GET-only preflight with no upstream artifact or mutation sentinel; its exact historical
+no-op intentionally omits current HEAD/rules checks.
+
+Before extraction, each of the four mutation-capable privileged jobs binds its archive to the
+artifact API's byte size and digest. Its fixed ZIP validator requires the exact flat
+allowlist/count and CRC, rejects
+absolute/dot-segment/nested/backslash/NUL/duplicate/encrypted/symlink/device/hostile-attribute
+entries, and enforces per-entry, total-size, and compression-ratio limits. Extraction is permitted
+only into a fresh directory and every extracted path must be a regular non-symlink file. Before
+`sha256sum --check`, each checksum manifest is capped at 4096 bytes and must exactly enumerate the
+unique canonical basenames with lowercase SHA-256 and two spaces.
+
+Authoritative tag governance uses
+`GET /repos/{owner}/{repo}/rulesets?includes_parents=true&targets=tag` and then the selected exact
+`GET /repos/{owner}/{repo}/rulesets/{id}?includes_parents=true`. Exactly one active tag ruleset
+must include only `refs/tags/v*`, exclude nothing, expose `bypass_actors: []`, and enforce update,
+deletion, and non-fast-forward protection. Because bypass actors need ruleset-write visibility and
+drafts/assets need contents-write visibility, provision `SCHEMABRIDGE_RELEASE_AUDIT_TOKEN` with
+repository Administration write plus Contents write scopes as an environment-only,
+repository-scoped fine-grained PAT. Its expiry must exceed the maximum approval window plus a
+recorded safety buffer, and its rotation/revocation must be operated. A static GitHub App
+installation token is unsupported because no per-job minting exists. The workflow uses the PAT
+only for explicit read-only ruleset, Release/draft/asset, and immutable-Releases `GET` requests and
+never logs it. The remote default branch HEAD must equal `SOURCE_REVISION` at `prepare` and every
+mutation-capable privileged boundary; the historical `audit` no-op intentionally does not require
+current `main`.
+
+Internal artifacts are run-scoped, but a “re-run failed jobs” consumes the exact outputs of its
+direct upstream artifact producer and fills only missing exact state. Attestation reruns may add a
+bundle only for the exact same subject, source repository, revision, and tag. A newly dispatched
+complete workflow requires clean candidate, SemVer image-tag, draft, and Release state and fails
+before build when it finds partial/conflicting state or a newer stable Release/GHCR tag. Only a
+same-run candidate retry may adopt exact matching state; divergence is never regenerated, deleted,
+clobbered, or overwritten.
+
+If `main` moves during that window, the next exact-HEAD boundary fails closed. Stop every approval:
+do not rerun or redispatch. Preserve logs and inventory exact API IDs/digests for any candidate,
+stable tag, attestation, draft/published Release, body, or asset already created. Never delete,
+clobber, overwrite, retag, edit, force `main` backward, or rewrite the annotated tag. Resume only
+under a separately reviewed administrator/security recovery plan, normally with a new version and
+source tag after the preserved partial state is reconciled.
+
+Jobs select `ubuntu-24.04`, but the hosted runner and its toolchain are mutable.
+`SOURCE_DATE_EPOCH=1730470033` normalizes timestamps only and is not a bit-for-bit reconstruction
+guarantee. `DOCKER_BUILD_RECORD_UPLOAD=false` prevents an undeclared Docker build-record upload.
+Attested `release-metadata.json` identifies the temporal scan with pip-audit
+version/service/source/time and pinned Trivy action/tool plus DB timestamps/schema and exact
+metadata/database hashes; it does not claim the scan is reproducible.
+
+The public Release has one canonical body and exactly ten digest-checked assets:
+`direct-licenses.json`, `pip-audit.json`, `provenance.intoto.json`,
+`release-assets.sha256`, `release-body.md`, `release-metadata.json`,
+`runtime-image.cdx.json`, `schemabridge-0.1.0-py3-none-any.whl`, `trivy-image.json`, and
+`wheel.cdx.json`. The GitHub UI body must equal `release-body.md` byte for byte; its digest is
+included in `release-assets.sha256`, release metadata, and attestation subjects. Immediately after
+publication, exact-ID and latest-Release read-backs require the exact source/tag/title/body/assets,
+`draft=false`, `immutable=true`, current/latest identity, and no newer stable release. A matching
+already-published immutable tag is handled by `audit` as a strictly read-only historical no-op
+after exact hosted/OCI attestation and asset/body verification. It intentionally does not require
+current/latest, no newer version, or current `main`, and performs no edit, upload, reconciliation,
+or `--latest` mutation. The global
+non-cancelling `schemabridge-global-release-publication` FIFO queue (`queue: max`) serializes
+versions.
+
+A read-only preflight on 2026-07-30 observed immutable Releases disabled and zero tag rulesets in
+the real repository, so that observation was a release **NO-GO**. It is a time-bound snapshot, not
+a permanent assertion: re-audit after remediation and before every dispatch. A missing
+environment, approval, sentinel, audit token, exact ruleset, exact default-branch HEAD, immutable
+Release setting, hosted check, current external writer audit/custom protection decision,
+attestation, or digest match blocks publication. Production and release remain NO-GO until all
+external controls and the deployment acceptance requirements above are operated.

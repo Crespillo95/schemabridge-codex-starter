@@ -12,6 +12,21 @@ from schemabridge.application.m29_operations import (
 )
 
 
+def render_m29_operations_unavailable() -> None:
+    """Render the only truthful managed-runtime state without inferring health."""
+
+    st.title("SchemaBridge operations")
+    st.error("Operational status unavailable.")
+    st.caption(
+        "This staging or production web runtime is not connected to an approved live "
+        "operations data source."
+    )
+    st.info(
+        "No workload, queue, secret, backup, release, or telemetry health is inferred. "
+        "Synthetic scenarios are available only in local and hosted-demo profiles."
+    )
+
+
 def render_m29_operations_view(view: M29OperationsView) -> None:
     """Render only the closed public M29 operations projection."""
 

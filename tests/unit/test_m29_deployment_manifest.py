@@ -52,10 +52,12 @@ BASE_RESOURCES = (
     "resource-governance.yaml",
     "runtime-config.yaml",
     "workloads.yaml",
+    "backup-cronjob.yaml",
     "services.yaml",
     "disruption-budgets.yaml",
     "network-policies.yaml",
     "observer-contract.yaml",
+    "prometheus-rules.yaml",
 )
 
 
@@ -119,6 +121,10 @@ def _rendered_text() -> str:
             "replace-with-observer-runtime-secret-version",
             "schemabridge-external-observer-v17",
         ),
+        (
+            "replace-with-backup-runtime-secret-version",
+            "schemabridge-external-backup-v17",
+        ),
         ("replace-with-managed-web-tls-certificate", "sb-web-tls"),
         ("replace-with-managed-api-tls-certificate", "sb-api-tls"),
         (
@@ -159,6 +165,14 @@ def _container(deployment: Mapping[str, Any]) -> dict[str, Any]:
     containers = deployment["spec"]["template"]["spec"]["containers"]
     assert len(containers) == 1
     return cast(dict[str, Any], containers[0])
+
+
+def _backup_cronjob(documents: list[dict[str, Any]]) -> dict[str, Any]:
+    return _resource(documents, "CronJob", "schemabridge-backup")
+
+
+def _backup_container(documents: list[dict[str, Any]]) -> dict[str, Any]:
+    return _container(_backup_cronjob(documents)["spec"]["jobTemplate"])
 
 
 def _synthetic_secret_value(component: str, variable: str) -> str:
@@ -227,11 +241,12 @@ def test_template_is_intentionally_blocked_until_every_operator_value_is_set() -
 def test_complete_rendered_production_contract_passes_the_fail_closed_validator() -> None:
     documents = VALIDATOR.validate_rendered_text(_rendered_text())
 
-    assert len(documents) == 61
+    assert len(documents) == 63
     assert {item["kind"] for item in documents} >= {
         "Namespace",
         "ServiceAccount",
         "Deployment",
+        "CronJob",
         "Service",
         "Ingress",
         "NetworkPolicy",
@@ -239,6 +254,7 @@ def test_complete_rendered_production_contract_passes_the_fail_closed_validator(
         "ResourceQuota",
         "LimitRange",
         "ServiceMonitor",
+        "PrometheusRule",
     }
 
 
@@ -285,7 +301,7 @@ def test_only_existing_runtime_commands_are_deployed_and_observer_is_executable(
     }
 
     assert commands == {
-        "web": ["streamlit"],
+        "web": ["schemabridge-web"],
         "api": ["schemabridge-api"],
         "worker": ["schemabridge-worker"],
         "catalog": ["schemabridge-catalog"],
@@ -297,7 +313,7 @@ def test_only_existing_runtime_commands_are_deployed_and_observer_is_executable(
         _container(_deployment(documents, "web"))["image"]
         == (_container(_deployment(documents, "api"))["image"])
     )
-    assert _container(_deployment(documents, "web"))["args"][1] == "streamlit_app.py"
+    assert "args" not in _container(_deployment(documents, "web"))
     assert not {"backup", "migrator"} & set(commands)
     observer = _resource(
         documents,
@@ -307,6 +323,109 @@ def test_only_existing_runtime_commands_are_deployed_and_observer_is_executable(
     assert observer["data"]["executable-workload-included"] == "true"
     assert _resource(documents, "ServiceMonitor", "schemabridge-observer")
     assert _resource(documents, "ServiceMonitor", "schemabridge-api")
+
+
+def test_backup_is_the_only_exact_batch_workload_and_uses_one_external_secret_and_pvc() -> None:
+    documents = _documents()
+    cronjob = _backup_cronjob(documents)
+    spec = cronjob["spec"]
+    job_spec = spec["jobTemplate"]["spec"]
+    pod = job_spec["template"]["spec"]
+    container = _backup_container(documents)
+
+    assert cronjob["apiVersion"] == "batch/v1"
+    assert cronjob["metadata"] == {
+        "name": "schemabridge-backup",
+        "namespace": "schemabridge-system",
+        "labels": {
+            "app.kubernetes.io/name": "schemabridge-backup",
+            "app.kubernetes.io/part-of": "schemabridge",
+            "app.kubernetes.io/component": "backup",
+        },
+    }
+    assert {
+        "schedule": spec["schedule"],
+        "timeZone": spec["timeZone"],
+        "concurrencyPolicy": spec["concurrencyPolicy"],
+        "suspend": spec["suspend"],
+        "startingDeadlineSeconds": spec["startingDeadlineSeconds"],
+        "successfulJobsHistoryLimit": spec["successfulJobsHistoryLimit"],
+        "failedJobsHistoryLimit": spec["failedJobsHistoryLimit"],
+    } == {
+        "schedule": "0 * * * *",
+        "timeZone": "Etc/UTC",
+        "concurrencyPolicy": "Forbid",
+        "suspend": False,
+        "startingDeadlineSeconds": 900,
+        "successfulJobsHistoryLimit": 3,
+        "failedJobsHistoryLimit": 3,
+    }
+    assert {
+        "backoffLimit": job_spec["backoffLimit"],
+        "activeDeadlineSeconds": job_spec["activeDeadlineSeconds"],
+        "ttlSecondsAfterFinished": job_spec["ttlSecondsAfterFinished"],
+    } == {
+        "backoffLimit": 1,
+        "activeDeadlineSeconds": 1800,
+        "ttlSecondsAfterFinished": 86400,
+    }
+    assert pod["serviceAccountName"] == "schemabridge-backup"
+    assert pod["automountServiceAccountToken"] is False
+    assert pod["restartPolicy"] == "Never"
+    assert pod["securityContext"]["seccompProfile"] == {"type": "RuntimeDefault"}
+    assert container["command"] == ["schemabridge-backup"]
+    assert container["args"] == [
+        "--destination",
+        "/var/lib/schemabridge/backups/hourly",
+    ]
+    assert {container["image"]} == {
+        _container(deployment)["image"]
+        for deployment in documents
+        if deployment["kind"] == "Deployment"
+    }
+    secret_entries = {
+        item["name"]: item["valueFrom"]["secretKeyRef"]
+        for item in container["env"]
+        if "valueFrom" in item
+    }
+    assert {
+        variable: reference["key"] for variable, reference in secret_entries.items()
+    } == VALIDATOR.EXPECTED_SECRET_ENV["backup"]
+    assert {reference["name"] for reference in secret_entries.values()} == {
+        "schemabridge-external-backup-v17"
+    }
+    backup_volume = next(item for item in pod["volumes"] if item["name"] == "backup-store")
+    assert backup_volume == {
+        "name": "backup-store",
+        "persistentVolumeClaim": {"claimName": "schemabridge-backup-store-v1"},
+    }
+    assert not {
+        "Pod",
+        "ReplicaSet",
+        "StatefulSet",
+        "DaemonSet",
+        "Job",
+    } & {item["kind"] for item in documents}
+
+
+def test_prometheus_rule_is_the_exact_active_alert_contract() -> None:
+    documents = _documents()
+    rule = _resource(documents, "PrometheusRule", "schemabridge-active-alerts")
+    canonical = yaml.safe_load(
+        (ROOT / "deploy" / "observability" / "alert-rules.yaml").read_text(encoding="utf-8")
+    )
+
+    assert rule["apiVersion"] == "monitoring.coreos.com/v1"
+    assert rule["metadata"] == {
+        "name": "schemabridge-active-alerts",
+        "namespace": "schemabridge-system",
+        "labels": {
+            "app.kubernetes.io/name": "schemabridge-active-alerts",
+            "app.kubernetes.io/part-of": "schemabridge",
+            "app.kubernetes.io/component": "observability",
+        },
+    }
+    assert rule["spec"] == {"groups": canonical["groups"]}
 
 
 def test_web_oidc_secret_is_projected_from_its_exact_versioned_runtime_secret() -> None:
@@ -331,6 +450,20 @@ def test_web_oidc_secret_is_projected_from_its_exact_versioned_runtime_secret() 
         "readOnly": True,
     }
     assert pod["securityContext"]["fsGroup"] == 10001
+
+
+def test_web_startup_and_readiness_repeat_real_preflight_but_liveness_is_process_only() -> None:
+    container = _container(_deployment(_documents(), "web"))
+
+    for probe_name in ("startupProbe", "readinessProbe"):
+        assert container[probe_name]["exec"] == {"command": ["schemabridge-web", "--probe-ready"]}
+        assert "httpGet" not in container[probe_name]
+    assert container["livenessProbe"]["httpGet"] == {
+        "path": "/_stcore/health",
+        "port": "http",
+        "scheme": "HTTP",
+    }
+    assert "exec" not in container["livenessProbe"]
 
 
 def test_api_health_probes_use_the_exact_allowlisted_host() -> None:
@@ -362,7 +495,7 @@ def test_observer_runtime_is_minimal_tls_bound_and_scrapeable() -> None:
         "SCHEMABRIDGE_COMPONENT": "observer",
         "SCHEMABRIDGE_CONTROL_PLANE_MODE": "postgres",
         "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA": "schemabridge_control",
-        "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION": "11",
+        "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION": "12",
         "SCHEMABRIDGE_LOG_LEVEL": "INFO",
         "SCHEMABRIDGE_OBSERVER_BIND_HOST": "0.0.0.0",
         "SCHEMABRIDGE_OBSERVER_PORT": "9464",
@@ -752,13 +885,18 @@ def test_external_runtime_secret_references_are_exact_separated_and_content_free
     assert not [item for item in documents if item["kind"] == "Secret"]
     secret_names: set[str] = set()
     reference_count = 0
+    secret_components = {*RUNTIME_COMPONENTS, "backup"}
 
-    for component in RUNTIME_COMPONENTS:
-        environment = _container(_deployment(documents, component))["env"]
+    for component in secret_components:
+        environment = (
+            _backup_container(documents)["env"]
+            if component == "backup"
+            else _container(_deployment(documents, component))["env"]
+        )
         secret_entries = {
             item["name"]: item["valueFrom"]["secretKeyRef"]
             for item in environment
-            if "secretKeyRef" in item["valueFrom"]
+            if "valueFrom" in item and "secretKeyRef" in item["valueFrom"]
         }
         assert {
             variable: reference["key"] for variable, reference in secret_entries.items()
@@ -769,10 +907,10 @@ def test_external_runtime_secret_references_are_exact_separated_and_content_free
         reference_count += len(secret_entries)
         assert all(set(reference) == {"name", "key"} for reference in secret_entries.values())
 
-    assert reference_count == 14
-    assert len(secret_names) == len(RUNTIME_COMPONENTS)
+    assert reference_count == 16
+    assert len(secret_names) == len(secret_components)
     rendered = _rendered_text()
-    for component in RUNTIME_COMPONENTS:
+    for component in secret_components:
         for variable in VALIDATOR.EXPECTED_SECRET_ENV[component]:
             assert _synthetic_secret_value(component, variable) not in rendered
 
@@ -880,6 +1018,9 @@ def test_networking_is_default_deny_and_capability_specific() -> None:
         }
         assert capabilities == expected[component]
         assert {"Ingress", "Egress"} == set(spec["policyTypes"])
+    serialized_policies = yaml.safe_dump_all(policies.values())
+    assert "opentelemetry-collector" not in serialized_policies
+    assert "port: 4317" not in serialized_policies
     for component in {"migrator", "backup"}:
         assert policies[f"schemabridge-{component}"]["spec"]["ingress"] == []
     assert "secret-manager" not in expected["observer"]
@@ -912,12 +1053,114 @@ def test_tls_ingress_resilience_and_namespace_resource_governance_are_explicit()
     assert {"requests.cpu", "requests.memory", "limits.cpu", "limits.memory"} <= set(
         quota["spec"]["hard"]
     )
+    assert quota["spec"]["hard"]["persistentvolumeclaims"] == "4"
     secret_quota = int(quota["spec"]["hard"]["secrets"])
-    assert secret_quota == 12
-    assert secret_quota - (len(RUNTIME_COMPONENTS) + len(ingresses)) == 3
+    assert secret_quota == 13
+    assert len(RUNTIME_COMPONENTS) + len(ingresses) + 1 == VALIDATOR.REQUIRED_SECRET_OBJECTS
+    assert secret_quota - VALIDATOR.REQUIRED_SECRET_OBJECTS == 3
 
 
 Mutation = Callable[[list[dict[str, Any]]], None]
+
+
+def _unhashable_resource_kind(documents: list[dict[str, Any]]) -> None:
+    documents[0]["kind"] = []
+
+
+def _add_unapproved_job(documents: list[dict[str, Any]]) -> None:
+    documents.append(
+        {
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "metadata": {
+                "name": "unapproved",
+                "namespace": "schemabridge-system",
+            },
+            "spec": {},
+        }
+    )
+
+
+def _duplicate_backup_cronjob(documents: list[dict[str, Any]]) -> None:
+    duplicate = copy.deepcopy(_backup_cronjob(documents))
+    duplicate["metadata"]["name"] = "schemabridge-backup-two"
+    documents.append(duplicate)
+
+
+def _wrong_backup_api_version(documents: list[dict[str, Any]]) -> None:
+    _backup_cronjob(documents)["apiVersion"] = "batch/v1beta1"
+
+
+def _wrong_backup_command(documents: list[dict[str, Any]]) -> None:
+    _backup_container(documents)["command"] = ["pg_dump"]
+
+
+def _alternate_backup_image(documents: list[dict[str, Any]]) -> None:
+    _backup_container(documents)["image"] = (
+        f"registry.example.com/schemabridge/alternate@sha256:{'b' * 64}"
+    )
+
+
+def _wrong_backup_schedule(documents: list[dict[str, Any]]) -> None:
+    _backup_cronjob(documents)["spec"]["schedule"] = "* * * * *"
+
+
+def _wrong_backup_literal_environment(documents: list[dict[str, Any]]) -> None:
+    schema = next(
+        item
+        for item in _backup_container(documents)["env"]
+        if item["name"] == "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION"
+    )
+    schema["value"] = "11"
+
+
+def _cross_component_backup_secret(documents: list[dict[str, Any]]) -> None:
+    secret_entry = next(
+        item
+        for item in _backup_container(documents)["env"]
+        if item["name"] == "SCHEMABRIDGE_CONTROL_BACKUP_DATABASE_URL"
+    )
+    secret_entry["valueFrom"]["secretKeyRef"]["name"] = "schemabridge-external-worker-v17"
+
+
+def _wrong_backup_pvc(documents: list[dict[str, Any]]) -> None:
+    pod = _backup_cronjob(documents)["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+    volume = next(item for item in pod["volumes"] if item["name"] == "backup-store")
+    volume["persistentVolumeClaim"]["claimName"] = "shared-unversioned-backups"
+
+
+def _privileged_backup_container(documents: list[dict[str, Any]]) -> None:
+    _backup_container(documents)["securityContext"]["privileged"] = True
+
+
+def _backup_sidecar(documents: list[dict[str, Any]]) -> None:
+    pod = _backup_cronjob(documents)["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+    sidecar = copy.deepcopy(_backup_container(documents))
+    sidecar["name"] = "sidecar"
+    pod["containers"].append(sidecar)
+
+
+def _backup_service_account_secret(documents: list[dict[str, Any]]) -> None:
+    service_account = _resource(
+        documents,
+        "ServiceAccount",
+        "schemabridge-backup",
+    )
+    service_account["secrets"] = [{"name": "externally-created-long-lived-token"}]
+
+
+def _remove_pvc_quota(documents: list[dict[str, Any]]) -> None:
+    quota = _resource(
+        documents,
+        "ResourceQuota",
+        "schemabridge-production-budget",
+    )
+    quota["spec"]["hard"].pop("persistentvolumeclaims")
+
+
+def _drift_prometheus_rule(documents: list[dict[str, Any]]) -> None:
+    rule = _resource(documents, "PrometheusRule", "schemabridge-active-alerts")
+    rule["spec"]["groups"][0]["rules"][0]["expr"] = "vector(1)"
 
 
 def _mutable_image(documents: list[dict[str, Any]]) -> None:
@@ -972,6 +1215,25 @@ def _raw_ip_egress(documents: list[dict[str, Any]]) -> None:
         {
             "to": [{"ipBlock": {"cidr": "0.0.0.0/0"}}],
             "ports": [{"protocol": "TCP", "port": 443}],
+        }
+    )
+
+
+def _uncomposed_otlp_egress(documents: list[dict[str, Any]]) -> None:
+    policy = _resource(documents, "NetworkPolicy", "schemabridge-api")
+    policy["spec"]["egress"].append(
+        {
+            "to": [
+                {
+                    "namespaceSelector": {
+                        "matchLabels": {"kubernetes.io/metadata.name": "observability"}
+                    },
+                    "podSelector": {
+                        "matchLabels": {"app.kubernetes.io/name": "opentelemetry-collector"}
+                    },
+                }
+            ],
+            "ports": [{"protocol": "TCP", "port": 4317}],
         }
     )
 
@@ -1038,6 +1300,16 @@ def _web_oidc_secret_name_mismatch(documents: list[dict[str, Any]]) -> None:
     pod = _deployment(documents, "web")["spec"]["template"]["spec"]
     auth = next(item for item in pod["volumes"] if item["name"] == "streamlit-auth")
     auth["secret"]["secretName"] = "schemabridge-external-api-v17"
+
+
+def _web_readiness_uses_process_only_health(documents: list[dict[str, Any]]) -> None:
+    web = _container(_deployment(documents, "web"))
+    web["readinessProbe"].pop("exec")
+    web["readinessProbe"]["httpGet"] = {
+        "path": "/_stcore/health",
+        "port": "http",
+        "scheme": "HTTP",
+    }
 
 
 def _api_metrics_on_public_port(documents: list[dict[str, Any]]) -> None:
@@ -1198,6 +1470,21 @@ def _grant_application_rbac(documents: list[dict[str, Any]]) -> None:
 @pytest.mark.parametrize(
     ("mutation", "code"),
     (
+        (_unhashable_resource_kind, "resource_identity"),
+        (_add_unapproved_job, "unsupported_workload_kind"),
+        (_duplicate_backup_cronjob, "backup_cronjob_set"),
+        (_wrong_backup_api_version, "resource_api_contract"),
+        (_wrong_backup_command, "backup_command"),
+        (_alternate_backup_image, "workload_image_contract"),
+        (_wrong_backup_schedule, "backup_schedule_contract"),
+        (_wrong_backup_literal_environment, "backup_runtime_environment"),
+        (_cross_component_backup_secret, "backup_runtime_environment"),
+        (_wrong_backup_pvc, "backup_storage_contract"),
+        (_privileged_backup_container, "backup_container_security"),
+        (_backup_sidecar, "backup_container_count"),
+        (_backup_service_account_secret, "backup_service_account_contract"),
+        (_remove_pvc_quota, "namespace_resource_bounds"),
+        (_drift_prometheus_rule, "prometheus_rule_contract"),
         (_mutable_image, "mutable_image"),
         (_default_service_account, "pod_identity_boundary"),
         (_automatic_token_mount, "pod_identity_boundary"),
@@ -1207,6 +1494,7 @@ def _grant_application_rbac(documents: list[dict[str, Any]]) -> None:
         (_unbounded_egress, "unbounded_egress"),
         (_broad_egress_peer, "unapproved_egress_peer"),
         (_raw_ip_egress, "raw_ip_egress"),
+        (_uncomposed_otlp_egress, "unapproved_egress_peer"),
         (_private_ingress, "private_workload_ingress"),
         (_broad_api_ingress, "unapproved_ingress_peer"),
         (_wrong_component_selector, "component_network_selector"),
@@ -1216,6 +1504,7 @@ def _grant_application_rbac(documents: list[dict[str, Any]]) -> None:
         (_api_monitor_selector_mismatch, "api_monitor_contract"),
         (_api_probe_without_allowlisted_host, "api_probe_host_contract"),
         (_web_oidc_secret_name_mismatch, "streamlit_auth_secret"),
+        (_web_readiness_uses_process_only_health, "web_probe_contract"),
         (_api_metrics_on_public_port, "api_monitor_contract"),
         (_process_metrics_service_mismatch, "process_metrics_service_contract"),
         (_http_secret_provider, "remote_secret_url"),
@@ -1271,7 +1560,7 @@ def test_validator_cli_emits_only_safe_codes_and_never_manifest_content(
     assert VALIDATOR.main([str(valid_path)]) == 0
     output = capsys.readouterr()
     assert output.err == ""
-    assert output.out == "m29_manifest_valid resources=61\n"
+    assert output.out == "m29_manifest_valid resources=63\n"
 
     sensitive_sentinel = "sensitive-provider-payload-must-not-echo"
     invalid_path = tmp_path / "invalid.yaml"

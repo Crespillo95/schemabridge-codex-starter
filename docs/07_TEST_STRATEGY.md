@@ -1029,12 +1029,38 @@ unrun browser/restore drill remains open evidence and is never converted into a 
 
 M29 adds focused adversarial tests for remote exact-version secrets and workload identity,
 cross-capability denial, TLS/redirect/size/error sanitization, observer role and aggregate-only
-reads, atomic metric snapshots, bounded process exporters, fail-closed alerts, structured logs,
-SIEM loss, Kubernetes rendering, immutable workflows/images, vulnerability-report coverage,
+reads, the separate read-only backup role, atomic metric snapshots, bounded process exporters,
+producer-backed canonical PromQL/SLO contracts, structured logs, explicitly inactive
+SIEM/uncomposed signals, Kubernetes rendering, the exact backup CronJob and PrometheusRule,
+immutable workflows/images, vulnerability-report coverage,
 SBOM/provenance binding, complete resolver-independent dependency audit, reproducible
 sdist-to-wheel hashing, isolated audited build tooling, Docker-context secret exclusion, exact
 final-stage commands, offline BuildKit installation, no retained wheelhouse, signed retention,
 recovery, and rollback decisions.
+
+The backup identity suite is end-to-end rather than a DSN-name assertion. Static migration tests
+require the exact v12 role attributes, role settings, membership restrictions, absence of role
+repair, and read-only grants. Unit tests mutate every observed posture field and require rejection
+before the command runner. PostgreSQL integration then proves a valid backup/restore and read
+coverage, write and `SET ROLE` denial, plus fail-closed migration and pre-`pg_dump` behavior for a
+temporary `SUPERUSER` posture, a dangerous membership, a role-and-database-specific read-only
+override, and an unbounded timeout. Entrypoint tests require path/DSN/credential-free failure
+evidence.
+
+Browser auth has both behavior and dependency-direction regressions.
+`test_streamlit_auth_secrets.py` exercises HTTPS/origin/audience/secret/token-exposure rejection
+through `application/ports/browser_auth.py` and
+`adapters/identity/streamlit_auth.py`; `test_web_architecture.py` parses imports and rejects a
+concrete-adapter import in the Streamlit entrypoint, an entrypoint import in bootstrap, or any
+bootstrap/entrypoint dependency from the adapter.
+
+The active alert validator compares each expression with the canonical PromQL token sequence.
+Mutation tests keep the same metric families while changing a comparator, threshold, function, or
+vector-matching operator, and also append invalid trailing syntax; every variant must fail.
+Separate SLO mutations change an indicator type, remove/add a field, alter the closed outcomes, or
+introduce an uncomposed metric. The Kubernetes mutation suite additionally inserts an
+OpenTelemetry collector destination on TCP/4317 and requires fail-closed rejection because no OTLP
+exporter is composed.
 
 Run the local contract gates before any provider or cluster exercise:
 
@@ -1044,7 +1070,13 @@ make m29-recovery-policy-check
 kubectl kustomize deploy/kubernetes/m29/overlays/production > /tmp/rendered-m29.yaml
 python deploy/kubernetes/m29/validate_rendered.py /tmp/rendered-m29.yaml
 pytest -q tests/unit/test_connector_remote_secrets.py \
+  tests/unit/test_control_plane_migrations.py \
+  tests/unit/test_control_plane_operations.py \
+  tests/unit/test_backup_entrypoint.py \
+  tests/unit/test_streamlit_auth_secrets.py \
+  tests/unit/test_web_architecture.py \
   tests/unit/test_m29_deployment_manifest.py \
+  tests/unit/test_m29_prometheus_rule.py \
   tests/unit/test_operational_metrics.py \
   tests/unit/test_process_metrics_http_export.py \
   tests/unit/test_backup_retention.py \
@@ -1057,15 +1089,150 @@ For acceptance, render a separately patched operator profile and require both th
 and `kubectl apply --server-side --dry-run=server` against the target cluster. A missing cluster
 context is recorded as not run, never as a pass.
 
-The final M29 matrix also requires schema-v11 PostgreSQL integration, including the v10 observer
-and v11 provider-version migrations, plus full integration and
+The final M29 matrix also requires schema-v12 PostgreSQL integration, including the v10 observer,
+v11 provider-version, and v12 backup-identity migrations, plus full integration and
 acceptance suites, deterministic evaluation, runtime-wheel smoke, release audit, frozen-lock
 installation, vulnerability/SBOM/provenance validation, a complete fresh-target restore drill,
 `make check`, coverage at or above 80%, scale postflight, and `git diff --check`. The six-state
 operations view is tested last in the Codex internal browser at desktop and 390×844 mobile widths,
 with hostile text literal, clean console, no horizontal overflow, and exact cleanup. Exact counts,
 commands, failures/corrections, and unavailable external services belong in `tasks/M29_HANDOFF.md`.
+Managed-profile browser tests additionally require the explicit not-connected/unavailable state;
+synthetic operational health may appear only in development/hosted-demo.
 The final local runtime candidate must additionally build with BuildKit, run as UID/GID 10001,
 pass `pip check` and API/UI imports without the build backend or wheelhouse, and report zero
 HIGH/CRITICAL findings under the current Trivy database. That local scan is not a registry or
-protected-release attestation.
+protected promotion attestation.
+
+PostgreSQL-client supply-chain tests treat the Dockerfile as a closed contract. They require the
+exact Alpine 3.24 `TARGETARCH` mapping (`amd64` → `x86_64`, `arm64` → `aarch64`) and the complete
+official URL, version, and architecture-specific SHA-256 matrix for
+`postgresql16-client=16.14-r0`, `libpq=18.4-r0`, `lz4-libs=1.10.0-r1`,
+`zstd-libs=1.5.7-r2`, and `postgresql-common=1.3-r0`. Mutating a URL, hash, version, architecture,
+package set, mount mode, `--no-network`, or signature enforcement must fail static policy. The
+final install must be exactly one `apk add --no-cache --no-network` over a read-only BuildKit mount;
+copying or retaining the APKs, allowing an untrusted package, or adding another network action is
+rejected. Runtime CycloneDX verification must find all five named Alpine package/version
+components, so successful file copies without package-manager inventory are not acceptable.
+
+The release-workflow regression suite hashes and semantically validates the complete reviewed
+seven-job program. The hash is a tripwire, not the only defense: mutation tests rewrite a security
+property, recompute or monkeypatch the expected hash, and still require the dedicated semantic
+finding. They reject extra or reordered jobs/steps/actions, dead branches, forbidden opcodes,
+repository-code execution in a privileged job, authority drift, and any external mutation before
+its inline boundary verifier. State and mutation tests parse the actual workflow scripts and their
+control-flow branches; a standalone toy state machine is not release evidence.
+
+The accepted topology is exactly:
+
+1. protected GET-only `audit` runs before build, uses no checkout/action/repository code, rejects
+   drafts, conflicting registry state, or a newer stable Release for a fresh dispatch, and accepts
+   an existing tag only as an exact immutable file/OCI-attested historical no-op;
+2. read-only `prepare` validates the stable annotated tag, exact source/CI/tag-ruleset metadata,
+   requires the remote default-branch HEAD to equal `SOURCE_REVISION`, proves clean external
+   public/basic state, builds and locally gates once, and emits the run-scoped prepared artifact;
+   it has no protected environment or audit token;
+3. protected `candidate` has package-write only and no `uses` actions, consumes the actual
+   `prepare` outputs, and either creates `candidate-${{ github.sha }}` or, on a same-job retry,
+   adopts only the bounded remote manifest with the exact sealed config digest;
+4. read-only `scan` authenticates a pull-only GHCR credential, supplies it to pinned Trivy, removes
+   it even on failure, binds the temporal scanner/DB snapshot, and emits the canonical payload;
+5. protected `attest` has attestations/OIDC plus the package authority needed for OCI attestation,
+   consumes the actual canonical-payload outputs, verifies first, checks the sentinel, creates the
+   file/OCI attestations; a rerun may add only another exact source-bound bundle;
+6. protected `promote` has package-write only, verifies first, checks the sentinel, and creates or
+   verifies the same-digest stable tag; and
+7. protected `release` has contents-write only plus package/attestation reads, verifies every
+   boundary first, checks the sentinel, and reconciles the canonical Release.
+
+The five protected jobs must declare `production-release`, which means five sequential
+environment approvals. Tests explicitly retain the platform fact that `GITHUB_TOKEN` exists at job
+start: protection comes from minimal jobs with no checkout, dependency setup, or unsealed
+repository code and from first-step inline verification, not from claiming that the later sentinel
+delays token issuance.
+
+Static tests prove exact default-branch equality at every source boundary but cannot prove that
+operators keep `main` unchanged between five sequential approvals. Release acceptance therefore
+also requires external change-window evidence: source SHA, freeze start/end, ticket,
+administrator, independent reviewer, and an approval-by-approval confirmation that no push or
+merge was permitted until post-publication verification completed. The incident drill advances
+`main` after a simulated mutation, expects the next boundary to fail, inventories the partial
+candidate/attestation/image-tag/draft state, and proves that neither failed-job rerun nor a new
+dispatch deletes, clobbers, overwrites, or bypasses it.
+
+The acceptance record additionally proves that the whole five-approval mutation window completed
+within seven calendar days of protected `audit` start. A boundary at or beyond that deadline must
+stop approvals and select the preserved-state incident procedure. Static regression tests bind
+both run-scoped artifacts to 35-day retention; reviewers treat the remaining 28 days as a bounded
+investigation/recovery buffer, never as permission for a late rerun, redispatch, or publication.
+
+Rerun tests simulate failure after candidate publication, draft creation, and image promotion
+against the actual extracted job scripts. “Re-run failed jobs” must consume the exact upstream
+artifact IDs/digests and reuse canonical bytes without rebuilding or regenerating Trivy evidence.
+It may add another attestation bundle only when subject, source repository, revision, and tag are
+identical. A newly dispatched workflow must detect any existing candidate, SemVer image tag,
+draft/Release state, or newer stable version in `audit` before build. Tests distinguish registry
+config digest from manifest digest and require both exact.
+
+Runner tests require every job to select `ubuntu-24.04` while retaining the explicit limitation
+that the hosted image and toolchain are mutable. `SOURCE_DATE_EPOCH=1730470033` is required only as
+timestamp normalization and must not be described as a complete-rebuild guarantee.
+`DOCKER_BUILD_RECORD_UPLOAD=false` is mandatory so the build action cannot create an undeclared
+artifact.
+
+Each privileged inline `run` script must begin exactly with `set -euo pipefail`; mutation tests
+reject `set +e`, `|| true`, and a published-Release branch that invokes any release mutation. All
+four privileged archive verifiers must bind the API size and digest before extraction, then use
+the fixed ZIP allowlist/count, flat-path, duplicate, absolute/dot-segment, backslash/NUL,
+encryption, CRC, external-attribute, symlink/device, per-file/total-size, and compression-ratio
+checks. They must extract into a new directory and recheck every result as a regular,
+non-symlink file. Every internal/public checksum is size-bounded and must contain the exact unique
+lowercase digest/two-space/canonical-basename set before `sha256sum --check`; mutation tests inject
+`../`, `/proc`, omissions, duplicates, extra lines, and oversized manifests. Resealed
+workflow-hash mutations must still produce the dedicated semantic failure.
+
+Ruleset tests reject the nonexistent `/rules/tags/$tag` contract and require the list endpoint
+`GET /repos/{owner}/{repo}/rulesets?includes_parents=true&targets=tag` followed by the exact-ID
+`GET /repos/{owner}/{repo}/rulesets/{id}?includes_parents=true`. `prepare` may inspect only
+metadata with its normal token. Fresh `audit` and every mutation-capable privileged boundary use
+the environment-only
+`SCHEMABRIDGE_RELEASE_AUDIT_TOKEN`, validate its safe shape without printing it, and use it only
+for `GET`; the exact rule target/include/exclude/enforcement/rules and empty `bypass_actors` are
+mandatory. Documentation and validation retain the platform constraint that the token needs
+repository Administration write plus Contents write scopes to see bypass actors, drafts, and
+assets despite its workflow-enforced GET-only use. Operator acceptance also verifies that it is an
+environment-only, repository-scoped fine-grained PAT with expiry beyond the maximum approval
+window plus a recorded buffer, a tested rotation/revocation procedure, and no log exposure. A
+static GitHub App installation token is rejected because the workflow does not mint it per job.
+
+Every source-identity boundary must require `SOURCE_REVISION` to equal the current remote
+default-branch HEAD; replacing equality with ancestry fails mutation tests. Immutable Releases
+must be checked as enabled before the first publication mutation and at later privileged
+boundaries. The draft-to-published path must re-fetch the exact Release ID and latest Release and
+verify exact tag, target/source, title, body, ten assets, `draft=false`, `immutable=true`, and no
+newer stable version. A replay that reaches an already published exact immutable Release must be a
+strict `audit`-only no-op after hosted/OCI attestation and exact asset/body verification. This
+historical path deliberately remains valid when no longer current/latest or when a newer stable
+version exists, and it does not require current `main`.
+
+Scanner-snapshot mutation tests require pip-audit 2.10.1 with explicit `pypi` service/source and
+observation time, Trivy 0.69.3 at the pinned action revision, bounded registry manifests, and the
+DB schema/update/download times plus exact hashes of `metadata.json` and `trivy.db`. These values
+identify the temporal database used; tests reject any claim that they make the scan reproducible.
+
+Stable-tag tests require non-prerelease canonical SemVer exactly equal to `v$project_version`.
+Release tests require exactly these ten public assets:
+`direct-licenses.json`, `pip-audit.json`, `provenance.intoto.json`,
+`release-assets.sha256`, `release-body.md`, `release-metadata.json`,
+`runtime-image.cdx.json`, `schemabridge-0.1.0-py3-none-any.whl`, `trivy-image.json`, and
+`wheel.cdx.json`. They also require the GitHub UI body to equal `release-body.md` byte for byte and
+require that file in the checksum manifest, metadata, and attestation subjects.
+
+Global concurrency must remain the repository-wide non-cancelling FIFO queue with `queue: max`.
+That key is supported by current GitHub Actions even though actionlint 1.7.12 predates its schema;
+the local actionlint gate uses one exact narrow ignore for that diagnostic and must report no other
+finding. Shell syntax and ShellCheck still run over every extracted inline script. The suite also
+keeps the external NO-GO boundary visible: the API can verify the ruleset and immutable-Releases
+settings but cannot prove the global absence of competing GHCR `PUT` or GitHub Release contents
+writers. A current external administrator audit and a custom deployment-protection rule remain
+mandatory operated prerequisites, not claims made by a static test.
