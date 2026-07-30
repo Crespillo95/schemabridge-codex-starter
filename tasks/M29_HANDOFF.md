@@ -171,6 +171,11 @@ external operation. A local pass is never a production or release claim.
   also replaced vulnerable build-only `setuptools==81.0.0` with isolated, hash-bound 83.0.0. The
   reviewed Alpine wheelhouse closes all findings without vulnerability exceptions. The next
   hosted result remains external to this commit.
+- Hosted run `30520807060` then passed image construction, the complete dependency audit,
+  vulnerability policy, and seven-file evidence upload before revealing that pinned Trivy emits
+  CycloneDX 1.6 while the verifier accepted only 1.5. The verifier now accepts the explicit
+  reviewed 1.5/1.6 set, preserves every component/digest/source/lock/provenance binding, and rejects
+  every other version. The replacement hosted result remains external to this precommit handoff.
 
 ## Automated test results
 

@@ -611,12 +611,26 @@ def test_sbom_covers_exact_runtime_export_and_binds_artifact() -> None:
         source_revision=REVISION,
     )
 
-    verify_cyclonedx_sbom(
-        payload,
-        root=ROOT,
-        artifact_digest=DIGEST,
-        source_revision=REVISION,
-    )
+    for spec_version in ("1.5", "1.6"):
+        payload["specVersion"] = spec_version
+        verify_cyclonedx_sbom(
+            payload,
+            root=ROOT,
+            artifact_digest=DIGEST,
+            source_revision=REVISION,
+        )
+    for unsupported_version in ("1.7", []):
+        payload["specVersion"] = unsupported_version
+        with pytest.raises(SupplyChainViolation) as unsupported:
+            verify_cyclonedx_sbom(
+                payload,
+                root=ROOT,
+                artifact_digest=DIGEST,
+                source_revision=REVISION,
+            )
+        assert unsupported.value.findings[0].code == "sbom_schema_invalid"
+
+    payload["specVersion"] = "1.6"
     tampered = json.loads(json.dumps(payload))
     tampered["components"].pop()
     with pytest.raises(SupplyChainViolation) as error:

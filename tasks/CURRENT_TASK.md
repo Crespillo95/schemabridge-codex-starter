@@ -95,7 +95,11 @@ replacement run `30495413406` then generated provenance and all seven artifacts 
 closed on two independent checks: default `pip-audit` omitted `packaging`, and the old Debian
 runtime carried high/critical findings. The local correction uses `--disable-pip` and the reviewed
 reproducible Alpine wheelhouse. Its replacement hosted result is deliberately not presumed inside
-this commit.
+this commit. Run `30520807060` then passed the rebuilt image, vulnerability policy, and evidence
+generation before exposing one compatibility boundary: pinned Trivy emitted CycloneDX 1.6 while
+the verifier accepted only 1.5. The verifier now accepts the explicit reviewed 1.5/1.6 set without
+weakening component, digest, source, lock, or provenance checks; its replacement result remains
+external to this precommit record.
 
 ## Explicit NO-GO boundary
 

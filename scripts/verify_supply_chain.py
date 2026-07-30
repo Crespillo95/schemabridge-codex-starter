@@ -32,6 +32,7 @@ EXCEPTIONS_PATH = Path("requirements/vulnerability-exceptions.json")
 UV_VERSION = "0.11.30"
 PROVENANCE_BUILD_TYPE = "https://github.com/SchemaBridge/buildtypes/github-actions-frozen-uv/v1"
 PROVENANCE_BUILDER_ID = "https://github.com/actions/runner"
+SUPPORTED_CYCLONEDX_SPEC_VERSIONS = frozenset({"1.5", "1.6"})
 RUNTIME_BASE_IMAGE = (
     "python:3.13.14-alpine3.24"
     "@sha256:399babc8b49529dabfd9c922f2b5eea81d611e4512e3ed250d75bd2e7683f4b0"
@@ -2296,8 +2297,19 @@ def verify_cyclonedx_sbom(
     linux_runtime: bool = False,
 ) -> None:
     findings: list[Finding] = []
-    if payload.get("bomFormat") != "CycloneDX" or payload.get("specVersion") != "1.5":
-        findings.append(Finding("sbom_schema_invalid", "sbom", "expected CycloneDX 1.5"))
+    spec_version = payload.get("specVersion")
+    if (
+        payload.get("bomFormat") != "CycloneDX"
+        or not isinstance(spec_version, str)
+        or spec_version not in SUPPORTED_CYCLONEDX_SPEC_VERSIONS
+    ):
+        findings.append(
+            Finding(
+                "sbom_schema_invalid",
+                "sbom",
+                "expected CycloneDX 1.5 or 1.6",
+            )
+        )
     requirements = load_requirements(root, RUNTIME_REQUIREMENTS)
     expected = {
         (item.normalized_name, item.version)

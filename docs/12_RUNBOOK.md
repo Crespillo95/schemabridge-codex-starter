@@ -4038,6 +4038,11 @@ receive signing authority. Reject empty/incomplete scanner output, a mutable act
 different source revision or artifact digest, an expired/unknown exception, or prohibited/unknown
 direct license.
 
+The verifier accepts only CycloneDX 1.5 or 1.6. The project-generated wheel SBOM remains 1.5,
+while current pinned Trivy tooling may emit 1.6 for the runtime image; both versions retain the
+same complete component, artifact-digest, source-revision, lock, and provenance binding checks.
+Any other schema version fails closed.
+
 The runtime build requires BuildKit. Python auditing uses `--disable-pip` so already-installed
 resolver packages cannot disappear from the report. Audit all three exact inputs:
 `requirements/runtime.txt`, `requirements/build.txt`, and

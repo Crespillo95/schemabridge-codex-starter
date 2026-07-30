@@ -1606,6 +1606,10 @@ M29 accepted local evidence on 2026-07-29:
   browser matrices also pass locally. M29's reproducible local baseline passes, while the
   dirty-tree/hosted release boundary, operated remote production controls, M30, and M31 remain
   open.
+- M29's evidence verifier accepts only CycloneDX 1.5 and 1.6. This closes the hosted Trivy 1.6
+  compatibility found by run `30520807060` without relaxing complete runtime-component,
+  artifact-digest, source-revision, lock, or provenance bindings; every other schema version
+  remains fail-closed.
 - PostgreSQL `EXPLAIN` estimates depend on current planner statistics and are an admission bound,
   not proof of runtime latency, memory, or result correctness. M28 deliberately uses
   `ANALYZE FALSE`; production capacity/SLO evidence and operated statement observability remain
