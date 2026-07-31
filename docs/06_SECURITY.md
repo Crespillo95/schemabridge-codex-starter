@@ -43,6 +43,12 @@
 - secret-version substitution caused by conflating a public route revision with an external
   provider version, reading a provider's latest version, or inventing version pins for historical
   routes during migration.
+- advanced-intent authority escalation through forged output aliases, window frames, aggregate
+  stages, CTE references, unsupported-query approximation, or a keyword/length route bypass;
+- model-context overexposure through an unbounded catalog dump, and unapproved physical search
+  results being mistaken for executable semantic mappings;
+- copy-artifact injection, placeholder/value reordering, unsafe literalization, or leakage of
+  standalone SQL and embedded values through persistence, telemetry, provider payloads, or logs.
 
 ## Defense in depth
 
@@ -73,6 +79,10 @@
 - values bound as parameters;
 - restricted typed IR;
 - deterministic compiler;
+- deterministic v1/v2 routing by typed representability rather than input length or keywords;
+- parameterized SQL guarded before any standalone literal rendering;
+- quote-aware textual placeholder indexing, typed AST literals, and a second zero-binding guard
+  for copy/download output;
 - unsupported operations fail closed.
 
 ### Governed semantic-registry boundary
@@ -681,6 +691,62 @@ cannot be a production-security GO. M29 still owns operated remote secret manage
 rotation/audit, TLS/NetworkPolicy, observability/SIEM, dependency/SBOM/provenance and recovery
 controls; M30–M31 own production evaluation, independent security verification, pilot, and GA.
 
+### M32 copy-first natural-SQL boundary — locally accepted bounded scope
+
+- The preparation use case has no compiler, guard, copy renderer, cost-preflight, or executor
+  capability. For a confirmable request it deterministically resolves the current approved
+  datasets, mappings, joins, transformations, and fanout only to bind the resolved-plan
+  fingerprint plus confidence/evidence/risks into the human preview; no SQL may exist before exact
+  confirmation.
+- Confirmation reloads the current semantic registry, verifies the signed registry/scope/head
+  bindings, and deterministically revalidates and re-resolves the already confirmed typed request.
+  It does not call retrieval or either language stage again. A changed mapping, contract, closure,
+  approval, or semantic head makes the preview stale and produces no SQL.
+- M32 retrieval traverses every current approved logical model and field in scope. Lexical scoring
+  uses model/field names, definitions, and governed values, with role compatibility only as a
+  bonus after a lexical hit. Canonical types, roles, and value constraints are exposed and
+  validated in the bounded closure, not treated as free-text tokens. Provider/planner authority is
+  capped at three models, twelve fields, and two approved joins. The separate M27
+  physical-discovery lane may return `needs_mapping_review`; M32 never consumes or promotes that
+  result. Neither search score nor a catalog-only name becomes an identifier allowlist.
+- Mention extraction returns at most twelve exact source-grounded spans. Interpretation can emit
+  only a strict typed request or closed ambiguity codes over the supplied logical vocabulary. It
+  has no SQL, expression, physical identifier, join predicate, CTE, tool, approval, execution, or
+  DataHub-mutation field.
+- Live model use must pass the existing M27 tenant opt-in, approved public-metadata surface,
+  restricted-data screening, admission/reservation/settlement, and sanitized audit boundaries.
+  The closure contains no source rows, raw samples, SQL, parameters, credentials, private
+  connector facts, or unbounded catalog export. Live failure never falls back silently.
+- Route selection is a pure representability check after typed validation. A long flat request
+  cannot force v2, and a short window request cannot remain v1. Text length, requested line count,
+  keywords, language, and model confidence have no route authority.
+- Version-2 request and plan contracts are independent from historical version 1. Alias references
+  are validated at their exact evaluation stage; boolean depth/leaves, window count/arguments,
+  offsets, tile counts, moving frames, predicate types, and output order are bounded. One request
+  may expose at most four derived window outputs and eight window AST nodes.
+- Unsupported advanced families return a closed unsupported outcome before compilation. Cross/self
+  joins, arbitrary subqueries, set operations, recursion, and gaps/islands are not approximated.
+  `ROLLUP` remains rejected until explicit reviewed `GROUPING()` flags preserve the distinction
+  between subtotal `NULL` and genuine governed `NULL`.
+- Confirmation produces parameterized PostgreSQL first. Only that statement plus typed bindings
+  could enter the existing optional execution lane, after its independent guard and separate
+  execution authorization.
+- Standalone rendering starts only from the accepted parameterized statement. It associates
+  placeholders by quote-aware textual index, never AST traversal order; rejects count mismatch,
+  NUL, non-finite numbers, unsupported value types, and remaining parameters; emits typed literal
+  AST nodes; and submits the normalized PostgreSQL to the complete guard again with zero bindings.
+- The copy artifact cannot reach a query executor and returns `executed=false`. Its SQL and
+  embedded literal values are transient protected output: they are forbidden from logs, traces,
+  metrics, provider requests/responses, workflow/job state, recipe documents, audit payloads, and
+  generated evaluation reports. Only bounded fingerprints and non-secret capability metadata may
+  persist.
+- The advanced guard is CTE-scope aware and retains exactly one read-only outer statement, no
+  comments/smuggling, three physical tables/two joins, no repeated asset/Cartesian join, explicit
+  projections, one literal outer limit, and exact physical/CTE output allowlists. It additionally
+  rejects user-shaped/recursive/forward CTEs, hidden subqueries, set operations, unsupported
+  grouping sets, `OFFSET`, `FILTER`, `QUALIFY`, named windows, forged functions/frames, and
+  excessive AST/SQL/window complexity.
+
 ### Natural-language boundary
 
 - The legacy `IntentParserPort` and M27's separate local-expansion/typed-interpretation ports return
@@ -988,6 +1054,30 @@ At minimum test:
 - internal-browser accepted/blocked route-cost scenarios, desktop/390x844 layout, literal hostile
   metadata, clean console, no overflow, and zero secret, DSN, endpoint, SQL parameter, raw plan,
   source identity, database/topology, or source-value disclosure.
+- M32 long-simple-v1 and short-advanced-v2 route cases proving that representability, not
+  length/keywords, selects the contract;
+- complete governed-registry retrieval with a maximum 3-model/12-field/2-join approved closure,
+  plus ambiguity, staleness, and over-limit M32 failures before SQL; and a separate M27 regression
+  proving that physical-only discovery stays `needs_mapping_review` and never enters M32;
+- exact mention-span grounding, duplicate/overlapping/out-of-range/over-twelve mention rejection,
+  vocabulary escape, operation/type mismatch, forged aliases/stages, and model-output SQL/physical/
+  tool/approval/execution extras;
+- zero compiler/guard/renderer/cost/source calls during M32 preparation, and zero executor calls
+  during confirmed copy generation;
+- positive typed/compiled coverage for rankings/top-N/`NTILE`, partition averages/percentages,
+  duplicates/`HAVING`, running/moving windows, `LAG`/`LEAD`, delta/percent change, conditional
+  metrics, and numeric buckets;
+- typed no-SQL outcomes for cross/self joins, arbitrary subqueries, set operations, recursion,
+  gaps/islands, and `ROLLUP` without `GROUPING()` flags;
+- scope-aware CTE guard regressions for recursive/forward/extra stages, unknown CTE outputs, hidden
+  subqueries/set operations, unsupported grouping/window clauses, forged frames/functions,
+  excessive SQL/AST/window/predicate complexity, wrong outer limit, and remaining placeholders;
+- standalone-rendering regressions for textual parameter order versus AST traversal order, quoted
+  `%s`, dollar-quoted text, repeated values, dates/timestamps/time zones/decimals/booleans/`NULL`,
+  non-finite numbers, NUL, unsupported types, injection strings, parameter-count mismatch, stable
+  SHA-256, reparse, and zero-binding re-guard; and
+- absence of copy SQL and embedded values from logs, traces, metrics, provider payloads, recipes,
+  workflow/job/audit state, evaluation reports, and optional executor input.
 
 ## Incident rule
 

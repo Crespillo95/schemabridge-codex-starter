@@ -104,6 +104,13 @@ def test_sql_guard_accepts_compiler_output_after_reparsing() -> None:
     assert validated.statement_timeout_ms == 5_000
 
 
+def test_runtime_join_allowlist_is_excluded_from_historical_policy_payloads() -> None:
+    policy = build_demo_query_policy()
+
+    assert policy.approved_join_contracts
+    assert "approved_join_contracts" not in policy.model_dump(mode="json")
+
+
 def test_sql_guard_rejects_unregistered_dialect_before_parsing() -> None:
     with pytest.raises(SqlPolicyViolation) as captured:
         SqlGlotPolicyGuard().validate(
@@ -152,7 +159,7 @@ def test_sql_guard_rejects_target_bound_output_without_the_target() -> None:
     assert captured.value.findings[0].code is SqlRejectionCode.TARGET_MISMATCH
 
 
-def test_read_only_cte_is_allowed_when_assets_columns_and_limit_are_valid() -> None:
+def test_version_one_rejects_ctes_that_its_compiler_cannot_emit() -> None:
     sql = (
         "WITH active AS ("
         "SELECT c.customer_id FROM crm.customers AS c "
@@ -160,9 +167,10 @@ def test_read_only_cte_is_allowed_when_assets_columns_and_limit_are_valid() -> N
         ") SELECT customer_id FROM active LIMIT 10"
     )
 
-    validated = SqlGlotPolicyGuard().validate(
-        CompiledQuery(sql=sql, parameters=("ACTIVE",), effective_limit=10),
-        build_demo_query_policy(),
-    )
+    with pytest.raises(SqlPolicyViolation) as captured:
+        SqlGlotPolicyGuard().validate(
+            CompiledQuery(sql=sql, parameters=("ACTIVE",), effective_limit=10),
+            build_demo_query_policy(),
+        )
 
-    assert validated.max_rows == 10
+    assert captured.value.findings[0].code is SqlRejectionCode.INVALID_CTE_TOPOLOGY

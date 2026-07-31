@@ -4,21 +4,19 @@
 
 SchemaBridge is a DataHub-native governed semantic query agent. It proposes explainable column
 mappings and join contracts, asks a human to approve semantic decisions, compiles a typed analytical
-request into deterministic PostgreSQL, independently validates the final SQL AST, runs a bounded
-read-only preview, and writes reusable approved context back to DataHub.
+request into deterministic PostgreSQL, independently validates the final SQL AST, and can return a
+standalone query to copy into another PostgreSQL client. A bounded read-only preview is optional;
+approved semantic context can be written back to DataHub through its separate approval path.
 
-> Release status (2026-07-27): the public repository and Apache-2.0 license are verified. The
+> Release status (2026-07-30): the public repository and Apache-2.0 license are verified. The
 > recorded judge image passes local build/smoke tests, but no public demo URL, public video, clean
 > release commit, tag, operated production cluster, or production SLO is claimed. The generated
-> M18 manifest remains development evidence until those operator steps are complete. M20–M27 are
-> accepted locally within the synthetic scope. M27 proves dynamic 10- and 5,434-table Query Studio
-> profiles, bounded description matching, and the typed intent → deterministic compiler → AST
-> guard → read-only preview path. Its signed v11 live campaign selected
-> `gpt-5-nano-2025-08-07`; the accepted v2 campaign/ledger attestation and complete fake-mode
-> internal-browser record are retained. The one separately authorized live-UI smoke was blocked by
-> the browser host's URL policy before submission, so it made no provider request and is not
-> presented as a live-browser PASS. External AI was immediately returned to disabled policy v86.
-> This is local synthetic milestone evidence, not a production-release claim.
+> M18 manifest remains development evidence until those operator steps are complete. M20–M29 are
+> accepted locally within their stated synthetic/local scopes; the corrective hosted M29 rerun and
+> every external production/release gate remain open. M32—the bounded simple/advanced
+> natural-language to copyable PostgreSQL capability described below—is accepted locally for its
+> deterministic/synthetic scope. Its manual browser matrix and live-provider/production evidence
+> remain open. No error-free, all-SQL-dialects, or production claim is made.
 
 ## The result in 90 seconds
 
@@ -456,6 +454,87 @@ preserved and no production claim. See the
 [deterministic M27 report](reports/m27-query-studio-deterministic-evaluation.md) and
 [M27 handoff](tasks/M27_HANDOFF.md).
 
+## M32 copy-first SQL for simple and advanced requests — locally accepted bounded scope
+
+M32 targets the product behavior analysts asked for: describe a query in natural language, inspect
+the exact interpretation, confirm it, then copy one complete PostgreSQL statement into another
+PostgreSQL client connected to the same governed database/context. SchemaBridge execution is
+optional and disabled by default for this flow.
+
+The system does not claim to be infallible or accept every arbitrary SQL program. “Exact” means
+that all requested semantics fit a closed typed contract, resolve through current approved table/
+field/join context, and compile deterministically. If a field meaning, join, tie policy, or window
+frame is ambiguous—or if the request needs an unsupported construct—SchemaBridge returns that
+problem and generates no SQL.
+
+Retrieval traverses every active approved logical model and field. Lexical scoring uses names,
+definitions, and governed values, with role compatibility as a bonus after a lexical hit; canonical
+types, roles, and value constraints are exposed and validated in the bounded closure rather than
+used as free-text search tokens. Deterministic server code then reconstructs the relevant closure
+and resolves/revalidates its current approved physical mappings, transformations, join contracts,
+cardinality, fanout policy, and freshness bindings. Each request receives at most three models,
+twelve fields, and two joins. M32 never promotes catalog-only fields: the separate M27
+physical-discovery lane keeps them `needs_mapping_review`; similar names never become executable
+automatically.
+
+The flow has two operations:
+
+1. **Prepare natural-SQL preview** — returns the typed interpretation, selected context, v1/v2
+   route, resolved datasets/mapping/join reviews, assumptions, risks, and fingerprints. It resolves
+   semantics for the preview but never compiles or exposes SQL.
+2. **Confirm preview / generate copy artifact** — reloads current context, revalidates and
+   re-resolves the signed request, compiles deterministically, guards the parameterized AST,
+   renders typed literals, and guards the standalone SQL again. It never executes and returns
+   `executed=false`.
+
+For a human CLI review, `sql-from-natural --review-and-confirm` prepares once, prints the complete
+preview, and confirms that same in-memory object/token. The older two-invocation fingerprint mode
+re-prepares and deliberately fails closed if a live interpretation changes.
+
+Version selection is semantic. Existing simple aggregate/filter requests remain on byte-stable v1
+when completely representable. Row mode, fieldless row count, boolean trees, conditional metrics,
+buckets, `HAVING`, windows, output filters/order, or advanced grouping use the separate v2
+contracts. A long simple request remains v1; a short “rank products by revenue” request is v2.
+Length, keywords, language, and model confidence never select a compiler lane.
+
+The bounded advanced language covers:
+
+- `ROW_NUMBER`, `RANK`, `DENSE_RANK`, `NTILE`, and top-N per group;
+- partition averages and percentages of group totals;
+- duplicate/group-threshold queries with `COUNT_ROWS`, `COUNT DISTINCT`, and `HAVING`;
+- running/moving sums and averages;
+- `LAG`, `LEAD`, delta, and percentage change;
+- conditional aggregates and numeric buckets.
+
+One request may expose at most four derived window outputs and eight window AST nodes.
+Cross/self joins, arbitrary subqueries, set operations, recursion, and gaps/islands remain explicit
+unsupported outcomes. `ROLLUP` is also excluded until a reviewed design emits `GROUPING()` flags
+that distinguish subtotal `NULL` from genuine data `NULL`. PostgreSQL is the sole output dialect;
+SQLGlot transpilation is not presented as MySQL, SQL Server, BigQuery, or Snowflake support.
+The output is intended for the same governed PostgreSQL database/context shown in the preview,
+not an unrelated database that happens to have homonymous schemas. Current approved physical
+identifiers are unquoted-canonical lowercase ASCII names within PostgreSQL's 63-byte limit.
+
+This capability matrix is benchmarked against the families in
+[25 Ejemplos de Consultas SQL Avanzadas](https://learnsql.es/blog/25-ejemplos-de-consultas-sql-avanzadas/).
+The article is a taxonomy reference, not copied SQL and not permission to bypass SchemaBridge's
+typed language.
+
+The advanced acceptance request groups completed orders by month and product category, calculates
+net revenue, units, and distinct orders, applies a four-order `HAVING` threshold, ranks eligible
+categories with an alphabetical tie-break, calculates percentage and cumulative revenue, and
+keeps the top three per month. Its reviewed expected output is five synthetic rows. The complete
+contract and ground truth are in
+[M32 advanced copyable SQL plan](plans/M32_ADVANCED_COPYABLE_SQL.md).
+
+M32 is accepted locally for this bounded deterministic/synthetic capability: `304/304` targeted
+checks pass; the advanced standalone SQL SHA-256 is
+`ec589a1527d0d641f4f7f7eb7e052ca1ace5b092013b437da72542ce4145d4f3`; and the global quality
+gate passes `3,587` tests with `224` explicit deselections. The in-app browser was unavailable, so
+no manual desktop/mobile/browser PASS is claimed. See the
+[M32 deterministic evaluation](reports/m32-copyable-sql-deterministic-evaluation.md) and
+[M32 handoff](tasks/M32_HANDOFF.md).
+
 ## Measured synthetic evidence
 
 `make evaluate` resets PostgreSQL and reproduces the complete case-level report. The current
@@ -487,16 +566,18 @@ campaign history or the signed v11 provider result.
 | Source | exact fingerprint-bound recorded observation | live read-only PostgreSQL |
 | Publication | contract-compatible fake | approval-gated DataHub writer |
 
-Limitations: PostgreSQL is the only executable dialect; queries use at most three tables/two joins
-and a restricted expression set; semantic mappings and DataHub mutations require a human; the
-evaluation fixture is synthetic; M27's signed v11 result and browser evidence remain local
-synthetic observations; the live-UI smoke was blocked before provider submission; and DataHub plus
-the local SQLite audit ledger do not provide one distributed transaction. Brief descriptions
-produce bounded ambiguity-aware
-governed matches, not arbitrary SQL or automatic mapping approval. This is a hackathon MVP, not
-production-ready enterprise infrastructure.
+Limitations: PostgreSQL is the only executable/output dialect; copy SQL is intended for the same
+governed PostgreSQL database/context shown in its preview; queries use at most three
+tables/two joins and a restricted expression set; semantic mappings and DataHub mutations require
+a human; the evaluation fixture is synthetic; M27's signed v11 result and browser evidence remain
+local synthetic observations; the live-UI smoke was blocked before provider submission; and
+DataHub plus the local SQLite audit ledger do not provide one distributed transaction. Brief
+descriptions produce bounded ambiguity-aware governed matches, not arbitrary SQL or automatic
+mapping approval. M32 does not guarantee every request is error-free and explicitly rejects
+unsupported families instead of approximating them. This is a hackathon-derived system under
+productionization, not production-ready enterprise infrastructure.
 
-The productionization track includes accepted local M20–M27 boundaries. Managed browser deployments
+The productionization track includes accepted local M20–M29 boundaries. Managed browser deployments
 require provider-neutral OIDC, explicit tenant allowlisting, preflighted HTTPS/auth secrets, closed
 application roles, immutable server-side integration modes, diversity-checked versioned
 HMAC-pseudonymous decision actors, atomically persisted workflow workspace/owner access, and a safe
@@ -504,11 +585,12 @@ recorded execution default. M21 adds the atomic multi-domain registry and determ
 adds bounded immutable DataHub publication/read-back without recorded fallback; M23 adds the
 separate migrated PostgreSQL authority and approval-gated operator workflows; M24 adds the
 authenticated API/durable worker; and M25 adds dynamic tenant catalog indexing, capacity, pools,
-and local scale measurement; M26 adds governed drift/change management; and M27 adds the current
-bounded Query Studio and optional tenant-governed AI path. The public recorded judge profile
-remains intentionally anonymous and secret-free. The project is still not production-ready until
-M28–M31 connector, observability/security/recovery, supply-chain, production-evaluation, and
-operated-pilot gates are complete.
+and local scale measurement; M26 adds governed drift/change management; M27 adds bounded Query
+Studio and optional tenant-governed AI; M28 adds connector routing/cost controls; and M29 adds
+production-shaped local operations/supply-chain contracts. M32 is a separately accepted local
+copy-first product capability and does not advance the reserved M30/M31 production-evaluation,
+security-verification, pilot, or GA gates. The public recorded judge profile remains intentionally
+anonymous and secret-free.
 
 ## Repository and evidence
 
@@ -520,6 +602,8 @@ operated-pilot gates are complete.
 - [M26 accepted local handoff](tasks/M26_HANDOFF.md)
 - [M27 deterministic matching report](reports/m27-query-studio-deterministic-evaluation.md)
 - [M27 local synthetic handoff and retained limitations](tasks/M27_HANDOFF.md)
+- [M32 simple/advanced copyable PostgreSQL plan](plans/M32_ADVANCED_COPYABLE_SQL.md)
+- [M32 architectural decision](docs/adr/0015-advanced-copyable-postgresql.md)
 - [Evaluation methodology](docs/15_EVALUATION.md)
 - [Submission draft and link status](docs/18_DEVPOST_SUBMISSION.md)
 - [Video script, caption, and rights checklist](docs/18_VIDEO_PRODUCTION.md)

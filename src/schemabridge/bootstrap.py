@@ -237,6 +237,16 @@ if TYPE_CHECKING:
     from schemabridge.application.database_separation import (
         VerifySourceControlDatabaseSeparation,
     )
+    from schemabridge.application.natural_sql import (
+        ConfirmNaturalSqlPreview,
+        GenerateGovernedCopyableSql,
+        PrepareNaturalSqlPreview,
+    )
+    from schemabridge.application.ports.advanced_query_studio import (
+        AdvancedInterpretationPort,
+        AdvancedMentionExtractionPort,
+        AdvancedSemanticRetrievalPort,
+    )
     from schemabridge.application.ports.connector_secrets import (
         ConnectorSecretResolver,
     )
@@ -400,6 +410,17 @@ class QueryStudioRuntimeServices:
     )
     discover_physical: "DiscoverPhysicalFields | None" = field(default=None, repr=False)
     expansion: "DescriptionExpansionPort | None" = field(default=None, repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class NaturalSqlRuntimeServices:
+    """Copy-only natural SQL services; execution is deliberately absent."""
+
+    scope: SemanticRegistryScope
+    ai_mode: Literal["fake", "live"]
+    prepare: "PrepareNaturalSqlPreview" = field(repr=False)
+    confirm: "ConfirmNaturalSqlPreview" = field(repr=False)
+    generate: "GenerateGovernedCopyableSql" = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -2217,6 +2238,188 @@ def build_query_studio_runtime(
         recompute_natural=recompute_natural,
         discover_physical=discover_physical,
         expansion=expansion,
+    )
+
+
+def build_natural_sql_runtime(
+    *,
+    principal: AuthenticatedPrincipal,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+    registry: GovernedSemanticRegistryPort | None = None,
+    mentions: "AdvancedMentionExtractionPort | None" = None,
+    interpreter: "AdvancedInterpretationPort | None" = None,
+    retrieval: "AdvancedSemanticRetrievalPort | None" = None,
+) -> NaturalSqlRuntimeServices:
+    """Compose text → confirmed standalone SQL without an execution capability."""
+
+    from schemabridge.adapters.query_studio.advanced_fake_language import (
+        DeterministicAdvancedLanguageAdapter,
+    )
+    from schemabridge.adapters.query_studio.advanced_security import (
+        HmacAdvancedQueryPreviewTokens,
+    )
+    from schemabridge.adapters.query_studio.advanced_semantic_index import (
+        RegistryWideAdvancedSemanticIndex,
+    )
+    from schemabridge.adapters.query_studio.security import (
+        SecureQueryStudioNonce,
+        SystemQueryStudioClock,
+    )
+    from schemabridge.adapters.sql.compiler import PostgresQueryCompiler
+    from schemabridge.adapters.sql.export import PostgresCopyableSqlRenderer
+    from schemabridge.application.natural_sql import (
+        ConfirmNaturalSqlPreview,
+        GenerateGovernedCopyableSql,
+        PrepareNaturalSqlPreview,
+    )
+    from schemabridge.domain.semantic_registry import (
+        semantic_registry_scope_fingerprint,
+    )
+
+    root = (repository_root or Path.cwd()).resolve()
+    resolved = settings or get_settings()
+    if principal.workspace_id != principal.workspace_id.strip():
+        raise ValueError("natural SQL principal workspace is not canonical")
+    if (mentions is None) != (interpreter is None):
+        raise ValueError(
+            "natural SQL mention extraction and interpretation must be injected together"
+        )
+    if resolved.query_studio_ai_mode == "disabled":
+        raise ValueError("natural SQL interpretation is disabled")
+    if mentions is not None and (
+        resolved.query_studio_ai_mode != "fake" or resolved.runtime_profile != "development"
+    ):
+        raise ValueError("natural SQL language-port injection is limited to the local fake seam")
+    semantic_registry = registry or build_semantic_registry(
+        repository_root=root,
+        settings=resolved,
+        workspace_id=principal.workspace_id,
+    )
+    scoped = semantic_registry.load()
+    limits = ResolutionLimits(
+        max_tables=resolved.max_query_tables,
+        max_preview_rows=resolved.max_query_rows,
+        statement_timeout_ms=resolved.statement_timeout_ms,
+    )
+    nonces = SecureQueryStudioNonce()
+    if resolved.query_studio_ai_mode == "live" and mentions is not None:
+        raise ValueError(
+            "live natural SQL language adapters must be composed through durable admission"
+        )
+    if mentions is None:
+        if resolved.query_studio_ai_mode == "fake":
+            fake_language = DeterministicAdvancedLanguageAdapter()
+            mentions = fake_language
+            interpreter = fake_language
+        else:
+            from schemabridge.adapters.control_plane.postgres_query_studio_ai import (
+                PostgresQueryStudioAiControl,
+            )
+            from schemabridge.adapters.language.openai_advanced_query_studio import (
+                create_openai_advanced_query_studio_adapters_from_environment,
+                openai_advanced_interpretation_input_token_reservation_bound,
+                openai_advanced_mention_input_token_reservation_bound,
+            )
+            from schemabridge.adapters.language.openai_boundary import (
+                OpenAIRegion,
+                OpenAIResponsesConfig,
+                derive_safety_identifier,
+            )
+            from schemabridge.application.query_studio_ai_admission import (
+                AdmittedAdvancedInterpretation,
+                AdmittedAdvancedMentionExtraction,
+            )
+
+            if resolved.pseudonymization_key is None:
+                raise ValueError("live natural SQL pseudonymization key is unavailable")
+            require_current_control_plane_schema(
+                credential_kind="runtime",
+                repository_root=root,
+                settings=resolved,
+            )
+            pseudonym_key = resolved.pseudonymization_key.get_secret_value().encode("utf-8")
+            openai_config = OpenAIResponsesConfig.for_model(
+                resolved.query_studio_ai_model,
+                region=OpenAIRegion(resolved.query_studio_ai_region),
+            )
+            scope_fingerprint = semantic_registry_scope_fingerprint(scoped.scope)
+            raw_mentions, raw_interpreter = (
+                create_openai_advanced_query_studio_adapters_from_environment(
+                    openai_config,
+                    safety_identifier=derive_safety_identifier(
+                        pseudonym_key,
+                        workspace_identity=principal.workspace_id,
+                        actor_identity=principal.actor_id,
+                    ),
+                    matcher_version=GOVERNED_DESCRIPTION_MATCHER_VERSION,
+                    semantic_scope_fingerprint=scope_fingerprint,
+                    public_metadata_registry_fingerprint=scoped.registry.fingerprint,
+                )
+            )
+            if raw_mentions.configuration != raw_interpreter.configuration:
+                raise ValueError("live natural SQL stages use different provider configurations")
+            control = PostgresQueryStudioAiControl(
+                _control_plane_dsn(resolved, "runtime"),
+                schema=resolved.control_plane_schema,
+            )
+            actor_digest = hmac.new(
+                pseudonym_key,
+                f"schemabridge-ai-audit-v1\0{principal.actor_id}".encode(),
+                hashlib.sha256,
+            ).hexdigest()
+            mentions = AdmittedAdvancedMentionExtraction(
+                delegate=raw_mentions,
+                control=control,
+                nonces=nonces,
+                workspace_id=principal.workspace_id,
+                actor_digest=actor_digest,
+                semantic_scope_fingerprint=scope_fingerprint,
+                configuration=raw_mentions.configuration,
+                estimated_input_tokens=(openai_advanced_mention_input_token_reservation_bound()),
+                estimated_output_tokens=openai_config.expansion_max_output_tokens,
+            )
+            interpreter = AdmittedAdvancedInterpretation(
+                delegate=raw_interpreter,
+                control=control,
+                nonces=nonces,
+                workspace_id=principal.workspace_id,
+                actor_digest=actor_digest,
+                semantic_scope_fingerprint=scope_fingerprint,
+                configuration=raw_interpreter.configuration,
+                estimated_input_tokens=(
+                    openai_advanced_interpretation_input_token_reservation_bound()
+                ),
+                estimated_output_tokens=(openai_config.interpretation_max_output_tokens),
+            )
+    assert interpreter is not None
+    tokens = HmacAdvancedQueryPreviewTokens(_query_studio_signing_key(resolved))
+    clock = SystemQueryStudioClock()
+    return NaturalSqlRuntimeServices(
+        scope=scoped.scope,
+        ai_mode=("live" if resolved.query_studio_ai_mode == "live" else "fake"),
+        prepare=PrepareNaturalSqlPreview(
+            registry=semantic_registry,
+            mentions=mentions,
+            retrieval=retrieval or RegistryWideAdvancedSemanticIndex(),
+            interpreter=interpreter,
+            preview_tokens=tokens,
+            clock=clock,
+            nonces=nonces,
+            limits=limits,
+        ),
+        confirm=ConfirmNaturalSqlPreview(
+            registry=semantic_registry,
+            preview_tokens=tokens,
+            clock=clock,
+        ),
+        generate=GenerateGovernedCopyableSql(
+            registry=semantic_registry,
+            compiler=PostgresQueryCompiler(),
+            guard=build_sql_guard(),
+            renderer=PostgresCopyableSqlRenderer(),
+            limits=limits,
+        ),
     )
 
 

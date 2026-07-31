@@ -52,9 +52,12 @@ authorize a release claim, or relax any clean-commit gate.
 | M29 | Operations and supply-chain hardening | observability, backups, SBOM, pinned CI actions |
 | M30 | Production evaluation and security verification | adversarial corpus and release thresholds |
 | M31 | Pilot and general-availability readiness | operated pilot, runbooks, rollback, sign-off |
+| M32 | Simple/advanced natural language to copyable PostgreSQL | exact typed preview, representability routing, twice-guarded standalone SQL |
 
 The productionization track is sequential unless a milestone explicitly permits read-only parallel
 audit. M20 contracts become the identity boundary reused by later API and worker entrypoints.
+M32 is a product-capability branch from the locally accepted M29 baseline; it neither bypasses nor
+completes the reserved M30/M31 production gates.
 
 ### Dynamic tenant catalog requirement
 
@@ -76,12 +79,14 @@ This inventory requirement does not relax query safety. Catalogs may contain tho
 while one compiled request remains subject to its governed per-query table/join maximum, allowlist,
 fanout checks, result limit, and timeout.
 
-M26 and M27 are complete and accepted locally. M28 is in progress under
-`plans/M28_COMPILER_CONNECTORS_COST_CONTROLS.md`: it binds each managed plan to one tenant
-connection and immutable route, makes PostgreSQL dialect support explicit, resolves only opaque
-connector secrets, and adds bounded read-only `EXPLAIN` cost controls. M29 through M31 remain
-sequentially blocked on their accepted predecessor; neither local acceptance nor queue position is
-a global production/release GO.
+M26–M29 are complete and accepted locally within their recorded scopes. M32 is also accepted
+locally for the bounded deterministic/synthetic scope in
+`plans/M32_ADVANCED_COPYABLE_SQL.md`: it traverses the complete approved logical registry,
+constructs a bounded 3-model/12-field/2-join closure, selects v1/v2 by typed representability, and
+makes twice-guarded standalone PostgreSQL the primary result with zero execution by default. Its
+manual browser and live-provider/holdout evidence remain open. M30/M31 retain their separate
+production-evaluation/security and pilot/GA roles. Neither local acceptance, M32 implementation,
+nor queue position is a global production/release GO.
 
 ## Dependency graph
 
@@ -128,6 +133,7 @@ graph TD
   M28 --> M29
   M29 --> M30
   M30 --> M31
+  M29 --> M32
 ```
 
 ## Parallel work permitted
@@ -157,6 +163,9 @@ Do not allow parallel agents to edit overlapping modules. The main thread integr
 | M13 recipes | M14/M15 | versioned reusable context and artifacts |
 | M20 identity/access | M21–M31 | authenticated principal, closed permissions, workspace ownership |
 | M21 semantic registry | M22/M23/M27 | atomic scoped model/mapping/join snapshot with independent query limits |
+| M27 governed retrieval | M32 | complete-registry search with bounded approved 3/12/2 closure |
+| M03/M28 SQL boundary | M32 | deterministic PostgreSQL compiler and independent scope-aware guard |
+| M32 language/copy boundary | users and optional preview | confirmed v1/v2 intent → parameterized guarded SQL → standalone re-guarded artifact; executor receives only the parameterized form |
 
 ## Release blockers
 

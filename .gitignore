@@ -44,6 +44,7 @@ reports/*
 !reports/m25-scale-report.md
 !reports/m27-query-studio-deterministic-evaluation.json
 !reports/m27-query-studio-deterministic-evaluation.md
+!reports/m32-copyable-sql-deterministic-evaluation.md
 !reports/m16-audits/
 reports/m16-audits/*
 !reports/m16-audits/*.md

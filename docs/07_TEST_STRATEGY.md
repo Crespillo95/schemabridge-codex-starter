@@ -1240,3 +1240,124 @@ keeps the external NO-GO boundary visible: the API can verify the ruleset and im
 settings but cannot prove the global absence of competing GHCR `PUT` or GitHub Release contents
 writers. A current external administrator audit and a custom deployment-protection rule remain
 mandatory operated prerequisites, not claims made by a static test.
+
+## M32 copy-first natural-SQL verification — local automated PASS
+
+M32 evidence must distinguish three claims:
+
+1. interpretation exactness against the supplied approved context;
+2. deterministic SQL construction and independent policy acceptance;
+3. optional result correctness against synthetic PostgreSQL.
+
+One passing SQL string is insufficient evidence for all three. The primary acceptance path must
+perform zero execution and return `executed=false`; the live-result check is a separate optional
+integration selection.
+
+### Version compatibility and routing
+
+- Snapshot historical version-1 request, validation, resolution, plan, compiler SQL/parameters,
+  and fingerprint bytes before M32, then require byte identity on final code.
+- Use one verbose but flat standard aggregate request and assert route v1.
+- Use one short ranking/window request and assert route v2.
+- Mutate length, whitespace, synonyms, and non-semantic wording without changing the typed meaning;
+  the route must not change.
+- Add an advanced-only feature to an otherwise identical request; only representability may change
+  the route.
+
+### Retrieval and natural-language contracts
+
+- Exercise retrieval against a registry larger than one query closure and prove all approved
+  candidates are searchable while model/planner-visible output never exceeds 3 models, 12 fields,
+  and 2 joins.
+- Test exact source-span grounding, Unicode offsets, deterministic source ordering, duplicate/
+  overlap/out-of-range spans, empty/overlong text, controls, and the 12-mention bound.
+- Test definitions, types, roles, allowed values, transformations, joins, cardinalities, fanout,
+  and semantic-state fingerprints in closure construction.
+- Prove the separate M27 physical lane returns `needs_mapping_review`, with no M32 interpretation promotion or
+  compiler call.
+- Prove ambiguity, tied field meaning, missing mapping, ambiguous path, stale context, cross-scope
+  result, and an over-limit closure return a typed no-SQL outcome.
+- Reject provider extras including SQL, physical identifiers, expressions, CTEs, joins, tools,
+  approvals, execution instructions, and fields outside the supplied closure.
+- In live-adapter contract tests, require the existing tenant policy, public-metadata approval,
+  egress screen, bounded admission/settlement, no tools, and no fallback. Fake tests remain
+  key-free.
+
+### Advanced domain and compiler matrix
+
+Positive unit/golden coverage must include:
+
+- simple row selection and simple version-2 aggregate selection;
+- bounded `AND`/`OR`/`NOT`;
+- `COUNT_ROWS`, `COUNT`, `COUNT DISTINCT`, `SUM`, `AVG`, `MIN`, and `MAX`;
+- conditional aggregates and numeric buckets;
+- aggregate alias predicates compiled as `HAVING`;
+- `ROW_NUMBER`, `RANK`, `DENSE_RANK`, and `NTILE`;
+- partition average and percentage of partition total;
+- running/moving `SUM` and `AVG`;
+- `LAG`, `LEAD`, delta, and percentage change;
+- post-window top-N filtering and deterministic output-alias order.
+
+Every case must validate operation/type compatibility, aliases at the correct evaluation stage,
+the selected tie contract (`RANK`/`DENSE_RANK` preserve peers; `ROW_NUMBER`, `NTILE`, and
+order-sensitive value windows require a deterministic total order), fixed compiler-owned frames,
+finite/bounded arguments, fanout policy, three-table/two-join limits, and the expected direct or
+staged topology.
+
+Negative capability cases must produce no approximate plan/SQL for cross joins, self joins,
+arbitrary subqueries, `UNION`/`INTERSECT`/`EXCEPT`, recursive CTEs, gaps/islands, or `ROLLUP`.
+`ROLLUP` cannot move to positive coverage until output includes reviewed `GROUPING()` flags and
+tests distinguish a subtotal `NULL` from a genuine source `NULL`.
+
+### Guard and standalone rendering
+
+- Reparse and reject destructive/multiple statements, comments used for concealment, wildcard,
+  unsupported `DISTINCT`, `OFFSET`, `FILTER`, `QUALIFY`, named windows, grouping sets, unknown
+  functions, and every pre-existing M03 attack.
+- Test exact staged topology, maximum two CTEs/three selects/four derived window outputs/eight
+  window AST nodes, no recursive/forward/extra CTE, CTE output allowlists, unknown outputs,
+  physical scope, no repeated physical asset, no Cartesian join, and exact outer literal limit.
+- Mutate window functions, arguments, partitions, ordering, frames, and output filters after
+  compile; the independent guard must reject them.
+- Verify quote-aware textual `%s` numbering with single-quoted, double-quoted, escaped, and
+  dollar-quoted text. Construct a case whose AST traversal order differs from textual placeholder
+  order and prove the values retain textual association.
+- Round-trip `NULL`, boolean, integer, finite decimal, Unicode string, date, timestamp, and
+  timestamp-with-time-zone literals. Reject non-finite numbers, NUL, unsupported values,
+  parameter-count mismatch, literal injection, and any remaining `%s`/`$n`.
+- Reparse and guard standalone SQL with zero bindings and assert a stable reviewed SHA-256.
+- Scan logs, traces, metrics, provider inputs/outputs, workflow/job/recipe/audit stores, and
+  evaluation artifacts for copy SQL and embedded values; only fingerprints may remain.
+
+### Acceptance and optional PostgreSQL ground truth
+
+The primary acceptance uses the exact Spanish reference in the M32 plan. It must prove:
+
+- preparation returns the exact typed interpretation and no SQL;
+- confirmation reloads current context and uses exactly three approved datasets/two approved
+  joins;
+- compiler output contains `HAVING`, three closed window calculations, deterministic tie order,
+  a post-window top-three predicate, two non-recursive compiler-owned CTEs, and `LIMIT 100`;
+- the copy artifact has no placeholders, passes its second guard, and reports
+  `executed=false`;
+- compiler/guard/renderer calls before confirmation and executor calls throughout the copy-first
+  path are exactly zero where prohibited.
+
+The separate PostgreSQL integration action may execute only the parameterized guarded form through
+the synthetic reader. Compare all values and types for the five rows in the plan, including
+decimal percentage/cumulative results and deterministic order. Also retain one simple v1 and one
+simple v2 integration control.
+
+Browser acceptance must show typed interpretation before SQL, exact confirmation, visible v1/v2
+route, context/joins/limitations, primary copy/download actions, `executed=false`, and optional
+validation/execution as a distinct disabled-by-default action. It must cover desktop and 390×844,
+clean console, no overflow, literal hostile input, ambiguity, physical-only review, unsupported
+request, stale confirmation, and zero protected-output leakage.
+
+The final local automated evidence records `304/304` targeted M32 checks, including the separate
+read-only PostgreSQL integration, and a full `make check` with `3,587` passed and `224` explicitly
+deselected. The reference standalone SQL SHA-256 is
+`ec589a1527d0d641f4f7f7eb7e052ca1ace5b092013b437da72542ce4145d4f3`; `git diff --check` is
+clean. The in-app browser list was empty, so the browser matrix above remains a documented
+operator manual test and is not labeled PASS. This does not weaken the automated Streamlit
+acceptance (`3/3`) or create a production/live-provider claim.

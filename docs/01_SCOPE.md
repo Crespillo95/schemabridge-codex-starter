@@ -116,6 +116,50 @@ or source I/O. Unrelated changes among 5,434 or more tables do not block an unaf
 M26 makes no OpenAI request and does not add description matching, connector routing, federation,
 or a wider query limit.
 
+M32 adds a copy-first natural-language SQL capability after the locally accepted M27–M29
+boundaries. Both simple and advanced requests search the complete current governed registry, but
+one interpretation receives only the relevant approved closure of at most three logical models,
+twelve fields, and two joins. Physical discovery remains non-executable until an explicit mapping
+approval exists. Query capacity remains one connection, three physical tables, and two approved
+joins regardless of catalog size.
+
+M32 preserves the existing version-1 request/plan contracts and introduces separate version-2
+contracts for bounded boolean predicates, row counts, conditional aggregates, numeric buckets,
+`HAVING`, ranking/tiling, partition/running/moving calculations, offsets/deltas/percentages,
+post-window filters, and final output-alias ordering. Automatic v1/v2 selection is based only on
+whether the complete typed meaning is representable; request length, line count, keywords,
+language, and model confidence have no routing authority.
+
+Version 2 permits at most four derived window outputs and eight window AST nodes, in addition to
+the unchanged one-connection/three-table/two-join limits.
+
+The primary M32 result is standalone, PostgreSQL-only SQL for copy/download. Preparation returns a
+typed interpretation plus deterministic resolved-plan fingerprint, selected approved
+datasets/mappings/joins, fanout facts, and review evidence/risks; it produces no SQL. Explicit
+confirmation reloads context, revalidates and re-resolves that same signed request, then performs
+deterministic compilation, independent AST validation, typed-literal rendering, and a second
+independent validation with zero placeholders. That operation never executes the query and
+reports `executed=false`. Optional preview remains a separate read-only path that accepts only
+parameterized guarded SQL.
+
+“Copy into another client” means a PostgreSQL editor connected to the same governed database
+context shown in the preview. M32 does not bind or validate an arbitrary destination database,
+and does not claim that homonymous schemas elsewhere have equivalent meaning. Approved physical
+identifiers for this lane are currently unquoted-canonical lowercase ASCII names within
+PostgreSQL's 63-byte identifier limit.
+
+The advanced-query benchmark scope includes bounded ranking/top-N/`NTILE`, partition averages,
+duplicate detection and grouped thresholds, running/moving calculations, `LAG`/`LEAD`,
+delta/percentage change, conditional metrics, and numeric buckets. It explicitly excludes
+cross/self joins, arbitrary subqueries, set operations, recursion, and gaps/islands. `ROLLUP`
+remains excluded until a reviewed contract exposes `GROUPING()` flags that distinguish subtotal
+`NULL` from genuine governed `NULL`.
+
+M32 does not add multi-dialect execution or transpilation, arbitrary SQL/expression input,
+automatic semantic approval, a wider query/table/join boundary, production-quality guarantees, or
+source/DataHub mutation authority. Ambiguous, stale, unsupported, or unapproved requests fail
+before SQL rather than receiving an approximate query.
+
 ## Definition of done
 
 The MVP is done when:

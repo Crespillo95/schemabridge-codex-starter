@@ -17,6 +17,7 @@ from schemabridge.application.ui_workflow import (
 )
 from schemabridge.bootstrap import (
     StreamlitRuntimeOptions,
+    build_natural_sql_runtime,
     build_query_studio_runtime,
     build_streamlit_principal,
     build_streamlit_runtime_options,
@@ -41,6 +42,10 @@ from schemabridge.entrypoints.streamlit.components import (
 )
 from schemabridge.entrypoints.streamlit.m29_operations_page import (
     render_m29_operations_page,
+)
+from schemabridge.entrypoints.streamlit.natural_sql import (
+    clear_copyable_natural_sql_state,
+    render_copyable_natural_sql,
 )
 from schemabridge.entrypoints.streamlit.query_studio import (
     clear_query_studio_state,
@@ -174,6 +179,7 @@ def main() -> None:
     if open_workflow and isinstance(selected_workflow, str):
         st.session_state.pop(_TRANSIENT_EXECUTION_RESULT_KEY, None)
         clear_query_studio_state()
+        clear_copyable_natural_sql_state()
         st.session_state["workflow_id"] = selected_workflow
         st.session_state["navigation"] = "Query Studio"
         _clear_error()
@@ -182,6 +188,7 @@ def main() -> None:
         workflow_id = f"m20-{uuid.uuid4().hex}"
         st.session_state.pop(_TRANSIENT_EXECUTION_RESULT_KEY, None)
         clear_query_studio_state()
+        clear_copyable_natural_sql_state()
         _clear_error()
         try:
             with st.spinner("Retrieving bounded context and interpreting the request…"):
@@ -218,6 +225,24 @@ def main() -> None:
     elif page == "Query Studio":
         confirmed_request = None
         if capabilities.can_create:
+            try:
+                natural_sql_runtime = build_natural_sql_runtime(principal=principal)
+                render_copyable_natural_sql(natural_sql_runtime)
+            except (OSError, RuntimeError, SettingsError, ValueError):
+                st.info(
+                    "natural_sql_unavailable: La generación copy-first no está "
+                    "disponible en esta configuración."
+                )
+                st.caption(
+                    "No se ha generado ni ejecutado SQL y no existe una ruta "
+                    "alternativa no gobernada."
+                )
+            st.divider()
+            st.markdown("### Workflow gobernado con validación opcional")
+            st.caption(
+                "Flujo alternativo para crear un workflow durable. Su ejecución "
+                "continúa separada de los artefactos SQL standalone."
+            )
             try:
                 query_studio_runtime = build_query_studio_runtime(principal=principal)
                 confirmed_request = render_dynamic_query_studio(
@@ -333,6 +358,7 @@ def _render_principal_summary(
 def _logout_or_stop() -> None:
     st.session_state.pop(_TRANSIENT_EXECUTION_RESULT_KEY, None)
     clear_query_studio_state()
+    clear_copyable_natural_sql_state()
     try:
         st.logout()
     except Exception:
@@ -366,6 +392,7 @@ def _reset_session_for_principal(principal: AuthenticatedPrincipal) -> None:
         ):
             st.session_state.pop(key, None)
         clear_query_studio_state()
+        clear_copyable_natural_sql_state()
     st.session_state["_principal_actor_id"] = principal.actor_id
 
 

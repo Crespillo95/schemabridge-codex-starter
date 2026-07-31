@@ -675,3 +675,82 @@ console output, protected-text scan, overflow result, hostile-probe result, and 
 `tasks/M29_HANDOFF.md`. A passing synthetic panel is local UX evidence only; production acceptance
 still requires real alert delivery, provider/cluster operations, fresh recovery, M30/M31, and
 external review.
+
+## M32 copy-first Query Studio browser matrix — pending
+
+Run this matrix only after the final M32 UI/use-case bytes. It is product Query Studio evidence,
+not the read-only M26/M29 instrumentation panels.
+
+### Required happy paths
+
+1. Enter a simple projection/filter request. Verify the page shows the exact typed interpretation,
+   bounded governed context, route, assumptions/limitations, and a confirmation action, but no SQL
+   or copy/download action before confirmation.
+2. Enter a verbose flat aggregate that remains representable by version 1. Verify length does not
+   force v2.
+3. Enter a short ranking request. Verify the typed window meaning requires v2 even though the text
+   is short.
+4. Enter the exact advanced Spanish reference from the M32 plan. Before confirmation, verify all
+   dimensions, metrics, completed-order filter, `HAVING`, partition/tie order, rank, percent,
+   cumulative value, top-three predicate, limit, three models, two joins, and no SQL.
+5. Confirm the exact advanced preview. Verify the primary result is standalone PostgreSQL with
+   copy and download controls, visible `postgresql`, v2, validation state, SQL SHA-256, and
+   `executed=false`. The statement has no displayed parameter sidecar or placeholder.
+
+The optional validation/execution control must be visually separate, disabled by default, and
+must not be invoked in the primary browser run. No result grid may appear merely because the copy
+artifact was generated.
+
+### Required blocked/safe paths
+
+- ambiguous field meaning: show typed alternatives/ambiguity and no confirmation-generated SQL;
+- physical-only field: verify it in the separate M27 discovery surface as
+  `needs_mapping_review`; it must not become an M32 candidate or executable action;
+- stale preview after semantic-context change: reject confirmation and clear any earlier artifact;
+- recursive/gaps-and-islands request: show `unsupported_request`, not a simpler substitute;
+- `ROLLUP` request: explain that subtotal grouping is unsupported until safe `GROUPING()` flags
+  preserve genuine `NULL`;
+- instruction/SQL injection text: render literally, expose no SQL, and create no DOM/script effect;
+- provider/rate/quota/unavailable states: typed safe result, no fake fallback, and guided/manual
+  mode remains available where the existing policy permits.
+
+### Visual and disclosure checks
+
+At desktop 1280×720 (or the final standard desktop viewport) and 390×844:
+
+- the interpretation is readable before confirmation;
+- selected fields, models, joins, route, limits, risks, and unsupported reasons do not rely only
+  on color;
+- long SQL scrolls inside its code surface without causing document-level horizontal overflow;
+- copy/download remains the primary action and the optional execution distinction is explicit;
+- focus order and button labels identify preparation, exact confirmation, copy, download, and
+  optional validation without ambiguity;
+- the final fresh console has no warning/error;
+- hostile text is escaped and no script element/side effect appears.
+
+Scan rendered state, browser logs, application logs, and durable test state. SQL may appear only
+in the transient confirmed output surface/download. It must not appear in pre-confirmation state,
+provider payloads, trace/metric/audit/recipe/workflow/job records, or optional executor input as the
+literalized standalone form. Scan additionally for parameters, embedded source values outside the
+displayed user artifact, credentials, tokens, DSNs, physical private routing facts, and raw
+provider responses.
+
+Record viewport, every scenario, route, closure counts, no-SQL-before-confirmation fact,
+`executed=false`, console result, overflow width, hostile-probe result, protected-output scan, and
+cleanup in the M32 handoff. Do not label this section accepted until that final-byte session and
+the automated acceptance selection pass.
+
+### 2026-07-30 local browser attempt
+
+The final-byte Streamlit process started on loopback port 8510 and its health endpoint returned
+`ok`, but the in-app browser runtime reported an exact empty browser list. The browser skill
+forbids substituting a standalone Playwright or another automation surface after that result, so
+no page was loaded and this matrix remains **not run / browser unavailable**, not PASS.
+
+The separate automated Streamlit acceptance passed `3` tests in `5.88 s`; it covers
+pre-confirmation no-SQL/no-download, review-gated generation, standalone SQL without placeholders,
+visible download, `executed=false`, disabled optional validation, the simple Product path, and the
+typed date ambiguity. It is not evidence for desktop/mobile layout, focus order, overflow,
+clipboard/download bytes, DOM hostile-input behavior, a clean browser console, or the complete
+blocked-state matrix. The Streamlit process was stopped, port 8510 was released, and its empty
+temporary directory was removed.

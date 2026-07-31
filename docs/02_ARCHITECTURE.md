@@ -64,6 +64,13 @@ Implemented focused submodules include:
 - `requests.py`: typed analytical request.
 - `plans.py`: resolved semantic query plan plus independent contract-key, transformation,
   direction, and fanout invariants.
+- `advanced_requests.py` and `advanced_plans.py`: parallel version-2 typed requests/plans for
+  bounded boolean, aggregate, bucket, window, and output-stage operations; they do not mutate the
+  historical version-1 schemas.
+- `advanced_query_studio.py`: provider-neutral natural-language mentions, approved bounded
+  semantic closure, v1/v2 route, preview, ambiguity, and confirmation contracts. The provider
+  envelopes contain no SQL or physical identifiers; the later server-built user preview includes
+  only resolved approved physical mappings with confidence, evidence, and risks.
 - `validation.py`: validation findings and severity.
 - `decisions.py`: approval and version records.
 - `publication_audit.py`: immutable per-target publication facts, explicit unverifiable-old-state
@@ -97,6 +104,9 @@ Implemented use cases include:
 - resolve a guided request;
 - parse a natural-language request;
 - plan, compile, validate, and preview a query;
+- prepare an M32 natural-SQL interpretation without compilation, then separately confirm it to
+  resolve, compile, guard, render, and re-guard a standalone PostgreSQL artifact without
+  execution;
 - publish and retrieve reusable context;
 - evaluate against ground truth.
 - prepare/commit compare-and-swap registry activation and rollback;
@@ -120,6 +130,8 @@ Ports isolate:
 - SQL execution;
 - SQL parsing/guarding;
 - natural-language parsing;
+- source-grounded advanced mention extraction and typed advanced interpretation;
+- deterministic standalone-SQL rendering from one already guarded parameterized query;
 - draft/decision storage;
 - clock and identifiers where needed.
 - append-only publication-audit persistence.
@@ -140,6 +152,8 @@ Ports isolate:
 - PostgreSQL sample/preview adapter.
 - SQLGlot compiler/guard adapter.
 - OpenAI structured-output language adapter plus deterministic fake.
+- PostgreSQL copy renderer that associates typed bindings by textual parameter index, emits no
+  remaining placeholders, and cannot execute its output.
 - SQLite/local YAML draft, publication-ledger, and workflow-access adapters for explicit
   local/recorded profiles; DataHub remains the approved semantic knowledge layer.
 - OIDC/local identity mappers; browser claims and Streamlit stay outside domain and application
@@ -1296,3 +1310,105 @@ cluster. Production remains NO-GO until exact external secret rotation/revocatio
 cluster admission, telemetry delivery/pages, immutable remote backup retention, fresh-target
 restore, rollback, production traffic/SLOs, M30/M31, and independent security/operator approval
 are actually exercised.
+
+## M32 copy-first natural-SQL architecture — locally accepted bounded scope
+
+M32 is an output capability layered on the governed semantic and compiler boundaries. It does not
+reopen M29's production acceptance, advance M30/M31, or add a source-write path.
+
+```text
+untrusted simple or advanced business request
+    → bounded source-grounded mention extraction (≤ 12)
+    → search across the complete current approved semantic registry
+    → deterministic relevant closure (≤ 3 models / 12 fields / 2 joins)
+    → strict typed interpretation or closed ambiguity
+    → independent context/type/stage/shape validation
+    → deterministic representability route (v1 or v2)
+    → deterministic semantic resolution and fanout checks (no SQL)
+    → signed preview with resolved-plan fingerprint, datasets, mapping/join reviews
+    → exact human confirmation
+    → reload exact current registry/head, revalidate and re-resolve signed request
+    → deterministic parameterized PostgreSQL compiler
+    → independent scope-aware AST guard
+    → typed-literal standalone renderer
+    → independent zero-binding AST guard
+    → copy/download artifact (`executed=false`)
+
+optional and separate:
+    guarded parameterized query
+    → existing cost/authorization/read-only preview lane
+```
+
+The first use-case operation prepares the natural-SQL preview. It owns retrieval, interpretation,
+validation, ambiguity, deterministic semantic resolution/fanout checks, and fingerprinting so the
+human sees the exact approved datasets plus mapping/join evidence and risks being confirmed. It
+has no compiler, guard, renderer, cost-preflight, or executor capability and cannot expose SQL.
+The second operation confirms that exact preview and generates the copy artifact. It reloads the
+current registry and reconstructs the bounded closure from the signed logical-field set without
+rerunning retrieval or language interpretation, validates and re-resolves the request and
+fingerprints again, then compiles, guards, renders, and re-guards. It has no executor call and
+always returns `executed=false`. Optional execution remains a third, pre-existing capability with
+its own authorization and read-only controls.
+
+“Complete table context” is implemented as complete governed retrieval coverage, not unbounded
+model context. Retrieval traverses every current approved logical model and field in scope.
+Lexical scoring uses names, definitions, and governed values, with role compatibility only as a
+bonus after a lexical hit. Canonical types, roles, and value constraints are exposed and validated
+in the bounded closure rather than used as free-text search tokens. Deterministic closure
+construction and resolution subsequently validate current approved mappings, transformation
+plans, join contracts, cardinalities, fanout policies, and freshness bindings. Only the
+request-relevant 3/12/2 closure crosses into interpretation or planning. A physical search result
+without an approved current mapping stays in the separate `needs_mapping_review` lane.
+
+The provider boundary is split into mention extraction and typed interpretation. Mention output is
+grounded to exact source spans and capped at twelve. Interpretation can reference only logical
+identifiers and closed values supplied in the approved closure and can return only a versioned
+typed request or closed ambiguity codes. SQL, physical identifiers, join predicates, tools,
+approvals, execution actions, arbitrary expressions, credentials, source rows, and raw samples
+have no provider field. Live mode reuses the M27 tenant policy, public-metadata approval, screening,
+admission, reservation/settlement, and sanitized audit path; fake/recorded mode is key-free.
+
+Routing happens after structured interpretation:
+
+```text
+complete request fits historical flat AnalyticalRequest exactly → v1
+anything valid requiring row mode, COUNT_ROWS, OR/NOT, a conditional metric, bucket,
+HAVING, window/output-stage operation, advanced alias, or grouping mode → v2
+```
+
+Text length, line count, keywords, language, and model confidence never select a route. The
+historical version-1 request, validation, resolution, plan, compiler output, and fingerprints
+remain unchanged. Version 2 has separate request/validation/resolution/plan envelopes so a union
+or base-class serializer cannot discard advanced state.
+
+The version-2 IR contains no general expression or subquery node. Its closed algebra supports
+row/aggregate modes, bounded boolean trees, standard and conditional aggregates, numeric buckets,
+`HAVING`, ranking/`NTILE`, partition averages and percentages, running/moving aggregates,
+`LAG`/`LEAD`, delta/percentage change, output-stage filtering, and deterministic final ordering.
+It permits at most four derived window outputs/eight window AST nodes and predicate trees of
+depth four/sixteen leaves. Table and join limits stay three and two.
+
+The compiler emits a direct `SELECT` for a simple shape or, only when required, compiler-owned
+`aggregated` and `windowed` CTEs plus the final `SELECT`. This topology permits PostgreSQL to filter
+window outputs without accepting a user-shaped subquery. Every projection is explicit; CTE names,
+window frames, aliases, and expression shapes are derived from typed values.
+
+Copy rendering is deliberately downstream of the first guard. The renderer numbers `%s`
+placeholders in quote-aware textual order, reparses the numbered statement, inserts typed literal
+AST nodes by parameter index, emits normalized PostgreSQL, and returns it only after a second
+zero-binding guard. AST traversal order never determines binding association. The copy artifact
+contains dialect, plan version, request/plan/target fingerprints, SQL SHA-256, and
+`executed=false`; its SQL and embedded values are transient and excluded from persistence,
+telemetry, provider payloads, recipes, and audit events.
+
+The scope-aware guard allows only the compiler's closed CTE topology and approved functions/frames.
+It validates physical relation scope and CTE output scope independently, rejects forward/unknown
+references, and retains the single read-only statement, allowlist, no-Cartesian, no-repeated-asset,
+fanout, limit, and parameter-count boundaries.
+
+The benchmark capability is explicit. Bounded ranking/top-N/`NTILE`, partition averages,
+duplicates/`HAVING`, running/moving calculations, `LAG`/`LEAD`, delta/percent change, conditional
+metrics, and numeric buckets are representable. Cross/self joins, arbitrary subqueries, set
+operations, recursion, and gaps/islands are typed unsupported outcomes. `ROLLUP` remains rejected
+until a future design emits reviewed `GROUPING()` flags; otherwise a subtotal `NULL` would be
+indistinguishable from a genuine governed `NULL`.

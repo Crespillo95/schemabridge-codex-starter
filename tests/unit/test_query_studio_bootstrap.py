@@ -142,7 +142,7 @@ def test_live_bootstrap_composes_local_expansion_and_only_admitted_provider_inte
         for node in ast.walk(function)
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
     )
-    call_names = tuple(node.func.id for node in calls)
+    call_names = tuple(node.func.id for node in calls if isinstance(node.func, ast.Name))
     assigned_constructors: dict[str, set[str]] = {}
     for node in ast.walk(function):
         if (
@@ -167,4 +167,8 @@ def test_live_bootstrap_composes_local_expansion_and_only_admitted_provider_inte
         "DeterministicQueryStudioIntent",
     }
     assert "AdmittedDescriptionExpansion" not in ai_admission.__all__
-    assert ai_admission.__all__ == ["AdmittedQueryStudioIntent"]
+    assert ai_admission.__all__ == [
+        "AdmittedAdvancedInterpretation",
+        "AdmittedAdvancedMentionExtraction",
+        "AdmittedQueryStudioIntent",
+    ]

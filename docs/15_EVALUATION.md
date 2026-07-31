@@ -176,3 +176,85 @@ Copy `demo/ground_truth/query_cases.yml`, change one expected value, and point a
 test fixture at the copy. Do not edit accepted ground truth in place. The affected result case must
 be `failed`, the normalized expected/actual rows must both remain visible, the JSON must still be
 written, and the command must exit nonzero.
+
+## M32 copy-first SQL evaluation contract — local deterministic PASS
+
+M32 adds a separate evaluation suite; it does not rewrite or merge the historical M15/M27
+evidence above. Its primary subject is the complete natural-language → confirmed typed request →
+standalone SQL path with zero execution. Optional database correctness is measured separately.
+
+### Required case groups
+
+1. **Simple v1**: aggregate-mode dimensions/date grains, ordinary aggregates, filters, order, and
+   limit that are exactly representable by the historical request.
+2. **Simple v2**: row mode or fieldless row count without advanced SQL complexity.
+3. **Advanced v2**: the exact Spanish monthly-category request from the M32 plan.
+4. **Representability controls**: one deliberately verbose v1 request and one deliberately short
+   v2 ranking request.
+5. **Supported operation families**: rankings/top-N/`NTILE`, partition averages/percentages,
+   duplicates/`HAVING`, running/moving calculations, `LAG`/`LEAD`, delta/percentage change,
+   conditional aggregates, and numeric buckets.
+6. **Unsupported families**: cross/self joins, arbitrary subqueries, set operations, recursion,
+   gaps/islands, and `ROLLUP` without `GROUPING()` flags.
+7. **Safety/adversarial**: vocabulary escape, SQL-like values, provider-output extras, stale
+   confirmation, CTE/window/frame mutation, statement smuggling, and copy-literal injection.
+
+### Per-case evidence
+
+Each positive case records bounded, non-sensitive facts:
+
+- whether every required approved concept was retrieved;
+- closure model/field/join counts and the exact semantic/context fingerprints;
+- reviewed and observed typed request fingerprints;
+- expected/observed v1/v2 route;
+- whether preparation produced no SQL;
+- expected/observed plan and structural SQL facts;
+- parameterized guard decision;
+- standalone reparse/zero-binding guard decision and SQL SHA-256;
+- `executed=false` and executor-call count for the primary path;
+- optional result comparison status, only when the separately selected PostgreSQL action ran.
+
+Do not place request text, standalone SQL, parameters, embedded literals, provider payloads,
+source values, or rows in the durable aggregate report. Detailed synthetic ground-truth fixtures
+may retain reviewed expected typed structures/results in their existing protected test location;
+runtime observations remain bounded and separately labeled.
+
+Each unsupported case records the expected/observed closed reason and proves the absence of a
+request/plan/SQL artifact. It is a failure if SchemaBridge silently substitutes a different
+supported query.
+
+### Metrics
+
+Report raw counts for:
+
+- retrieval closure recall over required approved concepts;
+- exact typed-interpretation match;
+- exact representability-route match;
+- compile/first-guard success for positive cases;
+- copy reparse/zero-placeholder/second-guard success;
+- unsupported no-SQL accuracy;
+- adversarial rejection rate;
+- optional type-aware result correctness.
+
+Keep deterministic fake, optional live-provider, compiler/guard, and optional PostgreSQL metrics
+separate. Do not calculate one blended “SQL expert accuracy” score. The small synthetic corpus
+does not justify a confidence interval, universal SQL correctness, dialect portability, or
+production-quality threshold.
+
+The public advanced-query article is a taxonomy reference, not executable ground truth:
+[25 Ejemplos de Consultas SQL Avanzadas](https://learnsql.es/blog/25-ejemplos-de-consultas-sql-avanzadas/).
+All reviewed expected requests, plans, structures, and rows must be derived from SchemaBridge's
+synthetic governed registry rather than copied from that article.
+
+The 2026-07-30 deterministic local run passes `304/304` targeted unit, acceptance, and
+read-only-integration checks. Its bounded raw results include Spanish governed retrieval `14/14`,
+four exact simple/route-control end-to-end journeys `4/4`, all closed window operations `14/14`,
+all closed conditional aggregate operations `7/7`, one numeric-bucket case `1/1`, the advanced
+reference copy path `1/1` with zero executor calls, and the separately selected PostgreSQL
+integration `1/1` with five exact rows. The reviewed standalone reference SHA-256 is
+`ec589a1527d0d641f4f7f7eb7e052ca1ace5b092013b437da72542ce4145d4f3`.
+
+These are deterministic synthetic/compiler/guard results, not live-provider quality. The
+denominators, capability interpretation, browser limitation, and no-SQL unsupported boundary are
+recorded in
+[`reports/m32-copyable-sql-deterministic-evaluation.md`](../reports/m32-copyable-sql-deterministic-evaluation.md).

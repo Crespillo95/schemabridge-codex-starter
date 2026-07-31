@@ -4330,3 +4330,149 @@ unoperated: provider IAM/rotation/revocation, target-cluster server-side admissi
 enforcement, production TLS/mTLS, metrics/SIEM/pages, immutable remote backup retention,
 fresh-target restore and rollback, production traffic/SLO evidence, M30/M31, clean signed release
 identity, or independent security/operator approval.
+
+## M32 copy-first natural-SQL operator procedure
+
+The primary CLI path is:
+
+```bash
+.venv/bin/schemabridge sql-from-natural \
+  --review-and-confirm \
+  "Para cada mes, en pedidos completados, calcula por categoría de producto..."
+```
+
+It prepares once, prints the exact preview, and asks for an explicit confirmation whose default is
+No. The same in-memory preparation and signed token are used after confirmation. The alternative
+`--confirm-fingerprint` two-invocation form re-prepares by design and fails closed if a live
+provider returns a different interpretation.
+
+### Preconditions
+
+1. Use only the checked-in synthetic registry and source for acceptance.
+2. Verify the active semantic registry is current and includes approved mappings/contracts for
+   `SaleLine`, `SalesOrder`, and `Product`.
+3. Keep the source reader read-only and the normal M32 copy flow execution-disabled.
+4. Do not print, persist, or log `OPENAI_API_KEY`, provider payloads, standalone SQL, parameters,
+   or embedded filter values outside the explicit transient user output.
+5. If live interpretation is selected, verify the existing tenant external-AI policy,
+   public-metadata approval, admission/settlement configuration, and exact model contract first.
+   A live failure must not fall back.
+6. Inspect physical catalog-only results in the separate M27 lane; they remain
+   `needs_mapping_review` and are never promoted into the M32 request.
+
+### 1. Prepare a natural-SQL preview
+
+Invoke the M32 application operation **prepare natural-SQL preview** with the business request and
+language. The operation must:
+
+- extract at most twelve source-grounded mentions;
+- search the complete current approved registry;
+- expose only the relevant closure of at most three models, twelve fields, and two joins;
+- return the typed v1/v2 request or closed ambiguity/unsupported outcome;
+- deterministically resolve the confirmable request without compiling it, binding the selected
+  approved datasets, mappings, joins, fanout facts, and resolved-plan fingerprint into the
+  preview; approved transformations are validated and bound indirectly by that fingerprint, not
+  displayed as standalone review rows;
+- show selected logical fields, operations, filters, grouping, `HAVING`, windows, output
+  predicates/order, tie rules, joins, assumptions, risks, limit, route, and fingerprints;
+- show each selected logical-to-physical mapping with confidence, evidence, and risks, and each
+  selected join contract with evidence and risks;
+- perform no compilation and expose no SQL.
+
+Before confirmation, verify there is no SQL text, SQL hash, compiled-query object, renderer output,
+cost-preflight result, or source result. Instrumented acceptance must also prove zero compiler,
+guard, renderer, cost, and executor calls at this stage.
+
+For an ambiguous or unsupported preview, stop. Resolve the typed ambiguity through the product
+flow or rewrite the request. Never approve an approximation.
+
+### 2. Confirm the preview and generate the copy artifact
+
+Invoke the separate operation **confirm preview / generate copy artifact** with the exact preview
+fingerprint and required confirmation action. The operation must reload the current registry/head,
+verify signed scope/context bindings, reject stale state, revalidate and re-resolve the confirmed
+typed request using only approved mappings/contracts, select v1/v2 by representability, compile
+parameterized PostgreSQL, run the independent guard, render typed literals, and run the complete
+guard again with zero bindings. It must not call retrieval or a language provider again.
+
+Verify the response contains:
+
+- `dialect=postgresql`;
+- the expected `plan_version`;
+- request, plan, context/target, and SQL fingerprints;
+- standalone normalized SQL with no `%s` or `$n` placeholder;
+- `executed=false`;
+- no result rows or source safety facts that would imply execution.
+
+Copy/download is the primary result. Reparse the downloaded statement as PostgreSQL and verify its
+SHA-256 matches the artifact metadata. Do not route the standalone form to a source executor.
+Paste it only into the same governed PostgreSQL database/context displayed in the preview; another
+engine or an unrelated database with homonymous schemas is not a supported destination.
+
+### 3. Manual case matrix
+
+Run the M32 cases below through preparation and, only for confirmable supported cases,
+confirmation. Verify the physical-only case separately in M27 discovery:
+
+| Case | Expected outcome |
+|---|---|
+| Simple projection/filter | exact supported SQL; reviewed v1 or simple-v2 route by representability |
+| Verbose flat aggregate | v1 even when the natural-language text is long |
+| Short “rank products by revenue” request | v2 even when the text is short |
+| Ambiguous field meaning | typed ambiguity and no SQL |
+| Physical-only unapproved field | M32: no approved match and no SQL; separate M27 discovery: `needs_mapping_review`, never promoted into M32 |
+| Recursive hierarchy or gaps/islands | `unsupported_request` and no SQL |
+| `ROLLUP` subtotal request | unsupported until `GROUPING()` flags are designed |
+
+For every case record the route/reason, bounded closure counts, preview fingerprint, whether SQL
+was absent before confirmation, artifact SHA where applicable, `executed` flag, and call-count
+facts. Do not record the SQL/literals in the handoff.
+
+### 4. Reference advanced request
+
+Use exactly:
+
+> Para cada mes, en pedidos completados, calcula por categoría de producto los ingresos netos,
+> unidades y pedidos distintos. Conserva solo las categorías con al menos 4 pedidos distintos;
+> ordénalas por ingresos dentro de cada mes, desempatando alfabéticamente por categoría; asigna
+> una posición única, calcula su porcentaje sobre los ingresos de las categorías elegibles del
+> mes y el ingreso acumulado, y devuelve como máximo las tres primeras categorías de cada mes.
+
+Before confirming, verify the typed preview says:
+
+- month of `SalesOrder.ordered_at` and `Product.category`;
+- sum of net amount, sum of quantity, and distinct order count;
+- completed-order filter;
+- at least four distinct orders as `HAVING`;
+- row-number rank within month, revenue descending/category ascending;
+- percentage of eligible monthly revenue and cumulative revenue;
+- rank at most three and final limit 100;
+- exactly the approved three-model/two-join closure;
+- v2;
+- no SQL.
+
+After confirmation, verify the PostgreSQL structure contains compiler-owned `aggregated` and
+`windowed` CTEs, explicit projections, `HAVING`, three window calculations, the post-window
+top-three filter, deterministic final order, and literal `LIMIT 100`. The artifact must still say
+`executed=false`.
+
+### 5. Optional read-only PostgreSQL validation
+
+Only after the copy artifact has been accepted may the operator deliberately invoke the separate
+existing validation/execution lane. It must consume the parameterized guarded form, not copied
+standalone SQL, and retain cost, execution approval, current-context reload, expected reader,
+read-only transaction, timeout, result cap, and rollback controls.
+
+Compare the exact five synthetic rows in `plans/M32_ADVANCED_COPYABLE_SQL.md`. Record reader,
+read-only state, timeout, row/type comparison, and any rejection. A skipped/unavailable source is
+reported as not run, never inferred from compilation.
+
+### 6. Final evidence
+
+After the entrypoint is finalized, replace no text above; add the exact final commands and their
+unaltered results to the M32 handoff. Run the focused domain/resolution/compiler/guard/renderer/
+natural-language selections, relevant PostgreSQL integration and browser acceptance, then
+`make check` and `git diff --check` on final bytes.
+
+Do not mark M32 accepted from documentation, implementation presence, a generated SQL example, or
+an earlier partial test run. Production/release remain NO-GO independently of M32.

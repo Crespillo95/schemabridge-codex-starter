@@ -15,6 +15,8 @@ from schemabridge.domain.semantic_registry import (
 class InMemoryGovernedSemanticRegistry:
     registry: GovernedSemanticRegistrySnapshot
     _scope: SemanticRegistryScope
+    activation_generation: int | None = None
+    active_pointer_fingerprint: str | None = None
     loads: int = 0
 
     @property
@@ -23,4 +25,9 @@ class InMemoryGovernedSemanticRegistry:
 
     def load(self) -> ScopedSemanticRegistrySnapshot:
         self.loads += 1
-        return ScopedSemanticRegistrySnapshot(scope=self._scope, registry=self.registry)
+        return ScopedSemanticRegistrySnapshot(
+            scope=self._scope,
+            registry=self.registry,
+            activation_generation=self.activation_generation,
+            active_pointer_fingerprint=self.active_pointer_fingerprint,
+        )

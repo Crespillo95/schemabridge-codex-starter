@@ -127,6 +127,17 @@ def score_governed_description(
     return SearchSignalBreakdown.create(tuple(signals))
 
 
+def governed_description_tokens(value: str) -> frozenset[str]:
+    """Return the canonical multilingual terms used by the M27 matcher.
+
+    Later governed retrieval lanes may reuse the reviewed Spanish/English
+    vocabulary without copying its synonym table or treating lexical overlap
+    as semantic approval.
+    """
+
+    return _tokens(value)
+
+
 def _append_overlap(
     target: list[SearchSignal],
     code: SearchSignalCode,
@@ -398,5 +409,6 @@ _NON_PLURAL_TOKENS = frozenset({"business", "gross", "status"})
 
 __all__ = [
     "GOVERNED_DESCRIPTION_MATCHER_VERSION",
+    "governed_description_tokens",
     "score_governed_description",
 ]

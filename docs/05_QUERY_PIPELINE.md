@@ -472,6 +472,109 @@ M28 is accepted locally on synthetic evidence. Integration passed 164 tests with
 662.06 seconds and acceptance passed 47 tests in 133.50 seconds. The post-fix internal-browser
 matrix passed 9/9 scenarios at both 1280x720 and 390x844: the accepted tenant paths returned
 `approved_rows=2` and `approved_rows=3` through distinct readers, while all seven blocked paths
-showed neither an action nor a result. M29 is eligible but has not started, and this is not a
-production or release GO. The final `make check` and coverage reruns after these documentation
-changes remain pending.
+showed neither an action nor a result. M29 subsequently established its separately recorded local
+operations/supply-chain baseline under D123; neither milestone is a production or release GO.
+M32 has its own recorded final-byte gates and does not inherit either milestone's test evidence.
+
+## M32 natural language to standalone PostgreSQL — locally accepted bounded scope
+
+M32 adds a copy-first branch without changing the optional executor boundary:
+
+```text
+prepare natural-SQL preview
+    → validate untrusted text/language
+    → extract ≤ 12 exact source-grounded mentions
+    → search the complete current approved registry
+    → build relevant closure ≤ 3 models / 12 fields / 2 joins
+    → typed v1/v2 request or closed ambiguity
+    → validate fields, values, types, stages, shapes, and context fingerprints
+    → resolve approved datasets/mappings/joins/fanout deterministically (no SQL)
+    → signed preview with resolved-plan fingerprint and review evidence
+
+confirm preview / generate copy artifact
+    → reload current registry and reconstruct the signed logical-field closure
+    → verify exact preview/request/context fingerprints
+    → revalidate and re-resolve approved mappings, transformations, joins, fanout, and target
+    → select v1 or v2 by exact representability
+    → compile parameterized PostgreSQL
+    → independent AST guard
+    → render typed literals by textual parameter index
+    → independent zero-binding AST guard
+    → standalone SQL artifact (`executed=false`)
+```
+
+Preparation resolves the typed request only to bind approved datasets, mappings, joins, fanout,
+evidence/risks, and the resolved-plan fingerprint into the human preview; it has no compiler,
+guard, renderer, cost-preflight, or executor dependency and produces no SQL. Confirmation
+re-resolves the same signed request against reloaded current context and has no executor
+dependency. Optional validation/execution is a separate operation and accepts only the
+parameterized guarded form; standalone SQL is never fed back into execution.
+
+Retrieval traverses every current approved logical model and field in scope. Lexical scoring uses
+model/field names, definitions, and governed values, with role compatibility only as a bonus after
+a lexical hit. Canonical types, roles, and value constraints are exposed and validated in the
+bounded closure; types are not free-text search tokens. Closure construction and semantic
+resolution then validate the relevant approved mappings, transformation plans, join
+contracts/cardinality/fanout, and freshness bindings. Confirmation does not rerun retrieval or
+either language stage: it reconstructs the closure from the signed logical-field set against the
+reloaded registry. Only the relevant bounded closure is visible to interpretation and planning.
+M32 retrieval does not consume physical discovery; catalog-only results stay
+`needs_mapping_review` in the separate M27 lane.
+
+### Representability route
+
+Version 1 remains the route for requests that fit the historical flat request exactly: supported
+aggregate-mode dimensions/date grains, ordinary field aggregates, one flat `AND` filter list,
+field ordering, and limit. Version 2 owns row mode, fieldless row count, `OR`/`NOT`, conditional
+aggregates, numeric buckets, `HAVING`, windows, output-stage predicates/order, advanced aliases,
+and advanced grouping.
+
+This is a semantic test after structured interpretation. Prompt length, requested SQL line count,
+keywords, language, and model confidence are ignored. A verbose flat aggregate remains v1; a short
+ranking request becomes v2.
+
+### Version-2 evaluation stages
+
+The compiler chooses the smallest topology:
+
+1. direct `SELECT` for a simple version-2 shape that needs no output-stage boundary;
+2. compiler-owned `aggregated` for scans/joins, `WHERE`, projection, grouping, aggregates, and
+   optional `HAVING`;
+3. compiler-owned `windowed` only when closed window expressions are requested;
+4. final explicit `SELECT` for output filtering, deterministic ordering, and the literal limit.
+
+The closed operations cover row/aggregate mode, boolean trees, standard/conditional aggregates,
+numeric buckets, rankings/`NTILE`, partition averages and percentages, running/moving sums and
+averages, `LAG`/`LEAD`, delta/percentage change, and top-N/output predicates. There is no raw
+expression, subquery, set-operation, user CTE, or dynamic identifier node.
+
+PostgreSQL requires a new query level to filter a window result. The compiler-owned CTE topology
+therefore expresses evaluation order without admitting arbitrary subqueries. Every selected
+column is explicit and every alias reference is validated against the stage that defines it.
+
+`ROLLUP` is not part of the M32 language. A future subtotal contract must first expose
+`GROUPING()` flags so a subtotal `NULL` cannot be confused with a genuine governed `NULL`.
+
+### Parameterized and standalone forms
+
+The compiler produces one parameterized executor form first. After its independent guard passes,
+the copy renderer scans the SQL with single/double/dollar-quote awareness and converts textual
+`%s` positions into numbered parameters. It reparses that statement and replaces `$n` with the
+corresponding typed literal AST node. It does not infer association from SQLGlot traversal order.
+
+The renderer accepts only supported finite typed values and must leave zero parameters. The
+normalized PostgreSQL then passes the complete independent guard again. The returned artifact
+contains dialect, plan version, request/plan/target fingerprints, SQL SHA-256, and
+`executed=false`; SQL and literal values are transient output, not workflow/recipe/audit data.
+
+### Unsupported capability outcome
+
+The benchmark boundary is explicit:
+
+- supported: bounded ranking/top-N/`NTILE`, partition averages, duplicates and `HAVING`,
+  running/moving calculations, `LAG`/`LEAD`, delta/percent change, conditional metrics, and
+  numeric buckets;
+- rejected without approximation: cross/self joins, arbitrary subqueries, `UNION`/`INTERSECT`/
+  `EXCEPT`, recursion, gaps/islands, and `ROLLUP` without safe grouping flags.
+
+An ambiguous, stale, unsupported, unapproved, or over-limit request stops before compilation.

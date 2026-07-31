@@ -38,7 +38,15 @@ from schemabridge.application.legacy_import import (
     LegacyImportError,
     LegacyImportErrorCode,
 )
+from schemabridge.application.natural_sql import (
+    NaturalSqlError,
+    NaturalSqlErrorCode,
+    NaturalSqlPreparation,
+)
 from schemabridge.application.normalization_demo import run_normalization_demo
+from schemabridge.application.ports.advanced_query_studio import (
+    AdvancedQueryStudioPortError,
+)
 from schemabridge.application.ports.catalog import CatalogReadError
 from schemabridge.application.ports.control_plane_migrations import (
     ControlPlaneMigrationError,
@@ -89,6 +97,7 @@ from schemabridge.application.registry_control import (
 from schemabridge.application.review_demo import build_customer_review_draft
 from schemabridge.application.workflow_orchestration import workflow_recovery_operation
 from schemabridge.bootstrap import (
+    NaturalSqlRuntimeServices,
     build_agent_workflow_orchestrator,
     build_candidate_evaluator,
     build_candidate_generator,
@@ -113,6 +122,7 @@ from schemabridge.bootstrap import (
     build_join_review_start,
     build_legacy_control_plane_import,
     build_natural_language_intent_resolver,
+    build_natural_sql_runtime,
     build_postgres_health_check,
     build_publication_preparer,
     build_published_context_reader,
@@ -143,9 +153,21 @@ from schemabridge.bootstrap import (
     build_semantic_request_planner,
     build_source_control_database_separation,
     build_sql_guard,
+    build_streamlit_principal,
     build_tenant_capacity_policy_operator,
     resolve_control_operator_actor,
     resolve_runtime_profile,
+)
+from schemabridge.domain.advanced_query_studio import (
+    AdvancedNaturalLanguageInput,
+    AdvancedQueryConfirmation,
+    AdvancedQueryConfirmationAction,
+)
+from schemabridge.domain.advanced_requests import (
+    AdvancedAnalyticalRequest,
+    BooleanOperator,
+    LogicalBooleanPredicate,
+    OutputBooleanPredicate,
 )
 from schemabridge.domain.catalog_inventory import (
     TenantCapacityPolicyChange,
@@ -178,6 +200,7 @@ from schemabridge.domain.registry_control import (
     RegistryReconciliationConfirmation,
 )
 from schemabridge.domain.request_context import validated_analytical_request_fingerprint
+from schemabridge.domain.requests import AnalyticalRequest, Filter
 from schemabridge.domain.resolution import (
     SemanticResolutionError,
     resolved_semantic_plan_fingerprint,
@@ -2676,6 +2699,488 @@ def request_demo(
     )
     if draft is not None:
         console.print(f"Local draft: {draft.id} revision {draft.revision}")
+
+
+def _natural_sql_value(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False, default=str)
+
+
+def _natural_sql_predicate(
+    value: LogicalBooleanPredicate | OutputBooleanPredicate,
+) -> str:
+    if value.kind is BooleanOperator.COMPARISON:
+        comparison = value.comparison
+        assert comparison is not None
+        if isinstance(comparison, Filter):
+            subject = comparison.field.root
+            target = comparison.value
+        else:
+            subject = comparison.alias
+            if comparison.compare_to_alias is not None:
+                return f"{subject} {comparison.operator.value} alias:{comparison.compare_to_alias}"
+            target = comparison.value
+        if target is None:
+            return f"{subject} {comparison.operator.value}"
+        return f"{subject} {comparison.operator.value} {_natural_sql_value(target)}"
+    rendered = tuple(_natural_sql_predicate(item) for item in value.operands)
+    if value.kind is BooleanOperator.NOT:
+        return f"NOT ({rendered[0]})"
+    separator = f" {value.kind.value.upper()} "
+    return "(" + separator.join(rendered) + ")"
+
+
+def _natural_sql_advanced_rows(
+    request: AdvancedAnalyticalRequest,
+) -> tuple[tuple[str, str], ...]:
+    rows: list[tuple[str, str]] = [
+        ("Versión / modo", f"v{request.version} / {request.mode.value}"),
+        ("Entidad primaria", request.primary_entity.root),
+    ]
+    if not request.fields:
+        rows.append(("Campos", "ninguno"))
+    for field_item in request.fields:
+        alias = field_item.alias or field_item.field.root.rsplit(".", 1)[-1]
+        attributes: list[str] = []
+        if field_item.grain is not None:
+            attributes.append(f"grain={field_item.grain.value}")
+        if field_item.buckets:
+            bands = ", ".join(
+                (
+                    f"{bucket.label}:["
+                    f"{bucket.lower if bucket.lower is not None else '-∞'}, "
+                    f"{bucket.upper if bucket.upper is not None else '+∞'})"
+                )
+                for bucket in field_item.buckets
+            )
+            attributes.append(f"buckets={bands}; else={field_item.else_label}")
+        suffix = f" · {'; '.join(attributes)}" if attributes else ""
+        rows.append(("Campo", f"{alias} = {field_item.field.root}{suffix}"))
+    if not request.metrics:
+        rows.append(("Métricas", "ninguna"))
+    for metric_item in request.metrics:
+        alias = metric_item.alias or (
+            metric_item.operation.value
+            if metric_item.field is None
+            else (f"{metric_item.operation.value}_{metric_item.field.root.rsplit('.', 1)[-1]}")
+        )
+        source = "*" if metric_item.field is None else metric_item.field.root
+        rendered = f"{alias} = {metric_item.operation.value}({source})"
+        if metric_item.condition is not None:
+            rendered += f" WHERE {_natural_sql_predicate(metric_item.condition)}"
+        rows.append(("Métrica", rendered))
+    rows.append(
+        (
+            "WHERE",
+            _natural_sql_predicate(request.where) if request.where is not None else "ninguno",
+        )
+    )
+    rows.append(("GROUP BY", ", ".join(request.group_by) or "ninguno"))
+    rows.append(
+        (
+            "HAVING",
+            _natural_sql_predicate(request.having) if request.having is not None else "ninguno",
+        )
+    )
+    if not request.windows:
+        rows.append(("Ventanas", "ninguna"))
+    for window_item in request.windows:
+        details = [window_item.operation.value]
+        if window_item.source is not None:
+            details.append(f"source={window_item.source}")
+        if window_item.partition_by:
+            details.append(f"partition_by={','.join(window_item.partition_by)}")
+        if window_item.order_by:
+            details.append(
+                "order_by="
+                + ",".join(
+                    f"{order.alias} {order.direction.value}" for order in window_item.order_by
+                )
+            )
+        for label, bounded_value in (
+            ("buckets", window_item.buckets),
+            ("offset", window_item.offset),
+            ("preceding_rows", window_item.preceding_rows),
+        ):
+            if bounded_value is not None:
+                details.append(f"{label}={bounded_value}")
+        rows.append(("Ventana", f"{window_item.alias} = " + " · ".join(details)))
+    ranking = tuple(
+        item
+        for item in request.windows
+        if item.operation.value in {"row_number", "rank", "dense_rank", "ntile"}
+    )
+    if ranking:
+        rows.append(
+            (
+                "Política de empates",
+                "; ".join(
+                    (
+                        f"{item.alias}:{item.operation.value} por "
+                        + ", ".join(
+                            f"{order.alias} {order.direction.value}" for order in item.order_by
+                        )
+                    )
+                    for item in ranking
+                ),
+            )
+        )
+    else:
+        rows.append(("Política de empates", "no aplica"))
+    rows.append(
+        (
+            "Filtro de salida",
+            (
+                _natural_sql_predicate(request.post_filter)
+                if request.post_filter is not None
+                else "ninguno"
+            ),
+        )
+    )
+    rows.append(
+        (
+            "Orden final",
+            ", ".join(f"{item.alias} {item.direction.value}" for item in request.result_order_by)
+            or "ninguno",
+        )
+    )
+    rows.extend(
+        (
+            ("Agrupación", request.grouping.value),
+            ("Límite", str(request.limit)),
+        )
+    )
+    return tuple(rows)
+
+
+def _natural_sql_simple_rows(
+    request: AnalyticalRequest,
+) -> tuple[tuple[str, str], ...]:
+    rows: list[tuple[str, str]] = [
+        ("Versión / modo", "v1 / aggregate"),
+        ("Entidad primaria", request.primary_entity.root),
+    ]
+    if not request.dimensions:
+        rows.append(("Campos", "ninguno"))
+    for dimension_item in request.dimensions:
+        suffix = (
+            f" · grain={dimension_item.grain.value}" if dimension_item.grain is not None else ""
+        )
+        rows.append(("Campo", f"{dimension_item.field.root}{suffix}"))
+    for metric_item in request.metrics:
+        alias = metric_item.alias or (
+            f"{metric_item.operation.value}_{metric_item.field.root.rsplit('.', 1)[-1]}"
+        )
+        rows.append(
+            (
+                "Métrica",
+                f"{alias} = {metric_item.operation.value}({metric_item.field.root})",
+            )
+        )
+    rows.append(
+        (
+            "WHERE",
+            " AND ".join(
+                (
+                    f"{filter_item.field.root} {filter_item.operator.value}"
+                    + (
+                        ""
+                        if filter_item.value is None
+                        else f" {_natural_sql_value(filter_item.value)}"
+                    )
+                )
+                for filter_item in request.filters
+            )
+            or "ninguno",
+        )
+    )
+    rows.append(
+        (
+            "GROUP BY",
+            ", ".join(item.field.root for item in request.dimensions) or "ninguno",
+        )
+    )
+    rows.extend(
+        (
+            ("HAVING", "ninguno"),
+            ("Ventanas", "ninguna"),
+            ("Política de empates", "no aplica"),
+            ("Filtro de salida", "ninguno"),
+            (
+                "Orden final",
+                ", ".join(
+                    f"{order_item.field.root} {order_item.direction.value}"
+                    for order_item in request.order_by
+                )
+                or "ninguno",
+            ),
+            ("Agrupación", "standard"),
+            ("Límite", str(request.limit)),
+        )
+    )
+    return tuple(rows)
+
+
+def _print_natural_sql_preview(
+    preparation: NaturalSqlPreparation,
+    *,
+    preview_fingerprint: object,
+    show_repeat_instruction: bool = True,
+) -> None:
+    preview = preparation.preview
+    assert preview is not None
+    request = preview.routed_request
+    rows = (
+        _natural_sql_advanced_rows(request)
+        if isinstance(request, AdvancedAnalyticalRequest)
+        else _natural_sql_simple_rows(request)
+    )
+    console.print("Interpretación gobernada preparada; todavía no existe SQL.", style="bold")
+    interpretation = Table(title="Interpretación tipada confirmable")
+    interpretation.add_column("Cláusula", style="cyan")
+    interpretation.add_column("Valor aprobado")
+    for clause, rendered in rows:
+        interpretation.add_row(clause, rendered)
+    console.print(interpretation)
+
+    lineage = Table(title="Contexto y resolución gobernados")
+    lineage.add_column("Elemento", style="cyan")
+    lineage.add_column("Valor aprobado")
+    lineage.add_row(
+        "Modelos lógicos",
+        ", ".join(item.id.root for item in preparation.semantic_context.models),
+    )
+    for semantic_field in preparation.semantic_context.fields:
+        lineage.add_row(
+            "Campo de contexto",
+            (
+                f"{semantic_field.id.root} · {semantic_field.canonical_type.value} "
+                f"· {semantic_field.role.value}"
+            ),
+        )
+    lineage.add_row(
+        "Datasets físicos",
+        ", ".join(item.root for item in preview.datasets),
+    )
+    lineage.add_row(
+        "Joins aprobados",
+        ", ".join(preview.join_contract_ids) or "ninguno",
+    )
+    for mapping_review in preview.mapping_reviews:
+        lineage.add_row(
+            "Mapping aprobado",
+            (
+                f"{mapping_review.logical_field.root} → {mapping_review.physical_field.root}; "
+                f"confianza={mapping_review.confidence:.2f}; "
+                f"evidencia={', '.join(mapping_review.evidence)}; "
+                f"riesgos={', '.join(mapping_review.risks) or 'ninguno'}"
+            ),
+        )
+    for join_review in preview.join_reviews:
+        lineage.add_row(
+            "Contrato aprobado",
+            (
+                f"{join_review.contract_id}; evidencia={', '.join(join_review.evidence)}; "
+                f"riesgos={', '.join(join_review.risks) or 'ninguno'}"
+            ),
+        )
+    for assumption in preview.assumptions:
+        lineage.add_row(f"Supuesto: {assumption.code}", assumption.message)
+    if preview.fanout_mitigations:
+        for mitigation in preview.fanout_mitigations:
+            lineage.add_row(
+                "Fanout",
+                (
+                    f"{mitigation.contract_id}/{mitigation.metric_alias}: "
+                    f"{mitigation.requested_operation.value} → "
+                    f"{mitigation.applied_operation.value}; "
+                    f"automatic={str(mitigation.automatic).lower()}; {mitigation.reason}"
+                ),
+            )
+    else:
+        lineage.add_row("Fanout", "ninguno; no se aplicó mitigación automática")
+    console.print(lineage)
+    console.print(f"Ruta: {preview.route.value}")
+    console.print(f"Preview: {preview_fingerprint}")
+    if show_repeat_instruction:
+        console.print(
+            "Revísala y repite el comando con --confirm-fingerprint <preview> "
+            "para generar el SQL autónomo."
+        )
+
+
+def _confirm_natural_sql_preparation(
+    runtime: NaturalSqlRuntimeServices,
+    preparation: NaturalSqlPreparation,
+) -> dict[str, object]:
+    preview = preparation.preview
+    if preview is None or preparation.token is None:
+        raise NaturalSqlError(
+            code=NaturalSqlErrorCode.CONFIRMATION_REQUIRED,
+            message="natural SQL requires one exact signed preview before confirmation",
+        )
+    confirmation = AdvancedQueryConfirmation(
+        action=AdvancedQueryConfirmationAction.CONFIRM,
+        request_digest=preparation.request_digest,
+        preview_fingerprint=preview.fingerprint,
+        routed_request_fingerprint=preview.routed_request_fingerprint,
+        token=preparation.token,
+    )
+    confirmed = runtime.confirm.execute(preparation, confirmation)
+    generated = runtime.generate.execute(confirmed)
+    return {
+        "ok": True,
+        "preview_fingerprint": preview.fingerprint,
+        **generated.as_dict(),
+    }
+
+
+@app.command("sql-from-natural")
+def sql_from_natural(
+    text: Annotated[
+        str,
+        typer.Argument(help="Business request to convert into governed standalone SQL."),
+    ],
+    language: Annotated[
+        UserLanguage,
+        typer.Option("--language", help="Language of the business request."),
+    ] = UserLanguage.SPANISH,
+    confirm_fingerprint: Annotated[
+        str | None,
+        typer.Option(
+            "--confirm-fingerprint",
+            help=(
+                "Exact previously reviewed fingerprint. This mode prepares again and "
+                "fails closed if the new interpretation differs."
+            ),
+        ),
+    ] = None,
+    review_and_confirm: Annotated[
+        bool,
+        typer.Option(
+            "--review-and-confirm",
+            help=(
+                "Prepare once, print the exact preview, and ask interactively before "
+                "generating from that same signed preparation."
+            ),
+        ),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON."),
+    ] = False,
+) -> None:
+    """Prepare or explicitly confirm copyable SQL; never execute the query."""
+
+    if review_and_confirm and confirm_fingerprint is not None:
+        raise typer.BadParameter(
+            "--review-and-confirm cannot be combined with --confirm-fingerprint",
+            param_hint="--review-and-confirm",
+        )
+    if review_and_confirm and json_output:
+        raise typer.BadParameter(
+            "--review-and-confirm is interactive and cannot be combined with --json",
+            param_hint="--review-and-confirm",
+        )
+
+    payload: dict[str, object]
+    try:
+        runtime = build_natural_sql_runtime(
+            principal=build_streamlit_principal(),
+        )
+        preparation = runtime.prepare.execute(
+            AdvancedNaturalLanguageInput(text=text, language=language)
+        )
+        if preparation.preview is None:
+            payload = {
+                "ok": False,
+                **preparation.as_dict(),
+                "code": "natural_sql_ambiguity",
+            }
+        elif review_and_confirm:
+            _print_natural_sql_preview(
+                preparation,
+                preview_fingerprint=preparation.preview.fingerprint,
+                show_repeat_instruction=False,
+            )
+            accepted = typer.confirm(
+                ("¿Confirmas exactamente este preview firmado y quieres generar el SQL autónomo?"),
+                default=False,
+            )
+            if not accepted:
+                console.print(
+                    "Confirmación cancelada; no se compiló, generó ni ejecutó SQL.",
+                    style="yellow",
+                )
+                return
+            payload = _confirm_natural_sql_preparation(runtime, preparation)
+        elif confirm_fingerprint is None:
+            payload = {
+                "ok": True,
+                **preparation.as_dict(),
+                "confirmation": {
+                    "required": True,
+                    "preview_fingerprint": preparation.preview.fingerprint,
+                },
+            }
+        else:
+            if confirm_fingerprint != preparation.preview.fingerprint:
+                raise NaturalSqlError(
+                    code=NaturalSqlErrorCode.CONFIRMATION_MISMATCH,
+                    message="confirmed fingerprint differs from the current preview",
+                )
+            payload = _confirm_natural_sql_preparation(runtime, preparation)
+    except (
+        AdvancedQueryStudioPortError,
+        DatabaseConfigurationError,
+        NaturalSqlError,
+        QueryCompilationError,
+        SemanticResolutionError,
+        SqlPolicyViolation,
+        ValidationError,
+        TypeError,
+        ValueError,
+    ) as error:
+        code = getattr(error, "code", "natural_sql_failed")
+        code_value = code.value if isinstance(code, StrEnum) else str(code)
+        failure = {
+            "ok": False,
+            "code": code_value,
+            "error": str(error),
+            "executed": False,
+        }
+        if json_output:
+            typer.echo(json.dumps(failure, indent=2))
+        else:
+            console.print(f"Natural SQL failed: {code_value}", style="red")
+        raise typer.Exit(code=1) from error
+
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, default=str))
+        if payload["ok"] is False:
+            raise typer.Exit(code=2)
+        return
+    if payload["ok"] is False:
+        ambiguities = payload.get("ambiguities")
+        assert isinstance(ambiguities, list)
+        console.print(
+            "La petición requiere aclaración: " + ", ".join(str(item) for item in ambiguities),
+            style="yellow",
+        )
+        raise typer.Exit(code=2)
+    sql = payload.get("sql")
+    if isinstance(sql, str):
+        console.print(sql)
+        console.print(
+            f"SHA-256: {payload['sha256']} · executed=false",
+            style="green",
+        )
+        return
+    confirmation_payload = payload["confirmation"]
+    assert isinstance(confirmation_payload, dict)
+    _print_natural_sql_preview(
+        preparation,
+        preview_fingerprint=confirmation_payload["preview_fingerprint"],
+    )
 
 
 @app.command("intent-demo")

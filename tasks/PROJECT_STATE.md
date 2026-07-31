@@ -45,6 +45,25 @@ is `9979c54be6ba39d1d7b606e6d882aa10e9868bb9d003482b30a780ee104d1f26`;
 Actionlint 1.7.12, ShellCheck 0.11.0, static policy, 158 adversarial release/supply-chain tests, and
 independent review pass with zero local P0/P1/P2 findings. Current-byte coverage passes 3534 tests
 with 14 external skips and 1 deselected at 81.17%, superseding D115's 81.09% historical baseline.
+
+M32 is complete and accepted locally under D125 for its bounded deterministic/synthetic product
+capability. Natural-language preparation traverses the complete approved logical registry, builds
+one 3-model/12-field/2-join closure, resolves approved datasets/mappings/joins/fanout into an exact
+review preview without compiling SQL, and routes by typed v1/v2 representability. Exact
+confirmation reloads/revalidates/re-resolves the signed request, then produces deterministic
+parameterized PostgreSQL, passes an independent AST guard, renders typed standalone literals, and
+passes the complete guard again with zero bindings. The copy artifact is always
+`executed=false`.
+
+The M32 targeted matrix passes 304 tests, including four simple/route-control Spanish end-to-end
+journeys, 14/14 governed retrieval cases, all 14 closed window operations, all seven conditional
+aggregate operations, automated Streamlit acceptance, the stable reference SQL SHA-256
+`ec589a1527d0d641f4f7f7eb7e052ca1ace5b092013b437da72542ce4145d4f3`, and one optional
+read-only PostgreSQL integration returning five exact rows. The final quality gate passes 3,587
+tests with 224 explicit deselections. The in-app browser list was empty, so the manual
+desktop/mobile/browser matrix is documented but not claimed as PASS. M32 adds no source write,
+DataHub write, arbitrary SQL, cross-dialect, production, or release authority.
+
 Initial commit `09c3a2e0f47a7fbadb5297fa6bc4f9aca0d21950` and its 12-commit history pass
 the exact secret scan and are published on draft PR #1. The corrective candidate still requires
 its commit-bound scan, push, and hosted rerun. No external provider, cluster, alert/SIEM delivery,
@@ -1692,6 +1711,13 @@ M29 final-byte remediation status on 2026-07-30:
   M29/M30 work.
 - PostgreSQL is the sole executable M28 dialect. The explicit unsupported-dialect state is a
   safety property, not a claim of Snowflake, BigQuery, MySQL, or federated query support.
+- M32's deterministic language cases and compiler/guard matrix are local synthetic evidence, not
+  a live-provider holdout or universal natural-language/SQL accuracy claim. Output is PostgreSQL
+  for the same governed database/context; physical-only fields stay in M27
+  `needs_mapping_review`, and unsupported SQL families produce no SQL.
+- The M32 automated Streamlit acceptance passes, but the final manual desktop/mobile browser
+  matrix was not run because the in-app browser list was empty. Viewport, focus, overflow,
+  browser-console, DOM hostile-input, and real download interaction remain operator checks.
 - Source/catalog/type identity changes intentionally make prior catalog evidence non-executable
   until a fresh generation is promoted. Operators must plan this fail-closed refresh window; no
   automated cross-system cutover or distributed transaction is claimed.
@@ -1717,6 +1743,11 @@ rerun. It remains a production/release NO-GO. Its checked-in contracts and local
 operated evidence; external rotation, cluster admission, active alert/SIEM delivery, immutable
 retention, external cutover/rollback, exclusive Release/GHCR writer control, immutable Releases,
 protected release provenance, M30, and M31 still require separate acceptance.
+M32 — bounded simple/advanced natural language to standalone PostgreSQL — is complete and accepted
+locally under D125. Its deterministic language, retrieval, v1/v2, compiler, independent guard,
+copy renderer, CLI/Streamlit, acceptance, optional read-only PostgreSQL, and global quality gates
+pass. Manual browser evidence, a live-provider holdout campaign, other SQL dialects/destination
+databases, M30 production evaluation/security verification, and M31 pilot/GA remain open.
 M17/M18 release work remains independently blocked on a reviewed clean commit, strict
 `make release-clean`, exact-commit deployment, public/incognito and cold-start evidence, final
 media/links/checksums, and external reviewer sign-off.

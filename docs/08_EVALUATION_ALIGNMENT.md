@@ -105,3 +105,44 @@ M19 may contribute a focused DataHub Skill, documentation improvement, bug fix, 
 | Originality | governed semantic layer | all product docs, M06–M13 |
 | Real-World Usefulness | north-star problem and metrics | M01, M08, M15 |
 | Submission Quality | demo, examples, README, video | M14, M17, M18 |
+
+## M32 copy-first SQL evaluation alignment
+
+M32 evaluates the claim the user actually needs: whether a natural-language request becomes the
+exact supported SQL meaning against current governed context, not whether generated text merely
+looks sophisticated.
+
+The evaluation separates:
+
+- **retrieval coverage**: the required approved concepts are found when searching the complete
+  registry, while the supplied closure remains within 3 models/12 fields/2 joins;
+- **interpretation exactness**: every requested field, filter, metric, grouping, aggregate
+  threshold, window, order/tie rule, and limit equals reviewed typed ground truth;
+- **route correctness**: v1/v2 equals exact representability, including a long-simple and
+  short-advanced counterexample to length/keyword routing;
+- **SQL structural correctness**: the deterministic compiler and independent guard produce the
+  reviewed direct/staged topology and no forbidden construct;
+- **copy integrity**: the standalone artifact preserves typed values, contains zero placeholders,
+  reparses, passes a second guard, has a stable SHA-256, and reports `executed=false`;
+- **result correctness**: a separately selected synthetic read-only PostgreSQL run returns the
+  exact type-aware ground truth;
+- **unsupported honesty**: unsupported families receive a typed no-SQL result and are never
+  approximated.
+
+The capability matrix uses
+[25 Ejemplos de Consultas SQL Avanzadas](https://learnsql.es/blog/25-ejemplos-de-consultas-sql-avanzadas/)
+as a public benchmark taxonomy. Supported families are bounded rankings/top-N/`NTILE`, partition
+averages/percentages, duplicates/`HAVING`, running/moving calculations, `LAG`/`LEAD`,
+delta/percentage change, conditional metrics, and numeric buckets. Cross/self joins, arbitrary
+subqueries, set operations, recursion, and gaps/islands are explicit negative cases. `ROLLUP`
+remains negative until `GROUPING()` flags make subtotal and genuine `NULL` distinguishable.
+
+Report raw numerators/denominators and each failed/unsupported case. Do not combine deterministic
+fake results, optional live-model observations, compiler/guard results, and database result
+correctness into one accuracy percentage. The current synthetic corpus cannot justify confidence
+intervals, production-quality claims, “expert in every SQL dialect,” or an error-free guarantee.
+
+For judge-facing proof, show the simple route and the advanced Spanish reference side by side:
+input → bounded governed context → exact typed preview → confirmation → copyable PostgreSQL. Keep
+the optional result execution visibly separate so a zero-execution primary flow cannot be
+mistaken for an executed validation.

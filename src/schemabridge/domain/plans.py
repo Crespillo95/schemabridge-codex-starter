@@ -139,7 +139,7 @@ class FilterPredicate(FrozenDomainModel):
 
     expression: QueryValueExpression
     operator: FilterOperator
-    values: tuple[ParameterValue, ...] = ()
+    values: tuple[ParameterValue, ...] = Field(default=(), max_length=64)
 
     @model_validator(mode="after")
     def value_count_must_match_operator(self) -> FilterPredicate:
@@ -149,8 +149,12 @@ class FilterPredicate(FrozenDomainModel):
         elif self.operator is FilterOperator.IN:
             if not self.values:
                 raise ValueError("IN predicate requires at least one parameter value")
+            if any(value.value is None for value in self.values):
+                raise ValueError("IN predicate cannot contain NULL")
         elif len(self.values) != 1:
             raise ValueError("comparison predicate requires exactly one parameter value")
+        elif self.values[0].value is None:
+            raise ValueError("comparison predicate cannot compare with NULL")
         return self
 
 
@@ -200,6 +204,11 @@ class QueryPolicy(FrozenDomainModel):
     """Explicit independent guard and preview limits."""
 
     assets: tuple[AllowedAsset, ...] = Field(min_length=1)
+    approved_join_contracts: tuple[JoinContract, ...] = Field(
+        default=(),
+        max_length=2,
+        exclude=True,
+    )
     max_tables: int = Field(default=3, ge=1, le=3)
     max_preview_rows: int = Field(default=500, ge=1, le=10_000)
     statement_timeout_ms: int = Field(default=5_000, ge=10, le=60_000)
@@ -209,6 +218,14 @@ class QueryPolicy(FrozenDomainModel):
         datasets = [asset.dataset.root for asset in self.assets]
         if len(datasets) != len(set(datasets)):
             raise ValueError("allowlisted assets must be unique")
+        join_ids = [contract.id for contract in self.approved_join_contracts]
+        if len(join_ids) != len(set(join_ids)):
+            raise ValueError("allowlisted join contracts must be unique")
+        if any(
+            contract.status is not ApprovalStatus.APPROVED
+            for contract in self.approved_join_contracts
+        ):
+            raise ValueError("allowlisted join contracts must be approved")
         return self
 
 
