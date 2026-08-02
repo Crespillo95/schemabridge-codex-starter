@@ -13,7 +13,10 @@ from schemabridge.domain.transformations import (
     NormalizationRejected,
     NormalizationRejectionCode,
     NullPolicy,
+    PadLeftStep,
+    ParseDateStep,
     TransformationPlan,
+    ValidateRegexStep,
     normalize_identifier,
 )
 
@@ -171,6 +174,52 @@ def test_padding_configuration_cannot_be_implicit(values: dict[str, object]) -> 
         IdentifierNormalizationPlan.model_validate(values)
 
 
+@pytest.mark.parametrize("length", (257, 10_000_000))
+def test_padding_width_is_bounded_before_compilation(length: int) -> None:
+    with pytest.raises(ValidationError):
+        PadLeftStep(length=length)
+    with pytest.raises(ValidationError):
+        IdentifierNormalizationPlan(
+            null_policy=NullPolicy.REJECT,
+            leading_zero_policy=LeadingZeroPolicy.PAD_TO_LENGTH,
+            pad_to_length=length,
+        )
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    (
+        r"^[0-9]+$",
+        r"^[A-Za-z0-9_]{1,64}$",
+        r"^order-[0-9]{1,8}$",
+    ),
+)
+def test_regex_validation_accepts_only_the_closed_postgres_subset(pattern: str) -> None:
+    assert ValidateRegexStep(pattern=pattern).pattern == pattern
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    (
+        r"(?P<identifier>[0-9]+)",
+        r"^(?=a)a$",
+        r"^(a|b)$",
+        r"^\d+$",
+        r"[0-9]+",
+        r"^[z-a]+$",
+        r"^[0-9]{1,999}$",
+    ),
+)
+def test_regex_validation_rejects_dialect_specific_or_complex_syntax(pattern: str) -> None:
+    with pytest.raises(ValidationError, match="PostgreSQL-safe"):
+        ValidateRegexStep(pattern=pattern)
+
+
+def test_parse_date_rejects_python_format_tokens() -> None:
+    with pytest.raises(ValidationError):
+        ParseDateStep(format="%Y-%m-%d")
+
+
 def test_transformation_algebra_is_closed_and_unambiguous() -> None:
     valid = TransformationPlan.model_validate(
         {
@@ -219,7 +268,7 @@ def test_transformation_algebra_is_closed_and_unambiguous() -> None:
         {"operation": "pad_left", "length": 8},
         {"operation": "cast_integer_to_string"},
         {"operation": "cast_timestamp_to_date"},
-        {"operation": "parse_date", "format": "%Y-%m-%d"},
+        {"operation": "parse_date", "format": "YYYY-MM-DD"},
         {"operation": "normalize_decimal_scale", "scale": 2},
         {
             "operation": "map_values",

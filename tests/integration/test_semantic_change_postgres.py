@@ -246,7 +246,7 @@ def semantic_database() -> Iterator[_DatabaseUrls]:
         )
     try:
         migrated = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert migrated.inspection.current_version == 12
+        assert migrated.inspection.current_version == 13
         yield urls
     finally:
         with psycopg.connect(admin_dsn, autocommit=True) as connection:

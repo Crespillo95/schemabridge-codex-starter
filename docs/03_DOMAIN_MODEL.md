@@ -67,10 +67,12 @@ preserved `NULL` is a typed accepted outcome whose canonical value is `NULL`, no
 
 The generic serialized `TransformationPlan` remains a closed discriminated union of the listed MVP
 operations. The pure M02 interpreter remains specialized to identifiers. The deterministic SQL
-compiler now implements the closed SQL forms needed by the governed registry, including timestamp
-to date, fixed-format date parsing, decimal-scale normalization, and value mapping. An operation
-without an explicit compiler implementation still fails closed; the algebra never expands to raw
-SQL or callbacks.
+compiler implements the closed SQL forms needed by the governed registry, including timestamp to
+date, decimal-scale normalization, and value mapping. `parse_date` remains in the serialized union
+so historical contracts can be read, but authoring and compilation reject it until PostgreSQL
+shape/calendar validation is total; `TO_DATE` alone is not accepted. Regex uses an anchored linear
+ASCII subset and identifier padding is capped at 256 characters. An operation without a safe
+compiler implementation fails closed; the algebra never expands to raw SQL or callbacks.
 
 ### ColumnMapping
 

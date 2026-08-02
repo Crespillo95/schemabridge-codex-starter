@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from schemabridge.application.ports.semantic_change_read import (
     SemanticChangeFindingFilter,
@@ -22,8 +22,10 @@ from schemabridge.domain.catalog_inventory import (
     CATALOG_CONNECTION_ID_PATTERN,
     CATALOG_ENVIRONMENT_PATTERN,
     CatalogAssetFilter,
+    CatalogAssetId,
     CatalogAssetSummary,
     CatalogConnectionFilter,
+    CatalogConnectionId,
     CatalogConnectionKind,
     CatalogConnectionRegistrationResult,
     CatalogConnectionStatus,
@@ -36,6 +38,8 @@ from schemabridge.domain.catalog_inventory import (
     CatalogRefreshSummary,
     InventoryPage,
 )
+from schemabridge.domain.concepts import LogicalModelRef
+from schemabridge.domain.decisions import DecisionAction
 from schemabridge.domain.resolution import MAX_REJECTED_SOURCE_TOTAL
 from schemabridge.domain.semantic_change import (
     SemanticChangeKind,
@@ -43,7 +47,27 @@ from schemabridge.domain.semantic_change import (
     SemanticChangeStatus,
     SemanticImpactKind,
 )
-from schemabridge.domain.semantic_registry import PhysicalValueType
+from schemabridge.domain.semantic_onboarding import (
+    MAX_ONBOARDING_EVIDENCE,
+    MAX_ONBOARDING_MAPPINGS,
+    CreateSemanticOnboardingRequest,
+    OnboardingEvidence,
+    OnboardingRegistryBase,
+    PhysicalCatalogObservation,
+    PreflightSemanticOnboardingRequest,
+    PreparedSemanticOnboardingProposal,
+    SemanticModelDefinition,
+    SemanticOnboardingAuditRecord,
+    SemanticOnboardingDecision,
+    SemanticOnboardingDraft,
+    SemanticOnboardingDraftMutation,
+    SemanticOnboardingMappingInput,
+    SemanticOnboardingPreflight,
+    SemanticOnboardingPreflightSelection,
+    SemanticOnboardingPreparation,
+    SemanticOnboardingStatus,
+)
+from schemabridge.domain.semantic_registry import PhysicalValueType, SemanticRegistryScope
 
 
 class _StrictApiModel(BaseModel):
@@ -477,6 +501,201 @@ class CatalogRefreshRequestResponse(_StrictApiModel):
     def from_domain(cls, value: CatalogRefreshRequestResult) -> Self:
         return cls(
             refresh=CatalogRefreshResponse.from_domain(value.refresh),
+            replayed=value.replayed,
+        )
+
+
+class SemanticOnboardingDraftListQuery(_StrictApiModel):
+    """Bounded, non-cursor first vertical for one authenticated workspace."""
+
+    limit: int = Field(default=50, ge=1, le=50)
+
+
+class SemanticOnboardingDraftInspectionQuery(_StrictApiModel):
+    """Bounded most-recent history window for one draft snapshot."""
+
+    history_limit: int = Field(default=25, ge=1, le=50)
+
+
+class SemanticOnboardingPreflightSelectionRequest(_StrictApiModel):
+    asset_id: CatalogAssetId
+    field_path: tuple[str, ...] = Field(min_length=1, max_length=1)
+
+    def to_domain(self) -> SemanticOnboardingPreflightSelection:
+        return SemanticOnboardingPreflightSelection(**self.model_dump(mode="python"))
+
+
+class SemanticOnboardingPreflightRequest(_StrictApiModel):
+    """Read-only exact catalog selections; physical authority is server-derived."""
+
+    connection_id: CatalogConnectionId
+    selections: tuple[SemanticOnboardingPreflightSelectionRequest, ...] = Field(
+        min_length=1,
+        max_length=MAX_ONBOARDING_MAPPINGS,
+    )
+
+    def to_domain(self) -> PreflightSemanticOnboardingRequest:
+        return PreflightSemanticOnboardingRequest(
+            connection_id=self.connection_id,
+            selections=tuple(item.to_domain() for item in self.selections),
+        )
+
+
+class SemanticOnboardingPreflightResponse(_StrictApiModel):
+    scope: SemanticRegistryScope
+    connection_id: CatalogConnectionId
+    catalog_generation: int = Field(ge=1)
+    catalog_generation_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    base_registry: OnboardingRegistryBase
+    observations: tuple[PhysicalCatalogObservation, ...] = Field(
+        min_length=1,
+        max_length=MAX_ONBOARDING_MAPPINGS,
+    )
+    preflight_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    external_writes_performed: Literal[False] = False
+
+    @classmethod
+    def from_domain(cls, value: SemanticOnboardingPreflight) -> Self:
+        return cls(
+            scope=value.scope,
+            connection_id=value.connection_id,
+            catalog_generation=value.catalog_generation,
+            catalog_generation_fingerprint=value.catalog_generation_fingerprint,
+            base_registry=value.base_registry,
+            observations=value.observations,
+            preflight_fingerprint=value.fingerprint,
+        )
+
+
+class SemanticOnboardingDraftCreateRequest(_StrictApiModel):
+    """Client-safe draft input; actor, workspace and registry scope are server-derived."""
+
+    draft_id: str = Field(pattern=r"^[a-z][a-z0-9_-]{2,79}$")
+    connection_id: CatalogConnectionId
+    catalog_generation: int = Field(ge=1)
+    catalog_generation_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    expected_base_registry: OnboardingRegistryBase
+    confirmed_preflight_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    model: SemanticModelDefinition
+    mappings: tuple[SemanticOnboardingMappingInput, ...] = Field(
+        min_length=1,
+        max_length=MAX_ONBOARDING_MAPPINGS,
+    )
+
+    def to_domain(self) -> CreateSemanticOnboardingRequest:
+        return CreateSemanticOnboardingRequest(**self.model_dump(mode="python"))
+
+
+class SemanticOnboardingDecisionRequest(_StrictApiModel):
+    """One explicit model or mapping decision with no client-controlled authority fields."""
+
+    target_id: str = Field(min_length=3, max_length=200)
+    action: Literal[DecisionAction.APPROVE, DecisionAction.REJECT]
+    expected_revision: int = Field(ge=1)
+    confirmed_draft_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    rationale: str = Field(min_length=12, max_length=2_000)
+    evidence: tuple[OnboardingEvidence, ...] = Field(
+        default=(),
+        max_length=MAX_ONBOARDING_EVIDENCE,
+    )
+
+    @field_validator("rationale")
+    @classmethod
+    def rationale_must_be_meaningful(cls, value: str) -> str:
+        stripped = value.strip()
+        if len(stripped) < 12:
+            raise ValueError("semantic onboarding rationale must contain 12 meaningful characters")
+        return stripped
+
+
+class SemanticOnboardingPreparationRequest(_StrictApiModel):
+    expected_revision: int = Field(ge=1)
+    confirmed_draft_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class SemanticOnboardingDraftSummaryResponse(_StrictApiModel):
+    """Bounded list projection without decision, evidence or physical-field payloads."""
+
+    draft_id: str
+    owner_actor_id: str
+    model_id: LogicalModelRef
+    connection_id: CatalogConnectionId
+    revision: int = Field(ge=1)
+    status: SemanticOnboardingStatus
+    fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    updated_at: datetime
+
+    @classmethod
+    def from_domain(cls, value: SemanticOnboardingDraft) -> Self:
+        return cls(
+            draft_id=value.id,
+            owner_actor_id=value.owner_actor_id,
+            model_id=value.model.definition.id,
+            connection_id=value.connection_id,
+            revision=value.revision,
+            status=value.status,
+            fingerprint=value.fingerprint,
+            updated_at=value.updated_at,
+        )
+
+
+class SemanticOnboardingDraftListResponse(_StrictApiModel):
+    resource: Literal["semantic_onboarding_drafts"] = "semantic_onboarding_drafts"
+    state: Literal["not_configured", "configured"]
+    items: tuple[SemanticOnboardingDraftSummaryResponse, ...] = Field(max_length=50)
+
+    @classmethod
+    def from_domain(
+        cls,
+        values: tuple[SemanticOnboardingDraft, ...],
+    ) -> Self:
+        return cls(
+            state="not_configured" if not values else "configured",
+            items=tuple(
+                SemanticOnboardingDraftSummaryResponse.from_domain(item) for item in values
+            ),
+        )
+
+
+class SemanticOnboardingDraftMutationResponse(_StrictApiModel):
+    draft: SemanticOnboardingDraft
+    draft_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    replayed: bool
+    external_writes_performed: Literal[False] = False
+
+    @classmethod
+    def from_domain(cls, value: SemanticOnboardingDraftMutation) -> Self:
+        return cls(
+            draft=value.draft,
+            draft_fingerprint=value.draft.fingerprint,
+            replayed=value.replayed,
+        )
+
+
+class SemanticOnboardingDraftResponse(_StrictApiModel):
+    draft: SemanticOnboardingDraft
+    draft_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    audit_visible: bool
+    history_truncated: bool
+    decisions: tuple[SemanticOnboardingDecision, ...] = Field(max_length=50)
+    proposals: tuple[PreparedSemanticOnboardingProposal, ...] = Field(max_length=50)
+    audit: tuple[SemanticOnboardingAuditRecord, ...] = Field(max_length=50)
+    external_writes_performed: Literal[False] = False
+
+
+class SemanticOnboardingPreparationResponse(_StrictApiModel):
+    draft: SemanticOnboardingDraft
+    draft_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    proposal: PreparedSemanticOnboardingProposal
+    replayed: bool
+    external_writes_performed: Literal[False] = False
+
+    @classmethod
+    def from_domain(cls, value: SemanticOnboardingPreparation) -> Self:
+        return cls(
+            draft=value.draft,
+            draft_fingerprint=value.draft.fingerprint,
+            proposal=value.proposal,
             replayed=value.replayed,
         )
 

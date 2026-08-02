@@ -16,6 +16,7 @@ from psycopg.errors import UniqueViolation
 from psycopg.types.json import Jsonb
 from pydantic import ValidationError
 
+from schemabridge.adapters.control_plane.workspace_lock import workspace_control_lock_id
 from schemabridge.adapters.storage.postgres import _ControlDatabase
 from schemabridge.application.ports.registry_control import (
     RegistryControlError,
@@ -125,7 +126,10 @@ class PostgresRegistryControlStore:
         outboxes = self._db.table("registry_reconciliation_outbox")
         try:
             with self._db.connect() as connection:
-                self._lock_workspace_audit(connection, transition.active_pointer.scope.workspace_id)
+                self._lock_workspace_control(
+                    connection,
+                    transition.active_pointer.scope.workspace_id,
+                )
                 replay = self._load_replayed_commit(connection, transition, outbox)
                 if replay is not None:
                     return replay
@@ -247,7 +251,7 @@ class PostgresRegistryControlStore:
         outboxes = self._db.table("registry_reconciliation_outbox")
         try:
             with self._db.connect() as connection:
-                self._lock_workspace_audit(connection, outcome.scope.workspace_id)
+                self._lock_workspace_control(connection, outcome.scope.workspace_id)
                 row = connection.execute(
                     sql.SQL(
                         """
@@ -625,14 +629,14 @@ class PostgresRegistryControlStore:
             ),
         )
 
-    def _lock_workspace_audit(
+    def _lock_workspace_control(
         self,
         connection: psycopg.Connection[Any],
         workspace_id: str,
     ) -> None:
         connection.execute(
             "SELECT pg_advisory_xact_lock(%s)",
-            (_advisory_lock_id(workspace_id),),
+            (workspace_control_lock_id(workspace_id),),
         )
 
     def _append_audit_event(
@@ -798,14 +802,6 @@ def _terminal_outcome_matches(
 
 def _event_id(kind: str, identity: str) -> str:
     return f"control-{kind}-v1-{_canonical_fingerprint({'identity': identity})}"
-
-
-def _advisory_lock_id(workspace_id: str) -> int:
-    return int.from_bytes(
-        hashlib.sha256(f"schemabridge.audit:{workspace_id}".encode()).digest()[:8],
-        byteorder="big",
-        signed=True,
-    )
 
 
 def _canonical_fingerprint(value: object) -> str:

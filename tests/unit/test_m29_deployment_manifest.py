@@ -495,7 +495,7 @@ def test_observer_runtime_is_minimal_tls_bound_and_scrapeable() -> None:
         "SCHEMABRIDGE_COMPONENT": "observer",
         "SCHEMABRIDGE_CONTROL_PLANE_MODE": "postgres",
         "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA": "schemabridge_control",
-        "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION": "12",
+        "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION": "13",
         "SCHEMABRIDGE_LOG_LEVEL": "INFO",
         "SCHEMABRIDGE_OBSERVER_BIND_HOST": "0.0.0.0",
         "SCHEMABRIDGE_OBSERVER_PORT": "9464",

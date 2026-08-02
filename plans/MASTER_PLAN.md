@@ -53,11 +53,15 @@ authorize a release claim, or relax any clean-commit gate.
 | M30 | Production evaluation and security verification | adversarial corpus and release thresholds |
 | M31 | Pilot and general-availability readiness | operated pilot, runbooks, rollback, sign-off |
 | M32 | Simple/advanced natural language to copyable PostgreSQL | exact typed preview, representability routing, twice-guarded standalone SQL |
+| M33 | Generic governed semantic onboarding | tenant-bound physical observations → explicit review → ready-for-publication proposal |
+| M34 | Dedicated registry publication and activation bridge | queued writer, observed DataHub identities, exact readback, M23 activation |
 
 The productionization track is sequential unless a milestone explicitly permits read-only parallel
 audit. M20 contracts become the identity boundary reused by later API and worker entrypoints.
 M32 is a product-capability branch from the locally accepted M29 baseline; it neither bypasses nor
-completes the reserved M30/M31 production gates.
+completes the reserved M30/M31 production gates. The commercial audit inserts M33/M34 before M30:
+production evaluation is not meaningful while tenant onboarding still depends on repository
+fixtures or while managed publication lacks a dedicated worker.
 
 ### Dynamic tenant catalog requirement
 
@@ -79,14 +83,16 @@ This inventory requirement does not relax query safety. Catalogs may contain tho
 while one compiled request remains subject to its governed per-query table/join maximum, allowlist,
 fanout checks, result limit, and timeout.
 
-M26–M29 are complete and accepted locally within their recorded scopes. M32 is also accepted
-locally for the bounded deterministic/synthetic scope in
+M26–M29 are complete and accepted locally within their recorded scopes. M32 and M33 are also
+accepted locally for their bounded deterministic/synthetic scopes in
 `plans/M32_ADVANCED_COPYABLE_SQL.md`: it traverses the complete approved logical registry,
 constructs a bounded 3-model/12-field/2-join closure, selects v1/v2 by typed representability, and
 makes twice-guarded standalone PostgreSQL the primary result with zero execution by default. Its
-manual browser and live-provider/holdout evidence remain open. M30/M31 retain their separate
-production-evaluation/security and pilot/GA roles. Neither local acceptance, M32 implementation,
-nor queue position is a global production/release GO.
+live-provider/holdout evidence remains open. M33 adds exact tenant/catalog preflight, explicit
+semantic review, durable tenant-bound CAS/idempotency and an immutable non-executable handoff; its
+manual desktop/mobile browser path passes locally. M34 publication/readback remains next. M30/M31
+retain their separate production-evaluation/security and pilot/GA roles. Neither local acceptance,
+these capabilities, nor queue position is a global production/release GO.
 
 ## Dependency graph
 
@@ -134,6 +140,9 @@ graph TD
   M29 --> M30
   M30 --> M31
   M29 --> M32
+  M32 --> M33
+  M33 --> M34
+  M34 --> M30
 ```
 
 ## Parallel work permitted
@@ -166,6 +175,9 @@ Do not allow parallel agents to edit overlapping modules. The main thread integr
 | M27 governed retrieval | M32 | complete-registry search with bounded approved 3/12/2 closure |
 | M03/M28 SQL boundary | M32 | deterministic PostgreSQL compiler and independent scope-aware guard |
 | M32 language/copy boundary | users and optional preview | confirmed v1/v2 intent → parameterized guarded SQL → standalone re-guarded artifact; executor receives only the parameterized form |
+| M25 catalog + M20 identity | M33 | exact tenant/connection/generation/locator observations and authenticated semantic decisions |
+| M33 prepared proposal | M34 | immutable scoped payload + exact decision closure; no external mutation in M33 |
+| M34 published version | M23 activation/M30 | dedicated writer readback → separately approved CAS activation → production evaluation candidate |
 
 ## Release blockers
 

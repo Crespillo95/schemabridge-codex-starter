@@ -8,11 +8,11 @@ import pytest
 
 from schemabridge.adapters.control_plane.postgres_registry_control import (
     PostgresRegistryControlStore,
-    _advisory_lock_id,
     _audit_hash,
     _canonical_fingerprint,
     _event_id,
 )
+from schemabridge.adapters.control_plane.workspace_lock import workspace_control_lock_id
 
 KEY = b"control-audit-key-0123456789-abcdef"
 
@@ -49,8 +49,10 @@ def test_audit_hash_is_deterministic_and_binds_every_chain_field() -> None:
 
 
 def test_workspace_audit_lock_and_event_id_are_stable_and_scoped() -> None:
-    assert _advisory_lock_id("workspace-a") == _advisory_lock_id("workspace-a")
-    assert _advisory_lock_id("workspace-a") != _advisory_lock_id("workspace-b")
+    # Preserve the deployed lock namespace across rolling upgrades.
+    assert workspace_control_lock_id("workspace-a") == 1_315_851_285_961_084_015
+    assert workspace_control_lock_id("workspace-a") == workspace_control_lock_id("workspace-a")
+    assert workspace_control_lock_id("workspace-a") != workspace_control_lock_id("workspace-b")
     assert _event_id("registry_transition", "transition-a") == _event_id(
         "registry_transition",
         "transition-a",

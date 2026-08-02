@@ -76,14 +76,14 @@ def test_compiler_rejects_invalid_preview_policy() -> None:
     assert captured.value.code == "invalid_preview_limit"
 
 
-def test_compiler_parameterizes_the_closed_parse_date_format() -> None:
+def test_compiler_rejects_parse_date_until_calendar_validation_is_total() -> None:
     plan = build_north_star_query_plan()
     original_filter = plan.filters[0]
     assert isinstance(original_filter.expression, MappedExpression)
     unsupported = MappedExpression(
         source=original_filter.expression.source,
         transformation_plan=TransformationPlan(
-            steps=(ParseDateStep(format="%Y-%m-%d"),),
+            steps=(ParseDateStep(format="YYYY-MM-DD"),),
         ),
     )
     unsupported_plan = plan.model_copy(
@@ -98,11 +98,11 @@ def test_compiler_parameterizes_the_closed_parse_date_format() -> None:
         }
     )
 
-    compiled = PostgresQueryCompiler().compile(unsupported_plan, max_preview_rows=500)
+    with pytest.raises(QueryCompilationError) as captured:
+        PostgresQueryCompiler().compile(unsupported_plan, max_preview_rows=500)
 
-    assert "TO_DATE" in compiled.sql
-    assert "%Y-%m-%d" not in compiled.sql
-    assert compiled.parameters[-2:] == ("%Y-%m-%d", "2026-01-01")
+    assert captured.value.code == "unsafe_date_parse"
+    assert "calendar validation" in str(captured.value)
 
 
 def test_compiler_groups_parameterized_dimension_by_projection_position() -> None:

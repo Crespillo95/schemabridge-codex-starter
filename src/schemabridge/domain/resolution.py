@@ -91,7 +91,24 @@ from schemabridge.domain.semantic_registry import (
 from schemabridge.domain.semantic_registry import (
     GovernedMappingSet as GovernedMappingSet,
 )
-from schemabridge.domain.transformations import TransformationPlan
+from schemabridge.domain.transformations import (
+    CastIntegerToStringStep,
+    CastTimestampToDateStep,
+    EmptyToNullStep,
+    IdentityStep,
+    MapValuesStep,
+    NormalizeDecimalScaleStep,
+    PadLeftStep,
+    ParseDateStep,
+    PreserveNullStep,
+    RejectInvalidStep,
+    StripLeadingZerosStep,
+    TransformationPlan,
+    TrimStep,
+    ValidateFiniteStep,
+    ValidateIntegralStep,
+    ValidateRegexStep,
+)
 
 MAX_REJECTED_SOURCE_TOTAL = 2_147_483_647
 
@@ -1009,6 +1026,134 @@ def _oriented_cardinality(edge: _PathEdge) -> Cardinality:
     return edge.contract.cardinality
 
 
+def mapping_type_is_compatible(
+    canonical: CanonicalType,
+    physical: PhysicalValueType,
+    transformation_plan: TransformationPlan,
+) -> bool:
+    """Validate every ordered compiler step before accepting its resulting type.
+
+    The SQL compiler applies most steps immediately, but currently defers
+    ``cast_integer_to_string`` until after it has accumulated numeric rejection checks against the
+    physical value. Consequently that cast is terminal apart from marker/no-op steps. Mirroring
+    that detail here prevents a plan from looking type-correct while compiling a text/date
+    operation against the original numeric expression.
+    """
+
+    current = physical
+    finite_validated = False
+    integral_validated = False
+    integer_to_string_cast = False
+    numeric_types = {
+        PhysicalValueType.INTEGER,
+        PhysicalValueType.FLOAT,
+        PhysicalValueType.DECIMAL,
+    }
+
+    for step in transformation_plan.steps:
+        if isinstance(step, (IdentityStep, PreserveNullStep, RejectInvalidStep)):
+            continue
+        if integer_to_string_cast:
+            return False
+        if isinstance(step, (TrimStep, EmptyToNullStep, ValidateRegexStep)):
+            if current is not PhysicalValueType.STRING:
+                return False
+            continue
+        if isinstance(step, ValidateFiniteStep):
+            if current not in numeric_types:
+                return False
+            finite_validated = True
+            continue
+        if isinstance(step, ValidateIntegralStep):
+            if current not in numeric_types:
+                return False
+            integral_validated = True
+            continue
+        if isinstance(step, (StripLeadingZerosStep, PadLeftStep)):
+            if current is not PhysicalValueType.STRING:
+                return False
+            continue
+        if isinstance(step, CastIntegerToStringStep):
+            if current is PhysicalValueType.INTEGER:
+                pass
+            elif current is PhysicalValueType.FLOAT:
+                if not (finite_validated and integral_validated):
+                    return False
+            else:
+                return False
+            current = PhysicalValueType.STRING
+            integer_to_string_cast = True
+            finite_validated = False
+            integral_validated = False
+            continue
+        if isinstance(step, CastTimestampToDateStep):
+            if current is not PhysicalValueType.TIMESTAMP:
+                return False
+            current = PhysicalValueType.DATE
+            finite_validated = False
+            integral_validated = False
+            continue
+        if isinstance(step, ParseDateStep):
+            # PostgreSQL TO_DATE is permissive and can either normalize impossible dates or
+            # raise for malformed values. Until the compiler has a total calendar validator,
+            # onboarding must not approve a STRING -> DATE plan that could fail at runtime.
+            return False
+        if isinstance(step, NormalizeDecimalScaleStep):
+            if current not in numeric_types:
+                return False
+            current = PhysicalValueType.DECIMAL
+            integral_validated = False
+            continue
+        if isinstance(step, MapValuesStep):
+            if not _map_values_preserves_compiler_type(step, current):
+                return False
+            integral_validated = False
+            continue
+        return False
+
+    if canonical is CanonicalType.STRING:
+        return current is PhysicalValueType.STRING
+    if canonical is CanonicalType.DATE:
+        return current is PhysicalValueType.DATE
+    if canonical is CanonicalType.TIMESTAMP:
+        return current is PhysicalValueType.TIMESTAMP
+    if canonical is CanonicalType.DECIMAL:
+        return current in numeric_types
+    if canonical is CanonicalType.INTEGER:
+        if current is PhysicalValueType.INTEGER:
+            return True
+        return current in {PhysicalValueType.DECIMAL, PhysicalValueType.FLOAT} and (
+            finite_validated and integral_validated
+        )
+    if canonical is CanonicalType.BOOLEAN:
+        return current is PhysicalValueType.BOOLEAN
+    return False
+
+
+def _map_values_preserves_compiler_type(
+    step: MapValuesStep,
+    current: PhysicalValueType,
+) -> bool:
+    """Accept only closed maps whose bound CASE operands retain one known SQL type."""
+
+    if current is PhysicalValueType.STRING:
+        expected: type[str] | type[bool] = str
+    elif current is PhysicalValueType.BOOLEAN:
+        expected = bool
+    else:
+        # Numeric CASE coercion depends on the bound Python scalar mix and may silently widen.
+        # Date/timestamp values have no representation in TransformationScalar.
+        return False
+    if any(
+        entry.source is None
+        or type(entry.source) is not expected
+        or (entry.target is not None and type(entry.target) is not expected)
+        for entry in step.entries
+    ):
+        return False
+    return any(entry.target is not None for entry in step.entries)
+
+
 def _validate_mapping_types(
     mappings: tuple[GovernedFieldMapping, ...],
     logical_context: ApprovedLogicalContext,
@@ -1018,49 +1163,11 @@ def _validate_mapping_types(
         mapping = governed.mapping
         canonical = definitions[mapping.logical_field.root].canonical_type
         physical = governed.physical_type
-        operations = {step.operation for step in mapping.transformation_plan.steps}
-        compatible = False
-        if canonical is CanonicalType.STRING:
-            compatible = (
-                physical is PhysicalValueType.STRING
-                or (
-                    physical is PhysicalValueType.INTEGER and "cast_integer_to_string" in operations
-                )
-                or (
-                    physical is PhysicalValueType.FLOAT
-                    and {
-                        "validate_finite",
-                        "validate_integral",
-                        "cast_integer_to_string",
-                    }
-                    <= operations
-                )
-            )
-        elif canonical is CanonicalType.DATE:
-            compatible = (
-                physical is PhysicalValueType.DATE
-                or (
-                    physical is PhysicalValueType.TIMESTAMP
-                    and "cast_timestamp_to_date" in operations
-                )
-                or (physical is PhysicalValueType.STRING and "parse_date" in operations)
-            )
-        elif canonical is CanonicalType.TIMESTAMP:
-            compatible = physical is PhysicalValueType.TIMESTAMP
-        elif canonical is CanonicalType.DECIMAL:
-            compatible = physical in {
-                PhysicalValueType.DECIMAL,
-                PhysicalValueType.INTEGER,
-                PhysicalValueType.FLOAT,
-            }
-        elif canonical is CanonicalType.INTEGER:
-            compatible = physical is PhysicalValueType.INTEGER or (
-                physical in {PhysicalValueType.DECIMAL, PhysicalValueType.FLOAT}
-                and "validate_integral" in operations
-            )
-        elif canonical is CanonicalType.BOOLEAN:
-            compatible = physical is PhysicalValueType.BOOLEAN
-        if not compatible:
+        if not mapping_type_is_compatible(
+            canonical,
+            physical,
+            mapping.transformation_plan,
+        ):
             raise SemanticResolutionError(
                 ResolutionErrorCode.INCOMPATIBLE_MAPPING_TYPE,
                 (

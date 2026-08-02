@@ -39,6 +39,9 @@ M17/M18 release evidence.
 | 27 | M26 | complete; accepted locally | all 30 criteria and final technical/browser gates recorded |
 | 28 | M27 | complete; accepted locally | dynamic governed matching and final gates recorded |
 | 29 | M28 | complete; accepted locally | governed connector routing, cost controls, full gate, and browser evidence recorded |
-| 30 | M29 | eligible; not started | M28 accepted locally; separate plan/prompt still required |
-| 31 | M30 | blocked | requires accepted M29 |
-| 32 | M31 | blocked | requires accepted M30 |
+| 30 | M29 | complete; accepted locally | operations/supply-chain local gates pass; external operated evidence remains open |
+| 31 | M32 | complete; accepted locally | bounded copy-first PostgreSQL capability; production gates remain open |
+| 32 | M33 | complete; accepted locally | generic tenant onboarding to an immutable ready-for-publication proposal |
+| 33 | M34 | ready | accepted M33 handoff; dedicated writer/readback and activation bridge is next |
+| 34 | M30 | blocked | requires accepted M29, M33 and M34 plus external evaluation/security inputs |
+| 35 | M31 | blocked | requires accepted M30 and operated pilot evidence |

@@ -1,14 +1,43 @@
 # Current task
 
-- Current milestone: M32 — Simple and advanced natural language to copyable PostgreSQL
-- Status: complete and accepted locally for the bounded deterministic/synthetic capability;
-  manual browser and all production/release gates remain open
-- Prompt: `prompts/M32_ADVANCED_COPYABLE_SQL.md`
-- Plan: `plans/M32_ADVANCED_COPYABLE_SQL.md`
-- ADR: `docs/adr/0015-advanced-copyable-postgresql.md`
-- Evaluation: `reports/m32-copyable-sql-deterministic-evaluation.md`
-- Handoff: `tasks/M32_HANDOFF.md`
+- Current milestone: M33 — Generic governed semantic onboarding
+- Status: complete; accepted locally
+- Prompt: `prompts/M33_GENERIC_SEMANTIC_ONBOARDING.md`
+- Plan: `plans/M33_GENERIC_SEMANTIC_ONBOARDING.md`
+- ADR: `docs/adr/0016-generic-semantic-onboarding.md`
+- Handoff: `tasks/M33_HANDOFF.md`
 - Production/release GO: **NO**
+
+## Objective delivered
+
+Allow an authenticated tenant to create a semantic onboarding draft from an exact retained catalog
+generation, record explicit model/mapping decisions, and prepare one immutable audited
+`ready_for_publication` proposal without editing repository fixtures or performing an external
+write. M33 deliberately stops before publication and activation.
+
+## Final evidence and retained boundaries
+
+- Exact authenticated preflight, workspace/connection/generation/vector/locator/fingerprint/type
+  binding, schema-v13 storage, CAS and append-only idempotency pass locally.
+- Confidence/name similarity never approve; a steward decides every semantic fact and a distinct
+  publisher prepares the immutable handoff.
+- Identity rotation preserves only verified historical workspace/actor pairs; ambiguous lineage
+  and cross-coordinate replay fail closed.
+- 225 independently reviewed unit cases, 7 PostgreSQL integrations, 2 acceptance cases, Ruff,
+  mypy and `git diff --check` pass; independent review reports P0=0/P1=0.
+- Codex internal-browser desktop and 390×844 acceptance passes with no overflow or console error,
+  zero SQL/external writes and no publication, activation or execution control.
+- `make check` passes 3,682 tests with 233 deselections; the exact final repeat is recorded in the
+  handoff.
+
+## Commercial status
+
+M33 closes generic semantic authoring locally only. M34 dedicated publication/readback plus M23
+activation, M30 evaluation/security verification, and M31 operated pilot/GA remain mandatory.
+
+---
+
+## Previous milestone snapshot — M32
 
 ## Objective delivered
 

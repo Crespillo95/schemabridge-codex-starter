@@ -31,6 +31,7 @@ from schemabridge.application.api_workflows import (
     ExecutionJobUseCaseErrorCode,
 )
 from schemabridge.application.authentication import AuthenticationBoundaryError
+from schemabridge.application.authorization import AuthorizationError, AuthorizationErrorCode
 from schemabridge.application.catalog_inventory import (
     CatalogUseCaseError,
     CatalogUseCaseErrorCode,
@@ -57,6 +58,11 @@ from schemabridge.application.semantic_change_read import (
     SemanticChangeReadError,
     SemanticChangeReadErrorCode,
 )
+from schemabridge.application.semantic_onboarding import (
+    SemanticOnboardingError,
+    SemanticOnboardingErrorCode,
+    SemanticOnboardingSnapshot,
+)
 from schemabridge.domain.background_jobs import (
     BackgroundJob,
     JobSubmissionResult,
@@ -79,7 +85,18 @@ from schemabridge.domain.catalog_inventory import (
     InventoryPage,
     InventoryPageRequest,
 )
+from schemabridge.domain.decisions import DecisionAction
 from schemabridge.domain.identity import AuthenticatedPrincipal
+from schemabridge.domain.semantic_onboarding import (
+    CreateSemanticOnboardingRequest,
+    OnboardingEvidence,
+    PreflightSemanticOnboardingRequest,
+    SemanticOnboardingDraft,
+    SemanticOnboardingDraftMutation,
+    SemanticOnboardingPreflight,
+    SemanticOnboardingPreparation,
+    SemanticOnboardingTargetKind,
+)
 from schemabridge.entrypoints.http.schemas import (
     CatalogAssetListQuery,
     CatalogAssetPageResponse,
@@ -107,6 +124,17 @@ from schemabridge.entrypoints.http.schemas import (
     SemanticChangeReportListQuery,
     SemanticChangeReportPageResponse,
     SemanticChangeReportResponse,
+    SemanticOnboardingDecisionRequest,
+    SemanticOnboardingDraftCreateRequest,
+    SemanticOnboardingDraftInspectionQuery,
+    SemanticOnboardingDraftListQuery,
+    SemanticOnboardingDraftListResponse,
+    SemanticOnboardingDraftMutationResponse,
+    SemanticOnboardingDraftResponse,
+    SemanticOnboardingPreflightRequest,
+    SemanticOnboardingPreflightResponse,
+    SemanticOnboardingPreparationRequest,
+    SemanticOnboardingPreparationResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -116,6 +144,7 @@ _CONNECTION_ID_PATTERN = r"^[a-z0-9][a-z0-9_-]{2,199}$"
 _REFRESH_ID_PATTERN = r"^[a-z0-9][a-z0-9_-]{2,199}$"
 _ASSET_ID_PATTERN = r"^[^\x00-\x1f\x7f]{1,500}$"
 _SEMANTIC_CHANGE_REPORT_ID_PATTERN = r"^report_[0-9a-f]{64}$"
+_SEMANTIC_ONBOARDING_DRAFT_ID_PATTERN = r"^[a-z][a-z0-9_-]{2,79}$"
 _IDEMPOTENCY_PATTERN = r"^[A-Za-z0-9._~-]{16,128}$"
 _JSON_MEDIA_TYPE = "application/json"
 _SECURITY_HEADERS = (
@@ -154,6 +183,20 @@ _BUSINESS_HTTP_ROUTES: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "GET",
         re.compile(r"^/v1/semantic-changes/reports/report_[0-9a-f]{64}/impacts$"),
+    ),
+    ("POST", re.compile(r"^/v1/semantic-onboarding/preflight$")),
+    ("GET", re.compile(r"^/v1/semantic-onboarding/drafts$")),
+    ("POST", re.compile(r"^/v1/semantic-onboarding/drafts$")),
+    (
+        "GET",
+        re.compile(r"^/v1/semantic-onboarding/drafts/[a-z][a-z0-9_-]{2,79}$"),
+    ),
+    (
+        "POST",
+        re.compile(
+            r"^/v1/semantic-onboarding/drafts/[a-z][a-z0-9_-]{2,79}"
+            r"/(?:model-decisions|mapping-decisions|prepare-publication)$"
+        ),
     ),
 )
 
@@ -404,6 +447,78 @@ class SemanticChangeImpactListPort(Protocol):
         """Return one bounded deduplicated blast-radius page."""
 
 
+class SemanticOnboardingDraftListPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        *,
+        limit: int = 50,
+    ) -> tuple[SemanticOnboardingDraft, ...]:
+        """Return a bounded tenant-scoped draft list."""
+
+
+class SemanticOnboardingPreflightUseCasePort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        request: PreflightSemanticOnboardingRequest,
+    ) -> SemanticOnboardingPreflight:
+        """Resolve one current tenant-bound, read-only authoring context."""
+
+
+class SemanticOnboardingDraftCreationPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        request: CreateSemanticOnboardingRequest,
+        *,
+        idempotency_key: str,
+    ) -> SemanticOnboardingDraftMutation:
+        """Create or exactly replay one tenant-derived semantic draft."""
+
+
+class SemanticOnboardingDraftInspectionPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        draft_id: str,
+        *,
+        history_limit: int = 25,
+    ) -> SemanticOnboardingSnapshot:
+        """Return one authorized onboarding snapshot."""
+
+
+class SemanticOnboardingDecisionPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        draft_id: str,
+        *,
+        target_kind: SemanticOnboardingTargetKind,
+        target_id: str,
+        action: DecisionAction,
+        expected_revision: int,
+        confirmed_draft_fingerprint: str,
+        rationale: str,
+        evidence: tuple[OnboardingEvidence, ...],
+        idempotency_key: str,
+    ) -> SemanticOnboardingDraftMutation:
+        """Record or exactly replay one governed semantic decision."""
+
+
+class SemanticOnboardingPreparationPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        draft_id: str,
+        *,
+        expected_revision: int,
+        confirmed_draft_fingerprint: str,
+        idempotency_key: str,
+    ) -> SemanticOnboardingPreparation:
+        """Prepare one immutable non-executable publication proposal."""
+
+
 @dataclass(frozen=True, slots=True)
 class CatalogHttpServices:
     list_connections: CatalogConnectionListPort
@@ -424,6 +539,16 @@ class SemanticChangeHttpServices:
 
 
 @dataclass(frozen=True, slots=True)
+class SemanticOnboardingHttpServices:
+    preflight: SemanticOnboardingPreflightUseCasePort
+    list_drafts: SemanticOnboardingDraftListPort
+    create_draft: SemanticOnboardingDraftCreationPort
+    inspect_draft: SemanticOnboardingDraftInspectionPort
+    decide: SemanticOnboardingDecisionPort
+    prepare_publication: SemanticOnboardingPreparationPort
+
+
+@dataclass(frozen=True, slots=True)
 class ApiHttpServices:
     authenticator: BearerAuthenticationPort
     clock: ApiClockPort
@@ -434,6 +559,7 @@ class ApiHttpServices:
     catalog: CatalogHttpServices | None = None
     admission: ApiAdmissionPort | None = None
     semantic_changes: SemanticChangeHttpServices | None = None
+    semantic_onboarding: SemanticOnboardingHttpServices | None = None
 
 
 class ApiConcurrencyMiddleware:
@@ -947,6 +1073,100 @@ def create_http_app(
             }[error.code],
         )
 
+    @app.exception_handler(SemanticOnboardingError)
+    async def semantic_onboarding_error(
+        request: Request,
+        error: SemanticOnboardingError,
+    ) -> JSONResponse:
+        if error.code is SemanticOnboardingErrorCode.UNAVAILABLE:
+            _mark_resource_access_cause(request, OperationalResourceAccessCause.DENIED)
+        status = {
+            SemanticOnboardingErrorCode.INVALID_REQUEST: 422,
+            SemanticOnboardingErrorCode.UNAVAILABLE: 404,
+            SemanticOnboardingErrorCode.CONFLICT: 409,
+            SemanticOnboardingErrorCode.STALE_CATALOG: 409,
+            SemanticOnboardingErrorCode.STALE_REGISTRY: 409,
+            SemanticOnboardingErrorCode.NOT_READY: 409,
+            SemanticOnboardingErrorCode.SEPARATION_OF_DUTIES: 403,
+            SemanticOnboardingErrorCode.SERVICE_UNAVAILABLE: 503,
+        }[error.code]
+        return _problem_response(
+            request,
+            status=status,
+            code=error.code.value,
+            title={
+                SemanticOnboardingErrorCode.INVALID_REQUEST: (
+                    "The semantic-onboarding request is invalid."
+                ),
+                SemanticOnboardingErrorCode.UNAVAILABLE: (
+                    "The semantic-onboarding resource is not available."
+                ),
+                SemanticOnboardingErrorCode.CONFLICT: (
+                    "The semantic-onboarding draft changed; reload and retry."
+                ),
+                SemanticOnboardingErrorCode.STALE_CATALOG: (
+                    "The bound catalog observation is no longer current."
+                ),
+                SemanticOnboardingErrorCode.STALE_REGISTRY: (
+                    "The active semantic-registry base changed."
+                ),
+                SemanticOnboardingErrorCode.NOT_READY: (
+                    "The semantic-onboarding decision closure is incomplete."
+                ),
+                SemanticOnboardingErrorCode.SEPARATION_OF_DUTIES: (
+                    "A separate current publisher is required."
+                ),
+                SemanticOnboardingErrorCode.SERVICE_UNAVAILABLE: (
+                    "The semantic-onboarding service is temporarily unavailable."
+                ),
+            }[error.code],
+        )
+
+    @app.exception_handler(AuthorizationError)
+    async def authorization_error(
+        request: Request,
+        error: AuthorizationError,
+    ) -> JSONResponse:
+        _mark_resource_access_cause(request, OperationalResourceAccessCause.DENIED)
+        if error.code is AuthorizationErrorCode.WORKFLOW_ACCESS_DENIED:
+            semantic_onboarding_route = request.url.path.startswith("/v1/semantic-onboarding/")
+            return _problem_response(
+                request,
+                status=404,
+                code=(
+                    SemanticOnboardingErrorCode.UNAVAILABLE.value
+                    if semantic_onboarding_route
+                    else "resource_unavailable"
+                ),
+                title=(
+                    "The semantic-onboarding resource is not available."
+                    if semantic_onboarding_route
+                    else "The requested resource is not available."
+                ),
+            )
+        status = {
+            AuthorizationErrorCode.PRINCIPAL_NOT_CURRENT: 401,
+            AuthorizationErrorCode.PERMISSION_DENIED: 403,
+            AuthorizationErrorCode.POLICY_UNAVAILABLE: 503,
+        }[error.code]
+        return _problem_response(
+            request,
+            status=status,
+            code=error.code.value,
+            title={
+                AuthorizationErrorCode.PRINCIPAL_NOT_CURRENT: (
+                    "The authenticated session is no longer current."
+                ),
+                AuthorizationErrorCode.PERMISSION_DENIED: (
+                    "The authenticated principal is not authorized for this operation."
+                ),
+                AuthorizationErrorCode.POLICY_UNAVAILABLE: (
+                    "Authorization is temporarily unavailable."
+                ),
+            }[error.code],
+            headers={"WWW-Authenticate": "Bearer"} if status == 401 else None,
+        )
+
     def principal(request: Request) -> AuthenticatedPrincipal:
         raw_values = request.headers.getlist("authorization")
         if (
@@ -1339,6 +1559,196 @@ def create_http_app(
         )
         return SemanticChangeImpactPageResponse.from_projection(result)
 
+    @app.post(
+        "/v1/semantic-onboarding/preflight",
+        response_model=SemanticOnboardingPreflightResponse,
+    )
+    def preflight_semantic_onboarding_draft(
+        body: SemanticOnboardingPreflightRequest,
+        request: Request,
+    ) -> SemanticOnboardingPreflightResponse:
+        authenticated = principal(request)
+        onboarding = _semantic_onboarding_services(services)
+        try:
+            command = body.to_domain()
+        except ValueError as error:
+            raise _semantic_onboarding_invalid_request() from error
+        result = onboarding.preflight.execute(authenticated, command)
+        return SemanticOnboardingPreflightResponse.from_domain(result)
+
+    @app.get(
+        "/v1/semantic-onboarding/drafts",
+        response_model=SemanticOnboardingDraftListResponse,
+    )
+    def list_semantic_onboarding_drafts(
+        request: Request,
+        query: Annotated[SemanticOnboardingDraftListQuery, Query()],
+    ) -> SemanticOnboardingDraftListResponse:
+        authenticated = principal(request)
+        onboarding = _semantic_onboarding_services(services)
+        result = onboarding.list_drafts.execute(
+            authenticated,
+            limit=query.limit,
+        )
+        return SemanticOnboardingDraftListResponse.from_domain(result)
+
+    @app.post(
+        "/v1/semantic-onboarding/drafts",
+        response_model=SemanticOnboardingDraftMutationResponse,
+        responses={
+            200: {"model": SemanticOnboardingDraftMutationResponse},
+            201: {"model": SemanticOnboardingDraftMutationResponse},
+        },
+    )
+    def create_semantic_onboarding_draft(
+        body: SemanticOnboardingDraftCreateRequest,
+        response: Response,
+        request: Request,
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> SemanticOnboardingDraftMutationResponse:
+        _require_single_semantic_onboarding_idempotency_header(request, idempotency_key)
+        authenticated = principal(request)
+        onboarding = _semantic_onboarding_services(services)
+        try:
+            command = body.to_domain()
+        except ValueError as error:
+            raise _semantic_onboarding_invalid_request() from error
+        result = onboarding.create_draft.execute(
+            authenticated,
+            command,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 201
+        return SemanticOnboardingDraftMutationResponse.from_domain(result)
+
+    @app.get(
+        "/v1/semantic-onboarding/drafts/{draft_id}",
+        response_model=SemanticOnboardingDraftResponse,
+    )
+    def inspect_semantic_onboarding_draft(
+        request: Request,
+        query: Annotated[SemanticOnboardingDraftInspectionQuery, Query()],
+        draft_id: str = Path(pattern=_SEMANTIC_ONBOARDING_DRAFT_ID_PATTERN),
+    ) -> SemanticOnboardingDraftResponse:
+        authenticated = principal(request)
+        onboarding = _semantic_onboarding_services(services)
+        result = onboarding.inspect_draft.execute(
+            authenticated,
+            draft_id,
+            history_limit=query.history_limit,
+        )
+        return SemanticOnboardingDraftResponse(
+            draft=result.draft,
+            draft_fingerprint=result.draft.fingerprint,
+            audit_visible=result.audit_visible,
+            history_truncated=result.history_truncated,
+            decisions=result.decisions,
+            proposals=result.proposals,
+            audit=result.audit,
+        )
+
+    @app.post(
+        "/v1/semantic-onboarding/drafts/{draft_id}/model-decisions",
+        response_model=SemanticOnboardingDraftMutationResponse,
+        responses={
+            200: {"model": SemanticOnboardingDraftMutationResponse},
+            201: {"model": SemanticOnboardingDraftMutationResponse},
+        },
+    )
+    def decide_semantic_onboarding_model(
+        body: SemanticOnboardingDecisionRequest,
+        response: Response,
+        request: Request,
+        draft_id: str = Path(pattern=_SEMANTIC_ONBOARDING_DRAFT_ID_PATTERN),
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> SemanticOnboardingDraftMutationResponse:
+        result = _decide_semantic_onboarding(
+            services,
+            authenticated=principal(request),
+            request=request,
+            body=body,
+            draft_id=draft_id,
+            target_kind=SemanticOnboardingTargetKind.MODEL,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 201
+        return SemanticOnboardingDraftMutationResponse.from_domain(result)
+
+    @app.post(
+        "/v1/semantic-onboarding/drafts/{draft_id}/mapping-decisions",
+        response_model=SemanticOnboardingDraftMutationResponse,
+        responses={
+            200: {"model": SemanticOnboardingDraftMutationResponse},
+            201: {"model": SemanticOnboardingDraftMutationResponse},
+        },
+    )
+    def decide_semantic_onboarding_mapping(
+        body: SemanticOnboardingDecisionRequest,
+        response: Response,
+        request: Request,
+        draft_id: str = Path(pattern=_SEMANTIC_ONBOARDING_DRAFT_ID_PATTERN),
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> SemanticOnboardingDraftMutationResponse:
+        result = _decide_semantic_onboarding(
+            services,
+            authenticated=principal(request),
+            request=request,
+            body=body,
+            draft_id=draft_id,
+            target_kind=SemanticOnboardingTargetKind.MAPPING,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 201
+        return SemanticOnboardingDraftMutationResponse.from_domain(result)
+
+    @app.post(
+        "/v1/semantic-onboarding/drafts/{draft_id}/prepare-publication",
+        response_model=SemanticOnboardingPreparationResponse,
+        responses={
+            200: {"model": SemanticOnboardingPreparationResponse},
+            201: {"model": SemanticOnboardingPreparationResponse},
+        },
+    )
+    def prepare_semantic_onboarding_publication(
+        body: SemanticOnboardingPreparationRequest,
+        response: Response,
+        request: Request,
+        draft_id: str = Path(pattern=_SEMANTIC_ONBOARDING_DRAFT_ID_PATTERN),
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> SemanticOnboardingPreparationResponse:
+        _require_single_semantic_onboarding_idempotency_header(request, idempotency_key)
+        authenticated = principal(request)
+        onboarding = _semantic_onboarding_services(services)
+        result = onboarding.prepare_publication.execute(
+            authenticated,
+            draft_id,
+            expected_revision=body.expected_revision,
+            confirmed_draft_fingerprint=body.confirmed_draft_fingerprint,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 201
+        return SemanticOnboardingPreparationResponse.from_domain(result)
+
     return app
 
 
@@ -1362,6 +1772,43 @@ def _semantic_change_services(
     return services.semantic_changes
 
 
+def _semantic_onboarding_services(
+    services: ApiHttpServices,
+) -> SemanticOnboardingHttpServices:
+    if services.semantic_onboarding is None:
+        raise SemanticOnboardingError(
+            SemanticOnboardingErrorCode.SERVICE_UNAVAILABLE,
+            "semantic onboarding service is unavailable",
+        )
+    return services.semantic_onboarding
+
+
+def _decide_semantic_onboarding(
+    services: ApiHttpServices,
+    *,
+    authenticated: AuthenticatedPrincipal,
+    request: Request,
+    body: SemanticOnboardingDecisionRequest,
+    draft_id: str,
+    target_kind: SemanticOnboardingTargetKind,
+    idempotency_key: str,
+) -> SemanticOnboardingDraftMutation:
+    _require_single_semantic_onboarding_idempotency_header(request, idempotency_key)
+    onboarding = _semantic_onboarding_services(services)
+    return onboarding.decide.execute(
+        authenticated,
+        draft_id,
+        target_kind=target_kind,
+        target_id=body.target_id,
+        action=body.action,
+        expected_revision=body.expected_revision,
+        confirmed_draft_fingerprint=body.confirmed_draft_fingerprint,
+        rationale=body.rationale,
+        evidence=body.evidence,
+        idempotency_key=idempotency_key,
+    )
+
+
 def _catalog_connection_id(value: str) -> CatalogConnectionId:
     try:
         return CatalogConnectionId(value)
@@ -1383,6 +1830,22 @@ def _require_single_idempotency_header(
     values = request.headers.getlist("idempotency-key")
     if len(values) != 1 or values[0] != parsed_value:
         raise _catalog_invalid_request()
+
+
+def _require_single_semantic_onboarding_idempotency_header(
+    request: Request,
+    parsed_value: str,
+) -> None:
+    values = request.headers.getlist("idempotency-key")
+    if len(values) != 1 or values[0] != parsed_value:
+        raise _semantic_onboarding_invalid_request()
+
+
+def _semantic_onboarding_invalid_request() -> SemanticOnboardingError:
+    return SemanticOnboardingError(
+        SemanticOnboardingErrorCode.INVALID_REQUEST,
+        "semantic onboarding request is invalid",
+    )
 
 
 def _problem_response(

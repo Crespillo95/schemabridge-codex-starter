@@ -88,7 +88,7 @@ def observer_database() -> Iterator[str]:
             migrator_dsn,
             MIGRATIONS,
         ).migrate()
-        assert migrated.inspection.current_version == 12
+        assert migrated.inspection.current_version == 13
         yield _role_dsn("schemabridge_observer", database)
     finally:
         with psycopg.connect(_admin_dsn(), autocommit=True) as connection:
@@ -257,7 +257,7 @@ def test_observer_reads_only_bounded_operational_aggregates(
             """
         ).fetchone()
 
-    assert migration_count == (12,)
+    assert migration_count == (13,)
     assert [row[0] for row in aggregates] == [
         "catalog",
         "execution",

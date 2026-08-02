@@ -852,12 +852,10 @@ class PostgresQueryCompiler:
                 current = exp.Cast(this=current, to=exp.DataType.build("DATE"))
                 continue
             if isinstance(step, ParseDateStep):
-                current = exp.func(
-                    "TO_DATE",
-                    current,
-                    state.placeholder(step.format),
+                raise QueryCompilationError(
+                    "unsafe_date_parse",
+                    "parse_date is disabled until PostgreSQL calendar validation is total",
                 )
-                continue
             if isinstance(step, NormalizeDecimalScaleStep):
                 current = exp.func(
                     "ROUND",

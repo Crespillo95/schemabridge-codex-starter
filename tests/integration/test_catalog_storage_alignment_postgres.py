@@ -84,7 +84,7 @@ def aligned_database() -> Iterator[tuple[str, str, str]]:
     catalog_dsn = _role_dsn("schemabridge_catalog", database)
     try:
         migrated = PostgresControlPlaneMigrator(migrator_dsn, MIGRATIONS).migrate()
-        assert migrated.inspection.current_version == 12
+        assert migrated.inspection.current_version == 13
         yield migrator_dsn, api_dsn, catalog_dsn
     finally:
         with psycopg.connect(_admin_dsn(), autocommit=True) as connection:

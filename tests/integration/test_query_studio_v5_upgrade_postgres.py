@@ -304,8 +304,8 @@ def test_v5_to_v12_preserves_state_and_keeps_runtime_non_migrating(
         release_migrator = PostgresControlPlaneMigrator(migrator_dsn, MIGRATIONS)
         known = release_migrator.known_migrations()
         upgraded = release_migrator.migrate()
-        assert upgraded.applied_versions == (6, 7, 8, 9, 10, 11, 12)
-        assert upgraded.inspection.current_version == 12
+        assert upgraded.applied_versions == (6, 7, 8, 9, 10, 11, 12, 13)
+        assert upgraded.inspection.current_version == 13
         assert upgraded.inspection.is_current is True
 
         with psycopg.connect(migrator_dsn) as connection:
@@ -421,7 +421,7 @@ def test_v5_to_v12_preserves_state_and_keeps_runtime_non_migrating(
             repository_root=ROOT,
             settings=_runtime_settings(runtime_dsn),
         )
-        assert current_runtime.current_version == 12
+        assert current_runtime.current_version == 13
         with psycopg.connect(runtime_dsn) as connection:
             assert (
                 connection.execute(
@@ -593,7 +593,7 @@ def test_v6_to_v12_aborts_on_invalid_historical_success_without_rewriting(
         assert v6_migrator.require_current().current_version == 6
         pending = release_migrator.inspect()
         assert pending.current_version == 6
-        assert tuple(item.version for item in pending.pending) == (7, 8, 9, 10, 11, 12)
+        assert tuple(item.version for item in pending.pending) == (7, 8, 9, 10, 11, 12, 13)
     finally:
         _drop_database(database)
 
@@ -745,8 +745,8 @@ def test_populated_v6_success_failure_and_expiry_upgrade_to_v12_with_exact_acl(
 
         release = PostgresControlPlaneMigrator(migrator_dsn, MIGRATIONS)
         upgraded_release = release.migrate()
-        assert upgraded_release.applied_versions == (8, 9, 10, 11, 12)
-        assert upgraded_release.inspection.current_version == 12
+        assert upgraded_release.applied_versions == (8, 9, 10, 11, 12, 13)
+        assert upgraded_release.inspection.current_version == 13
 
         with psycopg.connect(migrator_dsn) as connection:
             reservations_after = connection.execute(
@@ -1015,6 +1015,6 @@ def test_v8_aborts_on_invalid_audit_derivation_without_rewriting(
         assert v7_migrator.require_current().current_version == 7
         pending = release.inspect()
         assert pending.current_version == 7
-        assert tuple(item.version for item in pending.pending) == (8, 9, 10, 11, 12)
+        assert tuple(item.version for item in pending.pending) == (8, 9, 10, 11, 12, 13)
     finally:
         _drop_database(database)

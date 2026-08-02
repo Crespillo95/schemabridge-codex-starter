@@ -114,7 +114,6 @@ _SAFE_FUNCTIONS = frozenset(
         "TIMESTAMP_TRUNC",
         "TRIM",
         "TRUNC",
-        "TO_DATE",
         "DENSE_RANK",
         "NTILE",
     }

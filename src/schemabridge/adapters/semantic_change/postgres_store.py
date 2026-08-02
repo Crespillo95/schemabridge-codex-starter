@@ -14,12 +14,12 @@ from psycopg.types.json import Jsonb
 from pydantic import ValidationError
 
 from schemabridge.adapters.control_plane.postgres_registry_control import (
-    _advisory_lock_id,
     _audit_hash,
     _canonical_fingerprint,
     _event_id,
     _isoformat,
 )
+from schemabridge.adapters.control_plane.workspace_lock import workspace_control_lock_id
 from schemabridge.adapters.storage.postgres import (
     ControlConnectionProvider,
     _ControlDatabase,
@@ -180,7 +180,7 @@ class PostgresSemanticChangeStore:
             with self._database.connect() as connection:
                 connection.execute(
                     "SELECT pg_advisory_xact_lock(%s)",
-                    (_advisory_lock_id(scope.workspace_id),),
+                    (workspace_control_lock_id(scope.workspace_id),),
                 )
                 replay = self._load_exact_replay(
                     connection,

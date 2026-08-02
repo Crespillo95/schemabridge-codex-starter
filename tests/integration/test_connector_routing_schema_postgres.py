@@ -292,8 +292,8 @@ def connector_database(
         assert v8.inspection.current_version == 8
 
         upgraded = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert upgraded.applied_versions == (9, 10, 11, 12)
-        assert upgraded.inspection.current_version == 12
+        assert upgraded.applied_versions == (9, 10, 11, 12, 13)
+        assert upgraded.inspection.current_version == 13
         yield urls
     finally:
         _drop_database(database)
@@ -668,7 +668,7 @@ def test_rotated_oidc_job_resolves_exact_historical_connector_workspace() -> Non
     urls = _create_database(database)
     try:
         migrated = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert migrated.inspection.current_version == 12
+        assert migrated.inspection.current_version == 13
 
         observed_at = datetime.now(UTC) - timedelta(minutes=2)
         pair = _oidc_pair(
@@ -868,13 +868,13 @@ def test_rotated_oidc_job_resolves_exact_historical_connector_workspace() -> Non
         _drop_database(database)
 
 
-def test_pristine_schema_applies_versions_one_through_twelve() -> None:
+def test_pristine_schema_applies_versions_one_through_thirteen() -> None:
     database = f"schemabridge_connector_pristine_{uuid4().hex[:12]}"
     urls = _create_database(database)
     try:
         migrated = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert migrated.applied_versions == tuple(range(1, 13))
-        assert migrated.inspection.current_version == 12
+        assert migrated.applied_versions == tuple(range(1, 14))
+        assert migrated.inspection.current_version == 13
         with psycopg.connect(urls.migrator) as connection:
             tables = {
                 str(row[0])
@@ -2327,7 +2327,7 @@ def test_v9_preserves_terminal_legacy_job_without_inventing_a_target(
         _finish_legacy_job(urls.migrator)
 
         upgraded = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert upgraded.applied_versions == (9, 10, 11, 12)
+        assert upgraded.applied_versions == (9, 10, 11, 12, 13)
         with psycopg.connect(urls.migrator) as connection:
             legacy = connection.execute(
                 """
@@ -2451,7 +2451,7 @@ def test_v8_active_generation_stays_runtime_closed_until_v9_full_refresh(
         assert activated == (0, 0)
 
         upgraded = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert upgraded.applied_versions == (9, 10, 11, 12)
+        assert upgraded.applied_versions == (9, 10, 11, 12, 13)
         _apply_route(
             urls.migrator,
             _route_change_args(

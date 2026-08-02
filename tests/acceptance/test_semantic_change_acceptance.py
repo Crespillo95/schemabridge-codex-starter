@@ -344,7 +344,7 @@ def semantic_acceptance_database() -> Iterator[_DatabaseUrls]:
         )
     try:
         migrated = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert migrated.inspection.current_version == 12
+        assert migrated.inspection.current_version == 13
         with psycopg.connect(urls.migrator, autocommit=True) as connection:
             for table in cold_plan_tables:
                 connection.execute(

@@ -202,7 +202,7 @@ def isolated_control_database() -> Iterator[_DatabaseUrls]:
             urls.migrator,
             MIGRATIONS,
         ).migrate()
-        assert migrated.inspection.current_version == 12
+        assert migrated.inspection.current_version == 13
         assert migrated.inspection.is_current
         yield urls
     finally:

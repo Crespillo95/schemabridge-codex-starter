@@ -3620,7 +3620,7 @@ exactly `format_version`, `kind`, `server`, `token`, and `platform`. The secret 
 SHA-256 of its opaque reference plus `.json`; operators should use approved provisioning tooling
 to create it and must not derive or print the filename in application output.
 
-### 1. Apply and verify exact current control-plane schema v12
+### 1. Apply and verify exact current control-plane schema v13
 
 ```bash
 make control-plane-reset
@@ -3628,14 +3628,21 @@ make control-plane-migrate
 make control-plane-check
 ```
 
-Schema v11 was the M28 checkpoint. The current M29 tree must preserve immutable migrations
+Schema v11 was the M28 checkpoint. The current tree must preserve immutable migrations
 0001–0009, apply `0010_operational_observer.sql`, then
-`0011_connector_secret_versions.sql`, and finally `0012_backup_identity.sql`. Every managed
-component must report current/expected schema version 12 with no pending migration and
+`0011_connector_secret_versions.sql`, `0012_backup_identity.sql`, and finally
+`0013_semantic_onboarding.sql`. Every managed component must report current/expected schema
+version 13 with no pending migration and
 source/control separation. Provision the exact backup role posture described in the M29 recovery
 section before v12; an unsafe role must make the migration fail and roll back rather than be
 repaired. Retain pristine and upgrade results, immutable historical checksums, and the exact role
 positive/negative matrix.
+
+Migration v13 adds only the governed M33 semantic-onboarding control-plane state: tenant-scoped
+drafts, append-only decisions, immutable prepared proposals, audit records, idempotency operations,
+and the constraints that keep publication non-executable. It does not publish to DataHub or activate
+a registry. Verify migration `0013` and the runtime both report v13 before enabling the M33 HTTP
+surface.
 
 Migration v9 refuses undrained non-terminal legacy work. Historical terminal targetless work may
 remain non-executable. Existing catalog generations with null M28 identities remain historical

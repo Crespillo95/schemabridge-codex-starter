@@ -3547,7 +3547,7 @@ def build_api_http_services(
     settings: Settings | None = None,
     control_connection_provider: "ControlConnectionProvider | None" = None,
 ) -> "ApiHttpServices":
-    """Compose the API without source, LLM, registry, or DataHub adapters."""
+    """Compose the API without source, LLM, external-registry, or DataHub adapters."""
 
     from schemabridge.adapters.catalog.cursor import SignedInventoryCursorCodec
     from schemabridge.adapters.catalog.postgres_inventory import (
@@ -3558,11 +3558,23 @@ def build_api_http_services(
     from schemabridge.adapters.catalog.postgres_refresh import (
         PostgresCatalogRefreshStore,
     )
+    from schemabridge.adapters.catalog.postgres_semantic_onboarding import (
+        PostgresSemanticOnboardingCatalogEvidence,
+    )
+    from schemabridge.adapters.control_plane.postgres_active_registry import (
+        PostgresActiveRegistryPointerReader,
+    )
     from schemabridge.adapters.semantic_change.cursor import (
         SignedSemanticChangeCursorCodec,
     )
     from schemabridge.adapters.semantic_change.postgres_read import (
         PostgresSemanticChangeReadStore,
+    )
+    from schemabridge.adapters.semantic_onboarding.registry_base import (
+        AuthoritativeSemanticOnboardingRegistryBaseReader,
+    )
+    from schemabridge.adapters.storage.postgres_semantic_onboarding import (
+        PostgresSemanticOnboardingStore,
     )
     from schemabridge.adapters.workflows.read_only import ReadOnlyWorkflowInspector
     from schemabridge.adapters.workflows.system import SystemWorkflowClock
@@ -3577,6 +3589,9 @@ def build_api_http_services(
         RegisterCatalogConnection,
         RequestCatalogRefresh,
     )
+    from schemabridge.application.ports.semantic_onboarding import (
+        SemanticOnboardingStorePort,
+    )
     from schemabridge.application.ports.workflow_access import WorkflowAccessStorePort
     from schemabridge.application.semantic_change_read import (
         InspectSemanticChangeReport,
@@ -3584,10 +3599,34 @@ def build_api_http_services(
         ListSemanticChangeImpacts,
         ListSemanticChangeReports,
     )
+    from schemabridge.application.semantic_onboarding import (
+        CreateSemanticOnboardingDraft,
+        DecideSemanticOnboarding,
+        InspectSemanticOnboardingDraft,
+        ListSemanticOnboardingDrafts,
+        PreflightSemanticOnboardingDraft,
+        PrepareSemanticOnboardingPublication,
+        SemanticOnboardingSnapshot,
+    )
+    from schemabridge.application.semantic_onboarding_authorization import (
+        SemanticOnboardingAuthorizationPolicy,
+    )
+    from schemabridge.domain.decisions import DecisionAction
+    from schemabridge.domain.semantic_onboarding import (
+        CreateSemanticOnboardingRequest,
+        OnboardingEvidence,
+        PreflightSemanticOnboardingRequest,
+        SemanticOnboardingDraft,
+        SemanticOnboardingDraftMutation,
+        SemanticOnboardingPreflight,
+        SemanticOnboardingPreparation,
+        SemanticOnboardingTargetKind,
+    )
     from schemabridge.entrypoints.http.app import (
         ApiHttpServices,
         CatalogHttpServices,
         SemanticChangeHttpServices,
+        SemanticOnboardingHttpServices,
     )
 
     root = (repository_root or Path.cwd()).resolve()
@@ -3642,6 +3681,195 @@ def build_api_http_services(
         application_name="schemabridge-control-api",
         connection_provider=control_connection_provider,
     )
+    onboarding_store = PostgresSemanticOnboardingStore(
+        dsn=_control_plane_dsn(resolved, "api"),
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-api",
+        stale_after_seconds=resolved.catalog_stale_after_seconds,
+        connection_provider=control_connection_provider,
+    )
+    onboarding_catalog = PostgresSemanticOnboardingCatalogEvidence(
+        dsn=_control_plane_dsn(resolved, "api"),
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-api",
+        stale_after_seconds=resolved.catalog_stale_after_seconds,
+        connection_provider=control_connection_provider,
+    )
+    onboarding_registry_bases = AuthoritativeSemanticOnboardingRegistryBaseReader(
+        pointers=PostgresActiveRegistryPointerReader(
+            dsn=_control_plane_dsn(resolved, "api"),
+            schema=resolved.control_plane_schema,
+            application_name="schemabridge-control-api",
+            connection_provider=control_connection_provider,
+        )
+    )
+    identity_resolver = (
+        build_identity_binding_resolver(
+            credential_kind="api",
+            settings=resolved,
+            connection_provider=control_connection_provider,
+        )
+        if resolved.auth_mode == "oidc"
+        else None
+    )
+    onboarding_authorization = SemanticOnboardingAuthorizationPolicy(identity_resolver)
+
+    def onboarding_store_for(
+        principal: AuthenticatedPrincipal,
+    ) -> SemanticOnboardingStorePort:
+        if identity_resolver is None:
+            return onboarding_store
+        from schemabridge.adapters.storage.identity_resolving_semantic_onboarding import (
+            IdentityResolvingSemanticOnboardingStore,
+        )
+
+        return IdentityResolvingSemanticOnboardingStore(
+            onboarding_store,
+            identity_resolver,
+            workspace_id=principal.workspace_id,
+            actor_id=principal.actor_id,
+        )
+
+    def onboarding_scope(principal: AuthenticatedPrincipal) -> SemanticRegistryScope:
+        return SemanticRegistryScope(
+            workspace_id=principal.workspace_id,
+            catalog_scope=resolved.semantic_registry_catalog_scope,
+            registry_id=resolved.semantic_registry_id,
+        )
+
+    class TenantSemanticOnboardingPreflight:
+        """Bind the read-only authoring context to authenticated tenant authority."""
+
+        def execute(
+            self,
+            principal: AuthenticatedPrincipal,
+            request: PreflightSemanticOnboardingRequest,
+        ) -> SemanticOnboardingPreflight:
+            scope = onboarding_scope(principal)
+            return PreflightSemanticOnboardingDraft(
+                preflights=onboarding_catalog,
+                authorization=onboarding_authorization,
+                clock=clock,
+                scope=scope,
+            ).execute(principal, request)
+
+    class TenantSemanticOnboardingDraftCreator:
+        """Bind authority scope from the principal and trusted process configuration."""
+
+        def execute(
+            self,
+            principal: AuthenticatedPrincipal,
+            request: CreateSemanticOnboardingRequest,
+            *,
+            idempotency_key: str,
+        ) -> SemanticOnboardingDraftMutation:
+            scope = onboarding_scope(principal)
+            return CreateSemanticOnboardingDraft(
+                store=onboarding_store_for(principal),
+                catalog=onboarding_catalog,
+                registry_bases=onboarding_registry_bases,
+                authorization=onboarding_authorization,
+                clock=clock,
+                scope=scope,
+            ).execute(
+                principal,
+                request,
+                idempotency_key=idempotency_key,
+            )
+
+    class TenantSemanticOnboardingDraftLister:
+        """Resolve historical draft aliases only for the authenticated principal."""
+
+        def execute(
+            self,
+            principal: AuthenticatedPrincipal,
+            *,
+            limit: int = 50,
+        ) -> tuple[SemanticOnboardingDraft, ...]:
+            return ListSemanticOnboardingDrafts(
+                store=onboarding_store_for(principal),
+                authorization=onboarding_authorization,
+                clock=clock,
+            ).execute(principal, limit=limit)
+
+    class TenantSemanticOnboardingDraftInspector:
+        """Inspect one exact current or verified historical onboarding draft."""
+
+        def execute(
+            self,
+            principal: AuthenticatedPrincipal,
+            draft_id: str,
+            *,
+            history_limit: int = 25,
+        ) -> SemanticOnboardingSnapshot:
+            return InspectSemanticOnboardingDraft(
+                store=onboarding_store_for(principal),
+                authorization=onboarding_authorization,
+                clock=clock,
+            ).execute(principal, draft_id, history_limit=history_limit)
+
+    class TenantSemanticOnboardingDecider:
+        """Record a decision against one unique same-lineage draft coordinate."""
+
+        def execute(
+            self,
+            principal: AuthenticatedPrincipal,
+            draft_id: str,
+            *,
+            target_kind: SemanticOnboardingTargetKind,
+            target_id: str,
+            action: DecisionAction,
+            expected_revision: int,
+            confirmed_draft_fingerprint: str,
+            rationale: str,
+            evidence: tuple[OnboardingEvidence, ...],
+            idempotency_key: str,
+        ) -> SemanticOnboardingDraftMutation:
+            return DecideSemanticOnboarding(
+                store=onboarding_store_for(principal),
+                catalog=onboarding_catalog,
+                registry_bases=onboarding_registry_bases,
+                authorization=onboarding_authorization,
+                clock=clock,
+            ).execute(
+                principal,
+                draft_id,
+                target_kind=target_kind,
+                target_id=target_id,
+                action=action,
+                expected_revision=expected_revision,
+                confirmed_draft_fingerprint=confirmed_draft_fingerprint,
+                rationale=rationale,
+                evidence=evidence,
+                idempotency_key=idempotency_key,
+            )
+
+    class TenantSemanticOnboardingPublicationPreparer:
+        """Prepare one unique same-lineage draft without rewriting its scope."""
+
+        def execute(
+            self,
+            principal: AuthenticatedPrincipal,
+            draft_id: str,
+            *,
+            expected_revision: int,
+            confirmed_draft_fingerprint: str,
+            idempotency_key: str,
+        ) -> SemanticOnboardingPreparation:
+            return PrepareSemanticOnboardingPublication(
+                store=onboarding_store_for(principal),
+                catalog=onboarding_catalog,
+                registry_bases=onboarding_registry_bases,
+                authorization=onboarding_authorization,
+                clock=clock,
+            ).execute(
+                principal,
+                draft_id,
+                expected_revision=expected_revision,
+                confirmed_draft_fingerprint=confirmed_draft_fingerprint,
+                idempotency_key=idempotency_key,
+            )
+
     capacity = PostgresTenantCapacityStore(
         dsn=_control_plane_dsn(resolved, "api"),
         schema=resolved.control_plane_schema,
@@ -3653,15 +3881,6 @@ def build_api_http_services(
         resolved,
         credential_kind="api",
         connection_provider=control_connection_provider,
-    )
-    identity_resolver = (
-        build_identity_binding_resolver(
-            credential_kind="api",
-            settings=resolved,
-            connection_provider=control_connection_provider,
-        )
-        if resolved.auth_mode == "oidc"
-        else None
     )
     store: BackgroundJobApiStorePort
     if identity_resolver is None:
@@ -3793,6 +4012,14 @@ def build_api_http_services(
                 cursors=semantic_change_cursors,
                 clock=clock,
             ),
+        ),
+        semantic_onboarding=SemanticOnboardingHttpServices(
+            preflight=TenantSemanticOnboardingPreflight(),
+            list_drafts=TenantSemanticOnboardingDraftLister(),
+            create_draft=TenantSemanticOnboardingDraftCreator(),
+            inspect_draft=TenantSemanticOnboardingDraftInspector(),
+            decide=TenantSemanticOnboardingDecider(),
+            prepare_publication=TenantSemanticOnboardingPublicationPreparer(),
         ),
     )
 

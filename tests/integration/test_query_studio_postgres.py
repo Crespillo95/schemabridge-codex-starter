@@ -106,8 +106,8 @@ def query_studio_database() -> Iterator[_Urls]:
         )
     try:
         migrated = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert migrated.applied_versions == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
-        assert migrated.inspection.current_version == 12
+        assert migrated.applied_versions == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
+        assert migrated.inspection.current_version == 13
         yield urls
     finally:
         with psycopg.connect(_admin_dsn(), autocommit=True) as connection:

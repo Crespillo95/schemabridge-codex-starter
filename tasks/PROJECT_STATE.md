@@ -1,6 +1,6 @@
 # Project state
 
-Last updated: 2026-07-30
+Last updated: 2026-08-02
 
 ## Accepted milestone
 
@@ -63,6 +63,23 @@ read-only PostgreSQL integration returning five exact rows. The final quality ga
 tests with 224 explicit deselections. The in-app browser list was empty, so the manual
 desktop/mobile/browser matrix is documented but not claimed as PASS. M32 adds no source write,
 DataHub write, arbitrary SQL, cross-dialect, production, or release authority.
+
+M33 is complete and accepted locally under D126. An authenticated tenant can resolve one exact
+active PostgreSQL catalog/registry snapshot, create a tenant-bound semantic draft, record explicit
+append-only steward decisions, and let a distinct publisher prepare an immutable audited
+`ready_for_publication` proposal. Physical authority is bound to exact
+workspace/connection/generation/`schema.table.column` coordinates and metadata fingerprints;
+aliases cannot approve one coordinate for two meanings. Opaque identity rotation retains only
+verified historical workspace/actor pairs, including exact concurrent idempotency replay.
+
+The final M33 matrix passes 225 independently reviewed focal unit tests, 7 PostgreSQL integration
+tests, 2 acceptance tests, Ruff, mypy and `git diff --check`; independent review reports P0=0 and
+P1=0. Codex internal-browser acceptance passes the empty → 3-mapping draft → 4 decisions →
+revision-6 handoff path at 1280×720 and 390×844 with zero horizontal overflow, empty console,
+`external_writes_performed=false`, no SQL and no publication/activation/execution control. The
+first final-byte `make check` passes 3,682 tests with 233 explicit deselections. M33 adds no source,
+DataHub, LLM, compiler, preview or activation authority. M34/M30/M31 and all operated external
+release controls keep production/release **NO-GO**.
 
 Initial commit `09c3a2e0f47a7fbadb5297fa6bc4f9aca0d21950` and its 12-commit history pass
 the exact secret scan and are published on draft PR #1. The corrective candidate still requires
@@ -1718,6 +1735,11 @@ M29 final-byte remediation status on 2026-07-30:
 - The M32 automated Streamlit acceptance passes, but the final manual desktop/mobile browser
   matrix was not run because the in-app browser list was empty. Viewport, focus, overflow,
   browser-console, DOM hostile-input, and real download interaction remain operator checks.
+- M33 stops at a non-executable handoff. It has no generic join onboarding, incremental/batch
+  authoring, historical audit cursor, operated per-tenant quota, publication/readback or
+  activation. `parse_date` is deliberately rejected until shape/calendar validation is total.
+  Identity-lineage and PostgreSQL persistence have separate coverage, but a combined real
+  PostgreSQL rotation-plus-M33 mutation scenario remains a non-P0/P1 integration gap.
 - Source/catalog/type identity changes intentionally make prior catalog evidence non-executable
   until a fresh generation is promoted. Operators must plan this fail-closed refresh window; no
   automated cross-system cutover or distributed transaction is claimed.
@@ -1748,6 +1770,12 @@ locally under D125. Its deterministic language, retrieval, v1/v2, compiler, inde
 copy renderer, CLI/Streamlit, acceptance, optional read-only PostgreSQL, and global quality gates
 pass. Manual browser evidence, a live-provider holdout campaign, other SQL dialects/destination
 databases, M30 production evaluation/security verification, and M31 pilot/GA remain open.
+M33 — generic governed semantic onboarding — is complete and accepted locally under D126. Its
+exact preflight, tenant-bound schema-v13 persistence, explicit decisions, identity-lineage replay,
+distinct-publisher handoff, focused/PostgreSQL/acceptance tests, independent P0/P1=0 review, final
+quality gate and Codex internal-browser desktop/mobile matrix pass. M34 is next and must add the
+dedicated publication/readback worker plus the separate activation bridge; production/release
+remain NO-GO.
 M17/M18 release work remains independently blocked on a reviewed clean commit, strict
 `make release-clean`, exact-commit deployment, public/incognito and cold-start evidence, final
 media/links/checksums, and external reviewer sign-off.
