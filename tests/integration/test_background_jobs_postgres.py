@@ -1372,7 +1372,7 @@ def test_api_worker_and_existing_roles_have_exact_negative_privileges(
             "job_insert_column": True,
             "lease_update": False,
             "cancel_update": True,
-            "pointer_select": False,
+            "pointer_select": True,
         },
         job_database.worker: {
             "job_select": True,

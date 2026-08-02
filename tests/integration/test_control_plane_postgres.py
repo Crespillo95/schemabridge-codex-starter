@@ -370,6 +370,12 @@ def test_backup_identity_reads_complete_schema_and_cannot_write(
                 (
                     SELECT count(*)
                     FROM schemabridge_control.schema_migrations
+                ),
+                (
+                    SELECT count(*)
+                    FROM information_schema.tables
+                    WHERE table_schema = 'schemabridge_control'
+                      AND table_type = 'BASE TABLE'
                 )
             FROM pg_catalog.pg_roles AS role
             WHERE role.rolname = current_user
@@ -390,7 +396,8 @@ def test_backup_identity_reads_complete_schema_and_cannot_write(
             True,
             True,
             900_000,
-            12,
+            13,
+            67,
         )
 
     with (
@@ -516,10 +523,14 @@ def test_schema_v12_migration_rejects_unsafe_backup_role_posture(
     database = f"schemabridge_backup_migration_{uuid4().hex[:16]}"
     parent_role = f"schemabridge_backup_parent_{uuid4().hex[:16]}"
     migrations_v11 = tmp_path / "migrations-v11"
+    migrations_v12 = tmp_path / "migrations-v12"
     migrations_v11.mkdir()
+    migrations_v12.mkdir()
     for migration in sorted(MIGRATIONS.glob("*.sql")):
         if migration.name < "0012_backup_identity.sql":
             shutil.copy2(migration, migrations_v11 / migration.name)
+        if migration.name <= "0012_backup_identity.sql":
+            shutil.copy2(migration, migrations_v12 / migration.name)
 
     with psycopg.connect(ADMIN_DSN, autocommit=True) as admin:
         admin.execute(
@@ -532,7 +543,7 @@ def test_schema_v12_migration_rejects_unsafe_backup_role_posture(
         f"postgresql://schemabridge_migrator:schemabridge_migrator@127.0.0.1:55434/{database}"
     )
     version_11 = PostgresControlPlaneMigrator(migrator_dsn, migrations_v11)
-    version_12 = PostgresControlPlaneMigrator(migrator_dsn, MIGRATIONS)
+    version_12 = PostgresControlPlaneMigrator(migrator_dsn, migrations_v12)
 
     def assert_migration_rejected() -> None:
         with pytest.raises(ControlPlaneMigrationError) as raised:
@@ -1407,6 +1418,7 @@ def test_signed_backup_restores_exact_state_into_a_fresh_database(
     assert evidence.archive.stat().st_mode & 0o077 == 0
     assert evidence.manifest_path.stat().st_mode & 0o077 == 0
     manifest = evidence.manifest
+    assert len(manifest.table_counts) == 67
     assert manifest.table_counts["schema_migrations"] == 13
     assert manifest.table_counts["execution_jobs"] == 0
     assert manifest.table_counts["execution_job_events"] == 0

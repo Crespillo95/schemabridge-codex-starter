@@ -12,6 +12,7 @@ from schemabridge.domain._base import FrozenDomainModel
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _KEY_VERSION = re.compile(r"^v[1-9][0-9]{0,5}$")
 _TABLE_NAME = re.compile(r"^[a-z][a-z0-9_]{2,62}$")
+_MAX_CONTROL_PLANE_TABLES = 128
 
 
 class ControlPlaneBackupManifest(FrozenDomainModel):
@@ -26,7 +27,10 @@ class ControlPlaneBackupManifest(FrozenDomainModel):
     archive_size_bytes: int = Field(ge=1)
     archive_sha256: str
     state_sha256: str
-    table_counts: dict[str, int] = Field(min_length=1, max_length=64)
+    table_counts: dict[str, int] = Field(
+        min_length=1,
+        max_length=_MAX_CONTROL_PLANE_TABLES,
+    )
     audit_key_version: str
     created_at: datetime
     manifest_hmac: str
@@ -103,7 +107,10 @@ class ControlPlaneRestoreVerification(FrozenDomainModel):
     schema_version: int = Field(ge=1)
     schema_checksum: str
     state_sha256: str
-    table_counts: dict[str, int] = Field(min_length=1, max_length=64)
+    table_counts: dict[str, int] = Field(
+        min_length=1,
+        max_length=_MAX_CONTROL_PLANE_TABLES,
+    )
     audited_workspaces: int = Field(ge=0)
     audit_events: int = Field(ge=0)
     active_pointers: int = Field(ge=0)

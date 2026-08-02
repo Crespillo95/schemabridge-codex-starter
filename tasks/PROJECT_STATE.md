@@ -77,15 +77,20 @@ tests, 2 acceptance tests, Ruff, mypy and `git diff --check`; independent review
 P1=0. Codex internal-browser acceptance passes the empty → 3-mapping draft → 4 decisions →
 revision-6 handoff path at 1280×720 and 390×844 with zero horizontal overflow, empty console,
 `external_writes_performed=false`, no SQL and no publication/activation/execution control. The
-first final-byte `make check` passes 3,682 tests with 233 explicit deselections. M33 adds no source,
-DataHub, LLM, compiler, preview or activation authority. M34/M30/M31 and all operated external
-release controls keep production/release **NO-GO**.
+first final-byte `make check` passed 3,682 tests with 233 explicit deselections. The hosted
+PostgreSQL gate then exposed that schema v13 has 67 base tables while backup/restore evidence was
+still capped at 64. The corrected bounded contract accepts all 67, rejects 129 against a maximum of
+128, preserves the read-only backup posture and passes the final 3,685-test quality gate plus all
+11 control-plane PostgreSQL cases. M33 adds no source, DataHub, LLM, compiler, preview or activation
+authority. M34/M30/M31 and all operated external release controls keep production/release **NO-GO**.
 
 Initial commit `09c3a2e0f47a7fbadb5297fa6bc4f9aca0d21950` and its 12-commit history pass
-the exact secret scan and are published on draft PR #1. The corrective candidate still requires
-its commit-bound scan, push, and hosted rerun. No external provider, cluster, alert/SIEM delivery,
-immutable retention, external cutover/rollback, exclusive registry-writer control, protected
-release, or production operation has been accepted.
+the exact secret scan and are published on draft PR #1. Hosted run `30765372081` passed quality,
+supply chain and GitGuardian, then failed closed on the backup-evidence ceiling and stale legacy
+permission expectation; both are corrected and locally reproduced. Every candidate still requires
+its own commit-bound scan and hosted rerun, whose external state is tracked on draft PR #1. No
+external provider, cluster, alert/SIEM delivery, immutable retention, external cutover/rollback,
+exclusive registry-writer control, protected release, or production operation has been accepted.
 
 Historical hosted M29 findings remain useful development evidence. The first supply-chain run
 failed closed before provenance because Trivy created non-ignored `.cache/trivy` after its image

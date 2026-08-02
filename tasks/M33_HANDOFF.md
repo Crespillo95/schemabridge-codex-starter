@@ -54,6 +54,8 @@
 - `src/schemabridge/domain/resolution.py`, `src/schemabridge/domain/transformations.py`,
   `src/schemabridge/adapters/sql/compiler.py`, and `src/schemabridge/adapters/sql/guard.py`: ordered
   transformation typing and fail-closed dialect/runtime bounds.
+- `src/schemabridge/domain/control_plane_operations.py`: bounded 128-table backup/restore evidence
+  capacity, covering all 67 schema-v13 base tables without truncation.
 - `scripts/m33_semantic_onboarding_scenario_app.py`: synthetic local presentation path using the
   real M33 application layer and no external adapter.
 - `docs/19_COMMERCIAL_USAGE.md`, `docs/adr/0016-generic-semantic-onboarding.md`,
@@ -74,8 +76,14 @@
 | `git diff --check` | pass | No whitespace errors |
 | `make demo-reset` followed by exact socket acceptance retry | pass | An earlier extended selection had one `source_unavailable` while the synthetic demo DB was down; reset restored it and the exact retry passed |
 | `make check` before state/handoff finalization | pass | 3,682 passed, 233 deselected in 725.36 s; supply-chain, release audit, 664-file format, Ruff and 331-module mypy passed |
-| `make check` after all state/handoff updates | pass | 3,682 passed, 233 deselected; this is the exact final working-tree gate |
+| `make check` after the initial M33 state/handoff updates | pass | 3,682 passed, 233 deselected; exact gate for the first uploaded M33 commit |
 | Internal browser flow against local Streamlit port 8513 | pass | Desktop 1280×720 and mobile 390×844; cleanup completed |
+| `gh pr checks 1 --watch`, `gh run view 30765372081`, and failed-job log inspection | diagnostic fail-closed | Quality, supply chain and GitGuardian passed; PostgreSQL exposed a 64-entry backup-manifest ceiling at 67 schema-v13 tables plus one stale exact-privilege expectation |
+| `make control-plane-migrate` | pass | Local control plane advanced from schema v12 to v13 before reproduction |
+| Focused backup/restore, control-plane and exact-role pytest selection | pass | 39 passed; includes 27 unit cases, all 11 control-plane PostgreSQL cases and the corrected API capability matrix |
+| Focused Ruff and mypy after the hosted finding | pass | Four changed Python/test files pass Ruff; the changed domain module passes mypy |
+| `make test-integration` after the hosted finding | pass | 169 passed, 11 skipped, 3,738 deselected in 158.47 s; external DataHub credentials and the retained small browser fixture explain the explicit local skips |
+| `make check` after the hosted-CI correction and this handoff update | pass | 3,685 passed, 233 deselected; exact final local working-tree gate |
 
 Two diagnostic invocations did not represent product failures: one earlier pytest selection named a
 nonexistent test path, and one ad-hoc mypy call supplied overlapping test module roots. Ruff also
@@ -83,13 +91,19 @@ reported one import-order issue introduced during the regex hardening; it was fi
 Ruff/mypy/test gates passed. The release auditor correctly warned that the precommit working tree
 was dirty; this handoff does not claim clean-room release evidence.
 
+The first hosted PostgreSQL run was a real fail-closed integration finding, not a flaky service
+result. Schema v13 raised the control plane from 62 to 67 base tables while signed backup/restore
+evidence still accepted at most 64. Both evidence models now share a bounded limit of 128, accept
+the exact 67-table inventory and reject 129; the backup role remains read-only. The legacy jobs
+matrix now records the intentional M33 API `SELECT` capability on only the active pointer.
+
 ## Automated test results
 
 - Focused tests: **PASS** — 225 independent unit cases; P0=0 and P1=0 independent review.
-- `make check`: **PASS** — two final passes, each 3,682 passed / 233 deselected; the first took
-  725.36 seconds.
-- Integration tests: **PASS** — 7 M33 PostgreSQL cases, including v12→v13 migration, exact
-  snapshot/authority drift, tenant isolation, CAS, replay, append-only recovery and restart.
+- `make check`: **PASS** — the initial M33 commit passed twice at 3,682 passed / 233 deselected;
+  the hosted-finding correction passes the exact final tree at 3,685 / 233.
+- Integration tests: **PASS** — 169 local integration/acceptance cases pass with 11 explicit
+  external-fixture skips; this includes all 7 M33 and all 11 control-plane PostgreSQL cases.
 - Acceptance tests: **PASS** — 2 M33 application/presentation cases.
 - Coverage, where applicable: not rerun for M33; `make check` is the milestone quality gate and no
   new coverage percentage is claimed.
@@ -168,6 +182,8 @@ evidence of a product-originated external call. No product adapter or external w
 - `parse_date` is deliberately unsupported until total shape/calendar validation exists.
 - One create body is capped at 64 KiB. Incremental/batch onboarding near the 2,000-mapping storage
   ceiling is not implemented.
+- Signed backup/restore evidence is capped at 128 control-plane base tables (67 current); exceeding
+  it fails closed and requires an explicit contract/scale migration.
 - Inspection exposes a bounded recent window, not a cursor-based full audit export; operated
   per-tenant quotas/retention remain GA work.
 - Identity-lineage behavior and PostgreSQL persistence are tested separately; a combined real

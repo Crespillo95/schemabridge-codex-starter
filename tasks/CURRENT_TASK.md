@@ -27,8 +27,10 @@ write. M33 deliberately stops before publication and activation.
   mypy and `git diff --check` pass; independent review reports P0=0/P1=0.
 - Codex internal-browser desktop and 390×844 acceptance passes with no overflow or console error,
   zero SQL/external writes and no publication, activation or execution control.
-- `make check` passes 3,682 tests with 233 deselections; the exact final repeat is recorded in the
-  handoff.
+- Signed backup/restore covers all 67 schema-v13 control-plane tables under a bounded 128-table
+  evidence contract; exact excess fails closed and the backup role remains read-only.
+- `make check` passes 3,685 tests with 233 deselections after the hosted-integration correction;
+  the exact final repeat is recorded in the handoff.
 
 ## Commercial status
 

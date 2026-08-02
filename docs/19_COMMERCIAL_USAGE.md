@@ -76,6 +76,7 @@ Estos son límites de producto, no una estimación de rendimiento para cualquier
 | Campos por registro semántico | 1.000 |
 | Mapeos por registro semántico | 2.000 |
 | Contratos de join por registro semántico | 500 |
+| Tablas base del control plane cubiertas por backup/restore | 67 actuales; máximo tipado 128 |
 | Campos en un modelo de onboarding M33 | 100 |
 | Propuestas de mapeo en un borrador M33 | 2.000 como límite estructural/storage; el alta HTTP efectiva es menor y depende del payload de 64 KiB |
 | Evidencias o riesgos por propuesta M33 | 16 de cada tipo |
@@ -104,6 +105,10 @@ El replay idempotente durable conserva un único borrador raíz y las decisiones
 duplica el borrador completo por decisión. La inspección pública sigue siendo una ventana reciente,
 no una paginación histórica completa: un cursor de auditoría/exportación y cuotas operadas por
 tenant continúan siendo requisitos previos a GA si el segmento necesita revisar cierres grandes.
+
+El backup y la verificación de restore contabilizan las 67 tablas base actuales sin truncarlas. El
+contrato rechaza un inventario superior a 128; ampliar ese límite exige una migración deliberada,
+pruebas de memoria/tamaño del manifiesto y un restore completo antes de aceptar el nuevo esquema.
 Los identificadores físicos aceptados son exactamente `schema.table.column`, con un único segmento
 de `field_path`: nombres PostgreSQL canónicos lowercase sin comillas y de hasta 63 bytes por
 segmento. Mixed-case/quoted identifiers y rutas anidadas de `struct`/`array` se rechazan en vez de

@@ -26,6 +26,7 @@ from schemabridge.application.ports.control_plane_operations import (
 )
 from schemabridge.domain.control_plane_operations import (
     ControlPlaneBackupManifest,
+    ControlPlaneRestoreVerification,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -280,3 +281,64 @@ def test_manifest_rejects_traversal_archive_name() -> None:
 
     with pytest.raises(ValidationError):
         ControlPlaneBackupManifest.model_validate(payload)
+
+
+def _backup_manifest_with_table_counts(
+    table_counts: dict[str, int],
+) -> ControlPlaneBackupManifest:
+    return ControlPlaneBackupManifest(
+        source_database_fingerprint="a" * 64,
+        schema_name="schemabridge_control",
+        schema_version=13,
+        schema_checksum="b" * 64,
+        archive_name="control-plane.dump",
+        archive_size_bytes=1,
+        archive_sha256="c" * 64,
+        state_sha256="d" * 64,
+        table_counts=table_counts,
+        audit_key_version="v1",
+        created_at=NOW,
+        manifest_hmac="e" * 64,
+    )
+
+
+def _restore_verification_with_table_counts(
+    table_counts: dict[str, int],
+) -> ControlPlaneRestoreVerification:
+    return ControlPlaneRestoreVerification(
+        target_database_fingerprint="a" * 64,
+        schema_version=13,
+        schema_checksum="b" * 64,
+        state_sha256="c" * 64,
+        table_counts=table_counts,
+        audited_workspaces=0,
+        audit_events=0,
+        active_pointers=0,
+        transition_records=0,
+        pending_outbox_records=0,
+        quarantine_records=0,
+        verified_at=NOW,
+    )
+
+
+def test_backup_and_restore_evidence_accept_schema_v13_table_inventory() -> None:
+    table_counts = {f"table_{index:03d}": index for index in range(67)}
+
+    manifest = _backup_manifest_with_table_counts(table_counts)
+    verification = _restore_verification_with_table_counts(table_counts)
+
+    assert manifest.table_counts == dict(sorted(table_counts.items()))
+    assert verification.table_counts == dict(sorted(table_counts.items()))
+
+
+@pytest.mark.parametrize("evidence_kind", ["backup", "restore"])
+def test_backup_and_restore_evidence_reject_excessive_table_inventory(
+    evidence_kind: str,
+) -> None:
+    table_counts = {f"table_{index:03d}": index for index in range(129)}
+
+    with pytest.raises(ValidationError):
+        if evidence_kind == "backup":
+            _backup_manifest_with_table_counts(table_counts)
+        else:
+            _restore_verification_with_table_counts(table_counts)
