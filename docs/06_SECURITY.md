@@ -1096,10 +1096,11 @@ granting a new source write, SQL, DataHub mutation, or automatic semantic-approv
   token, JWT claim, binding, path, DSN, endpoint, username, password, provider response, SQL,
   parameter, result, or source value. TLS and pool failures suppress their upstream exception
   causes so credentials cannot survive in a chained traceback.
-- Seven long-running runtime workloads use distinct control identities. Only web/preflight, execution, catalog,
-  and profile receive their own 600-second audience-bound connector identity. API, reconciler, and
-  observer cannot resolve connector credentials; the observer can read only aggregate queue
-  state through its security-barrier view. Scheduled backup uses an eighth dedicated
+- Eight long-running runtime workloads—web, API, execution worker, publisher, catalog, profile,
+  reconciler and observer—use distinct control identities. Only web/preflight, execution, catalog,
+  profile and the separately scoped publisher receive the minimum capability-specific identity;
+  publisher credentials never enter web/API. The observer can read only aggregate queue state
+  through its security-barrier view. Scheduled backup uses a ninth dedicated
   `schemabridge_backup` identity with only the control-schema reads required by `pg_dump`; it
   cannot reuse the migrator credential. Migration v12 rejects rather than repairs the role unless
   it is exactly a login with `NOSUPERUSER`, `NOCREATEDB`, `NOCREATEROLE`, `NOREPLICATION`,
@@ -1117,8 +1118,9 @@ granting a new source write, SQL, DataHub mutation, or automatic semantic-approv
   cannot execute a query, and the pod receives neither a source execution credential nor DataHub
   writer material. The UI disables those actions before composing their adapters. Execution may
   cross only the authenticated API/job/worker lane once a Streamlit client is implemented;
-  publication remains blocked until a typed durable approval queue and dedicated publisher worker
-  exist.
+  browser publication remains disabled. Publication may cross only the authenticated M34 API,
+  durable approval queue and isolated publisher lane, and it stops at `activation_ready`; M23
+  activation remains separate.
 - `schemabridge-web` preflights managed configuration, projected OIDC material, workload identity,
   and exact control schema before process launch. Startup/readiness also require the fixed bounded
   loopback Streamlit health response. In staging/production, Operations has no synthetic fallback:
@@ -1325,3 +1327,29 @@ operated incident/recovery path; those remain production NO-GO gates.
 M35 closes this bounded local PostgreSQL lifecycle only. Other dialects, real customer scale,
 external IAM/secret/SIEM/recovery operation, independent penetration testing, M30 quality and M31
 pilot evidence remain mandatory commercial/production gates.
+
+## M30 campaign-manifest trust boundary
+
+- Phase 0 repository models never accept an external gate as passed. Phase 1a uses separate types
+  and authenticates only frozen campaign inputs; it cannot adjudicate a control receipt or release.
+- Manifest and attestation bundle are bounded regular non-symlink files outside the candidate
+  checkout. Canonical JSON rejects duplicate/extra/deep/oversized input; verification consumes
+  owner-only private snapshots and all external bytes are reread afterward to detect replacement.
+- Byte authentication requires exact GitHub repository, tag ref, signer workflow/source digests,
+  GitHub OIDC issuer, hosted runner, SLSA predicate and at least one cryptographically verified
+  log/TSA timestamp. Operational trust additionally requires separate evidence that the tag/ref is
+  protected. The byte-pinned write-scoped job declares the no-secret
+  `m30-manifest-attestation` environment, but the repository cannot prove its reviewers,
+  self-review/bypass policy or exclusive authority. Those protections **must** be configured,
+  independently inspected and retained as external evidence before dispatch; declaring the
+  environment in YAML is not protection evidence. The verifier also pins the platform-specific
+  SHA-256 of the official GitHub CLI 2.96.0 executable and ignores caller `PATH`; package-manager
+  rebuilds and unreviewed platforms fail closed. The CLI exposes no local key, custom issuer,
+  unattested, `status=passed`, skip or report-only override. Detached-bundle use avoids the
+  attestation API lookup but is not an air-gapped claim because `gh` may bootstrap its trusted root.
+- The manual workflow may receive only public opaque identifiers, versions and digests. Raw
+  corpus cases, hidden answer key, prompts, SQL, rows, credentials and protected topology never
+  enter workflow inputs, logs or the public manifest.
+- A successfully authenticated manifest reports `campaign_executable=false` and
+  `release_decision=no_go`; all 24 material controls remain missing until control-specific external
+  receipts are authenticated and deterministically adjudicated in a later reviewed phase.

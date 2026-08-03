@@ -1,76 +1,87 @@
 # Current task
 
 - Current milestone: M30 — Production evaluation and security verification
-- Status: Phase 0 candidate-readiness implemented locally; campaign blocked on external inputs
+- Status: Phase 0 prepared locally; Phase 1a passes its final current-byte local gate; campaign,
+  pilot, production and release remain blocked
 - Plan: `plans/M30_PRODUCTION_EVALUATION_SECURITY.md`
 - Machine contract: `plans/M30_CAMPAIGN_CONTRACT.yml`
 - Handoff: `tasks/M30_HANDOFF.md`
 - Production/release GO: **NO**
 
-## Phase 0 objective
+## Objective
 
-Freeze the exact PostgreSQL copy-first commercial boundary and provide an offline, deterministic,
-fail-closed preflight before any blind campaign or security claim. The preflight binds Git HEAD,
-tree/source/lock/build/workflow/migration/contract digests, schema v15 and candidate tag/branch
-facts, then keeps every hosted, operated, independent and owner gate explicitly external.
+Freeze the exact PostgreSQL copy-first commercial boundary, authenticate one canonical external
+campaign-manifest subject without turning it into execution authority, and leave every hosted,
+operated, independent and owner decision explicit. M30 must measure a 1,000-case blind bilingual
+campaign and target controls before it can be accepted; repository evidence alone cannot do that.
 
-## Implemented locally
+## Prepared locally — not M30 acceptance
 
-- Strict YAML contract for the 1,000-case bilingual minimum: 200 simple, 300 advanced, 150
-  ambiguous, 150 unsupported and 200 adversarial/security cases, split exactly 500 ES/500 EN.
-- Exact zero-tolerance and quantitative thresholds, PostgreSQL typed-plan-v2 request/context/
-  preview/timeout/`NULL`/fanout limits, closed SQL-family matrix and 24 external controls.
-- Pure domain readiness models, application use case and Git/file adapters with deterministic JSON
-  and Markdown reports.
-- Repository gates for clean tree, `main`, exactly one annotated `v{package_version}` tag,
-  committed contract, requirements/workflows, source-tree and migrations 1–15.
-- External evidence classes that cannot pass from local fixtures or PR merge refs.
-- CLI/Make workflow that performs zero network, database, DataHub or source writes and currently
-  returns `blocked_prerequisites`, `campaign_executable=false`, `release_decision=no_go`.
-- Focused unit/acceptance tests cover contract weakening, duplicate/extra YAML, dirty/non-main/
-  untagged candidates, uncommitted contract drift, self-asserted evidence rejection and stable
-  report bytes.
+- Phase 0: strict typed-plan-v2 contract, exact candidate/source/lock/workflow/migration identities,
+  24 evidence controls and deterministic ignored readiness reports that can return only NO-GO.
+- Phase 1a: canonical external manifest, structural JSON Schema plus authoritative validator,
+  artifact/provider/target/corpus/owner/control freezes and a maximum 30-day UTC window.
+- Exact corpus matrix: every slice has equal Spanish/English counts; simple families are standard;
+  every advanced family has standard/high/critical slices; ambiguity, unsupported and adversarial
+  families/risk levels are closed. Totals remain exactly 500 ES + 500 EN.
+- Split GitHub workflow: candidate code runs only in the read-only validation job; the protected
+  attestation job downloads one digest-bound artifact and never checks out or executes candidate
+  code. Workflow SHA-256 is
+  `8944a48a3a14fe0c2aca4edca2d0a7bed00d0a0ce7fc699f5ff420ff5668d3d0`.
+- Detached-bundle verifier: exact repository/ref/revision/workflow/OIDC/predicate/hosted-runner
+  policy, official platform-specific GitHub CLI 2.96.0 executable hashes, private snapshots,
+  bounded inputs/output/time, sanitized config, before/after reads and trace hashes.
+- Authentication success means only
+  `workflow_attested_manifest_authenticated=true`, `campaign_executable=false`,
+  `release_decision=no_go`, zero material controls passed and all 24 remaining.
+- Commercial operating-model documents cover roles/RACI, setup, tenant onboarding, daily bounded
+  M32 use, incidents/DR, offboarding and a pilot scorecard while explicitly remaining non-executable
+  end-to-end until OpenAPI/payloads and an integrated commercial surface exist.
 
 ## Current evidence and boundary
 
-M30 Phase 0 commit `c7e72cc97e4226b2d953f5c1e8ef55178a1598f5` and per-worker warmup commit
-`3f57a2ea89220ff0c68ac58f0f8e668069e93f81` are published on draft PR #1. Run
-`30816314566` is branch-associated with the latter but checked out PR merge ref
-`04402da8327f08ccc29799a6df4b4f2e9645dc90`, not an exact clean tagged-main M30 candidate.
-GitGuardian and supply-chain passed. Quality passed 3,930 other tests with zero load errors, then
-the 64-read synthetic smoke reported p50/p95/p99/max
-26.420/330.102/355.132/355.132 ms and failed only the unchanged 250 ms p95 budget;
-`postgres-integration` passed in 1 h 37 min 59 s. The run is therefore red only because of that
-quality failure.
+- `make m30-readiness` on the current development tree reports `blocked_prerequisites`, four
+  repository failures, 24 `missing_external` controls, 37 exact source digests, no external calls or
+  writes, `campaign_executable=false` and `release_decision=no_go`.
+- Focused M30/commercial/supply-chain selections pass after the Phase-1a hardening. The final
+  isolated current-byte `make check` passes 3,988 tests with 248 explicit deselections in 1,132.41
+  seconds; publication evidence remains candidate-specific and is recorded only after upload.
+- Hosted PR run `30826970514` passed quality, PostgreSQL integration and supply chain for branch
+  head `e49e5d7d52f9e4005e4d469b24e7b23797a59aeb`, but its test checkout/evaluation subject is PR merge
+  ref `43b4c21676c7bbffaa7b81c2e98d398692e43e8f`; it predates Phase 1a and is not exact M30 candidate
+  evidence.
+- GitHub external state was inspected read-only: `main` is unprotected and the repository has zero
+  environments, zero rulesets and zero tags. Therefore `m30-manifest-attestation` cannot yet be a
+  protected independently reviewed gate and must not be dispatched.
+- Independent adversarial review found no remaining local P0 capable of enabling campaign/release.
+  The residual trust-root limitation is explicit: policy/verifier and external protection must be
+  distributed/proved independently before Phase 1b or any operated claim.
 
-That second correlated tail remained after all four executor workers were preconditioned, refuting
-the earlier cold-worker explanation without proving GC, GIL, scheduler or product causality. With
-nearest-rank percentiles over 64 reads, a tail compatible with the synchronized four-worker launch
-can occupy 6.25% of the sample: p95 is the fourth-largest value and p99 is the maximum. D131
-therefore runs only the exact performance node in a fresh service-free Pytest process and increases
-the synthetic sample to 1,000 concurrency-four reads while retaining per-worker preconditioning and
-the unchanged 250/500 ms limits. At least 51 observations over 250 ms then fail p95 and at least
-11 over 500 ms fail p99. Four correlated transients are only 0.4%; no observation is discarded and
-sanitized reports expose both tail counts.
-Coverage and correctness targets explicitly exclude this wall-clock node. The 5,000-read
-concurrency-16 PostgreSQL benchmark remains the authoritative operated scale gate.
+## Commercial product boundary
 
-The published `3f57a2e` bytes passed a full local `make check` with 3,931 tests and 246 explicit
-deselections in 1,235.07 seconds. On the current D131 bytes, the exact isolated 1,000-read node
-passes in 2.72 seconds; a direct run records p50/p95/p99/max
-9.775/10.761/12.288/19.260 ms with all 1,000 observations accounted for and zero over both budgets.
-The 23 non-performance harness tests include tracked-format-v2 rendering compatibility. Combined,
-scale/release/evaluation tests pass 42, and `make test-scale-correctness` passes 29 tests with 1
-deselection followed by 8 tests with 4 deselections. Final `make check` passes the isolated node
-plus 3,933 functional tests with 247 explicit deselections; supply-chain, release audit, Ruff and
-mypy also pass. Only the commit-bound hosted rerun remains pending at this snapshot. The runtime
-wheel previously validated migrations 1–15 and all entrypoints, and independent post-remediation review
-reported P0=0, P1=0 and P2=0. These are preparation facts, not operated M30 acceptance.
+The defensible candidate is governed natural-language-to-standalone PostgreSQL for a closed
+analytical language, one connection, up to three tables and two approved joins, with exact human
+confirmation and no automatic execution. It is not an infallible “supreme SQL expert”, arbitrary
+SQL generator, cross-database translator or certified multi-dialect product. Query length (including
+50+ lines) is not the criterion; representability, approved semantics and deterministic validation
+are. New dialects, larger per-query limits and unsupported families require separate typed
+compilers, guards, corpora, scale envelopes and release decisions. Several isolated PostgreSQL
+tenants are a future deployment model, not cross-connection query support; a large paginated
+catalog does not raise the three-table/two-join request limit. `target_fingerprint=None` is a
+commercial hard stop, not a manually waivable risk.
 
-Phase 0 is not M30 acceptance. There is no clean tagged `main` candidate, 1,000-case blind corpus,
-target-environment evidence, independent pentest, operated browser/accessibility matrix, scale/
-soak campaign or candidate-specific owner signatures. Repository and synthetic evidence must not
-be relabeled to fill those gaps.
+## External work still required
+
+1. Protect `main` and eligible annotated tags; create `m30-manifest-attestation` with independent
+   reviewers, self-review/bypass disabled, no secrets and retained configuration evidence.
+2. Freeze one exact clean tagged candidate and independently owned public manifest/corpus digests.
+3. Authenticate control-specific Phase-1b receipts and enforce prerequisite ordering before any
+   provider/source/target/corpus access.
+4. Operate the 1,000-case blind corpus, execution equivalence, scale/soak, browser/accessibility,
+   IAM/network/secrets/SIEM/backup/restore and independent penetration test.
+5. Obtain candidate-specific owner/assessor decisions, then run M31 with real design partners.
+6. Close the commercial OpenAPI/integrated-console, target-fingerprint, offboarding automation,
+   legal/privacy/support/pricing and per-dialect certification gaps.
 
 ## Previous milestone snapshot — M35
 

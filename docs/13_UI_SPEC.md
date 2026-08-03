@@ -61,6 +61,12 @@ does not raise the executable limit of two joins and three physical tables per r
 
 ## Query Studio
 
+> **Historical M14/M21 demo baseline.** This section through the original validation/decision/UX
+> rules predates M32. Its generated-SQL-before-execution, preview/export, `publish context`, and
+> `Load demo scenario` actions are not the current managed contract. For M32, SQL/download appear
+> only after exact fingerprint confirmation; managed execution/publication/demo controls remain
+> absent. The normative current surface starts at **M32 copy-first natural SQL surface** below.
+
 Two synchronized modes:
 
 1. guided fields and operators;
@@ -418,3 +424,47 @@ and can render current/review/blocked/remediated fixtures for layout tests. The 
 used the real upstream API, passed at 1440x900 and 390x844 with no overflow, protected-data hit,
 console warning/error, or mutation/approval control, and is preserved in
 `docs/14_BROWSER_ACCEPTANCE.md` and `tasks/M26_HANDOFF.md`.
+
+## M32 copy-first natural SQL surface
+
+The M32 surface prepares a text-free typed preview, displays exact datasets/mappings/joins,
+assumptions, fanout/`NULL` policy and route v1/v2, and requires confirmation of the same
+fingerprint. SQL and download controls are absent before confirmation. The final artifact is
+PostgreSQL standalone, independently reparsed/guarded, contains no placeholders and always shows
+`executed=false`.
+
+Ambiguous, stale, physical-only and unsupported requests show a closed reason and no SQL. The
+current UI asks the user to rewrite; interactive slot resolution and a help/feature-request path
+remain gaps. The artifact does not yet require a non-null `target_fingerprint`, so a commercial UI
+must not expose the artifact to a tenant or imply binding to a particular database until that
+contract is implemented and certified. Manual destination review is local diagnostic evidence only
+and cannot close this commercial hard stop.
+
+## M33 onboarding acceptance surface
+
+M33 is a tenant-bound authoring/review/preparation surface. Analyst creates a draft from server-
+derived catalog preflight; steward records append-only model/mapping decisions; a different
+publisher confirms the exact fingerprint and produces `ready_for_publication`. It displays zero
+source/DataHub writes and no SQL. The scenario app is acceptance instrumentation, not the managed
+customer console.
+
+## M34 publication acceptance surface
+
+M34 displays `queued → leased → awaiting_approval → approved → leased → activation_ready`, exact
+target/base/candidate fingerprints and read-back outcome. Authorization appears only after the
+complete candidate is assembled. No control may delete/overwrite a conflicting target or activate
+the registry. The dedicated publisher is a separate workload and its DataHub credential never
+enters browser/API. Local scenario writes target a synthetic adapter unless a separately labelled
+live-DataHub gate runs.
+
+## M35 change acceptance surface
+
+M35 presents one governed join or one-model replacement/remediation proposal, complete incident
+join actions, aggregate-only profile evidence, impacts/risks and separate steward/publisher stages.
+Self join, cross connection, many-to-many without mitigation and stale authority remain no-write
+outcomes. The accepted candidate reaches the same M34 `activation_ready` handoff; M23 activation
+and M26 reinspection remain external operations.
+
+M32–M35 are not yet one integrated production navigation. Commercial onboarding, daily use,
+incident handling and offboarding follow [`docs/commercial/README.md`](commercial/README.md) and
+retain NO-GO until M30/M31 evidence exists.

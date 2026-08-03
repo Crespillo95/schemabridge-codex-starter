@@ -31,8 +31,9 @@
 - A separate publisher Deployment/ServiceAccount/PDB/Service/ServiceMonitor/NetworkPolicy and
   exact-version writer binding are present. Readiness resolves no writer secret; the publication
   queue is included in aggregate observer metrics.
-- One internal-browser M34 journey and one advanced M32 Spanish-to-copyable-SQL journey were
-  completed manually with empty browser logs and no automatic execution/activation.
+- One internal-browser M34 journey and exactly one advanced M32 desktop happy path from Spanish to
+  copyable SQL were completed manually with empty browser logs and no automatic
+  execution/activation. The rest of the M32 desktop/mobile and blocked-state matrix remains open.
 
 ## Files changed
 

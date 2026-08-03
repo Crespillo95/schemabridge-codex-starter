@@ -514,6 +514,126 @@ def test_release_workflow_digest_rejects_any_byte_change(tmp_path: Path) -> None
     assert "release_workflow_not_exact" in {finding.code for finding in verify_workflows(tmp_path)}
 
 
+def test_m30_manifest_attestation_workflow_is_exact_and_tamper_evident(
+    tmp_path: Path,
+) -> None:
+    current_codes = {
+        finding.code
+        for finding in verify_workflows(ROOT)
+        if finding.path == ".github/workflows/m30-manifest-attestation.yml"
+        or finding.path.startswith(".github/workflows/m30-manifest-attestation.yml:")
+    }
+    assert current_codes == set()
+
+    workflow_directory = tmp_path / ".github" / "workflows"
+    workflow_directory.mkdir(parents=True)
+    release = ROOT / ".github" / "workflows" / "release-evidence.yml"
+    (workflow_directory / "release-evidence.yml").write_bytes(release.read_bytes())
+    source = (ROOT / ".github" / "workflows" / "m30-manifest-attestation.yml").read_text(
+        encoding="utf-8"
+    )
+    (workflow_directory / "m30-manifest-attestation.yml").write_text(
+        source.replace(
+            "    environment: m30-manifest-attestation\n",
+            "    environment: production-release\n",
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    codes = {finding.code for finding in verify_workflows(tmp_path)}
+    assert "m30_campaign_workflow_not_exact" in codes
+    assert "m30_campaign_workflow_topology_invalid" in codes
+    assert "release_permission_unprotected" in codes
+
+
+def test_m30_manifest_attestation_workflow_absence_fails_closed(tmp_path: Path) -> None:
+    workflow_directory = tmp_path / ".github" / "workflows"
+    workflow_directory.mkdir(parents=True)
+    release = ROOT / ".github" / "workflows" / "release-evidence.yml"
+    (workflow_directory / "release-evidence.yml").write_bytes(release.read_bytes())
+
+    codes = {finding.code for finding in verify_workflows(tmp_path)}
+
+    assert "m30_manifest_attestation_missing" in codes
+
+
+def test_m30_write_scoped_job_cannot_execute_candidate_code(tmp_path: Path) -> None:
+    workflow_directory = tmp_path / ".github" / "workflows"
+    workflow_directory.mkdir(parents=True)
+    release = ROOT / ".github" / "workflows" / "release-evidence.yml"
+    (workflow_directory / "release-evidence.yml").write_bytes(release.read_bytes())
+    source = (ROOT / ".github" / "workflows" / "m30-manifest-attestation.yml").read_text(
+        encoding="utf-8"
+    )
+    marker = '          test -n "$ATTESTATION_ID"\n'
+    assert source.count(marker) == 1
+    mutated = source.replace(
+        marker,
+        "          make check\n" + marker,
+        1,
+    )
+    (workflow_directory / "m30-manifest-attestation.yml").write_text(
+        mutated,
+        encoding="utf-8",
+    )
+
+    codes = {finding.code for finding in verify_workflows(tmp_path)}
+    assert "m30_campaign_workflow_not_exact" in codes
+    assert "m30_campaign_signing_code_invalid" in codes
+
+
+@pytest.mark.parametrize(
+    ("target", "variable", "required_arguments"),
+    (
+        ("m30-manifest-validate", "M30_MANIFEST", ()),
+        (
+            "m30-authenticate-manifest",
+            "M30_ATTESTATION_BUNDLE",
+            ("M30_MANIFEST=/external/manifest.json",),
+        ),
+        (
+            "m30-authenticate-manifest",
+            "M30_AUTHENTICATION_OUTPUT",
+            (
+                "M30_MANIFEST=/external/manifest.json",
+                "M30_ATTESTATION_BUNDLE=/external/attestation.jsonl",
+            ),
+        ),
+    ),
+)
+def test_m30_make_path_arguments_are_not_shell_interpreted(
+    tmp_path: Path,
+    target: str,
+    variable: str,
+    required_arguments: tuple[str, ...],
+) -> None:
+    sentinel = tmp_path / f"{variable.casefold()}-shell-injection-must-not-run"
+    hostile_path = f"{tmp_path}/manifest'$$(touch {sentinel})'json"
+    environment = os.environ.copy()
+    for key in ("MAKEFLAGS", "MFLAGS", "MAKELEVEL"):
+        environment.pop(key, None)
+
+    completed = subprocess.run(
+        (
+            "make",
+            "--no-print-directory",
+            target,
+            *required_arguments,
+            f"{variable}={hostile_path}",
+        ),
+        cwd=ROOT,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert completed.returncode != 0
+    assert not sentinel.exists()
+
+
 @pytest.mark.parametrize(
     ("before", "after", "expected_code"),
     [

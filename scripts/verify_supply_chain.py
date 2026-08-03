@@ -193,7 +193,9 @@ _BUILD_PUSH_ACTION = "docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbe
 _SETUP_BUILDX_ACTION = "docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c"
 _TRIVY_ACTION = "aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1"
 _UPLOAD_ARTIFACT_ACTION = "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"
+_DOWNLOAD_ARTIFACT_ACTION = "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"
 _RELEASE_WORKFLOW_SHA256 = "9979c54be6ba39d1d7b606e6d882aa10e9868bb9d003482b30a780ee104d1f26"
+_M30_CAMPAIGN_WORKFLOW_SHA256 = "8944a48a3a14fe0c2aca4edca2d0a7bed00d0a0ce7fc699f5ff420ff5668d3d0"
 _RELEASE_TRIGGER = {
     "workflow_dispatch": {
         "inputs": {
@@ -241,6 +243,32 @@ _RELEASE_WRITE_PERMISSIONS_BY_JOB = {
 }
 _CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 _RELEASE_WORKFLOW_PATH = ".github/workflows/release-evidence.yml"
+_M30_CAMPAIGN_WORKFLOW_PATH = ".github/workflows/m30-manifest-attestation.yml"
+_M30_CAMPAIGN_TRIGGER = {
+    "workflow_dispatch": {
+        "inputs": {
+            "release_tag": {
+                "description": "Existing annotated stable tag at protected main HEAD",
+                "required": "true",
+                "type": "string",
+            },
+            "manifest_base64": {
+                "description": (
+                    "Canonical public manifest bytes encoded as one base64 string; "
+                    "no private cases or answer key"
+                ),
+                "required": "true",
+                "type": "string",
+            },
+        }
+    }
+}
+_M30_CAMPAIGN_PERMISSIONS = {
+    "actions": "read",
+    "attestations": "write",
+    "contents": "read",
+    "id-token": "write",
+}
 _CI_TIMEOUT_JOBS = frozenset({"quality", "postgres-integration", "supply-chain"})
 _SUPPLY_CHAIN_ARTIFACT_PATHS = (
     ".local/supply-chain/dist/*.whl",
@@ -622,22 +650,32 @@ def _workflow_job_permission_findings(
             continue
         environment = raw_job.get("environment")
         environment_name = environment.get("name") if isinstance(environment, dict) else environment
+        exact_m30_workflow = (
+            relative == _M30_CAMPAIGN_WORKFLOW_PATH
+            and hashlib.sha256(path.read_bytes()).hexdigest() == _M30_CAMPAIGN_WORKFLOW_SHA256
+        )
         expected_permissions = (
             _RELEASE_WRITE_PERMISSIONS_BY_JOB.get(job_name)
             if relative == _RELEASE_WORKFLOW_PATH
+            else _M30_CAMPAIGN_PERMISSIONS
+            if exact_m30_workflow and job_name == "sign"
             else None
+        )
+        expected_trigger = _M30_CAMPAIGN_TRIGGER if exact_m30_workflow else _RELEASE_TRIGGER
+        expected_environment = (
+            "m30-manifest-attestation" if exact_m30_workflow else "production-release"
         )
         if (
             expected_permissions is None
-            or document.value.get("on") != _RELEASE_TRIGGER
-            or environment_name != "production-release"
+            or document.value.get("on") != expected_trigger
+            or environment_name != expected_environment
             or raw_permissions != expected_permissions
         ):
             findings.append(
                 Finding(
                     "release_permission_unprotected",
                     f"{relative}:{job_name}",
-                    "write scopes are reserved for exact protected release-evidence jobs",
+                    "write scopes are reserved for exact protected evidence workflows",
                 )
             )
     return tuple(findings)
@@ -701,6 +739,108 @@ def _ci_workflow_findings(
                     "required CI jobs need an explicit timeout of 1 to 180 minutes",
                 )
             )
+    return tuple(findings)
+
+
+def _m30_campaign_workflow_findings(
+    path: Path,
+    document: _YamlDocument,
+    root: Path,
+) -> tuple[Finding, ...]:
+    """Pin the only workflow allowed to authenticate M30 frozen inputs."""
+
+    relative = str(path.relative_to(root))
+    if relative != _M30_CAMPAIGN_WORKFLOW_PATH:
+        return ()
+    findings: list[Finding] = []
+    if hashlib.sha256(path.read_bytes()).hexdigest() != _M30_CAMPAIGN_WORKFLOW_SHA256:
+        findings.append(
+            Finding(
+                "m30_campaign_workflow_not_exact",
+                relative,
+                "the protected manifest attestation workflow differs from the reviewed bytes",
+            )
+        )
+    jobs = document.value.get("jobs")
+    concurrency = document.value.get("concurrency")
+    validate = jobs.get("validate") if isinstance(jobs, dict) else None
+    sign = jobs.get("sign") if isinstance(jobs, dict) else None
+    if (
+        document.value.get("on") != _M30_CAMPAIGN_TRIGGER
+        or concurrency
+        != {
+            "group": "schemabridge-m30-manifest-attestation",
+            "cancel-in-progress": "false",
+        }
+        or not isinstance(jobs, dict)
+        or set(jobs) != {"validate", "sign"}
+        or not isinstance(validate, dict)
+        or validate.get("runs-on") != "ubuntu-24.04"
+        or validate.get("timeout-minutes") != "15"
+        or validate.get("permissions") != {"contents": "read"}
+        or "environment" in validate
+        or not isinstance(sign, dict)
+        or sign.get("needs") != "validate"
+        or sign.get("runs-on") != "ubuntu-24.04"
+        or sign.get("timeout-minutes") != "5"
+        or sign.get("environment") != "m30-manifest-attestation"
+        or sign.get("permissions") != _M30_CAMPAIGN_PERMISSIONS
+    ):
+        findings.append(
+            Finding(
+                "m30_campaign_workflow_topology_invalid",
+                relative,
+                "M30 attestation requires separate bounded validation and protected signing jobs",
+            )
+        )
+    validate_steps = validate.get("steps") if isinstance(validate, dict) else None
+    sign_steps = sign.get("steps") if isinstance(sign, dict) else None
+    steps = [
+        *(validate_steps if isinstance(validate_steps, list) else []),
+        *(sign_steps if isinstance(sign_steps, list) else []),
+    ]
+    actions = (
+        tuple(
+            step.get("uses")
+            for step in steps
+            if isinstance(step, dict) and isinstance(step.get("uses"), str)
+        )
+        if isinstance(steps, list)
+        else ()
+    )
+    if actions != (
+        "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
+        "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
+        "astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e",
+        _UPLOAD_ARTIFACT_ACTION,
+        _DOWNLOAD_ARTIFACT_ACTION,
+        _ATTEST_ACTION,
+    ):
+        findings.append(
+            Finding(
+                "m30_campaign_workflow_actions_invalid",
+                relative,
+                "M30 attestation actions differ from the reviewed immutable sequence",
+            )
+        )
+    signing_scripts = (
+        tuple(
+            step.get("run")
+            for step in sign_steps
+            if isinstance(step, dict) and isinstance(step.get("run"), str)
+        )
+        if isinstance(sign_steps, list)
+        else ()
+    )
+    forbidden_signing_tokens = ("make ", ".venv", "python", "scripts/", "git ", "checkout")
+    if any(token in script for script in signing_scripts for token in forbidden_signing_tokens):
+        findings.append(
+            Finding(
+                "m30_campaign_signing_code_invalid",
+                f"{relative}:sign",
+                "the write-scoped signing job cannot execute candidate repository code",
+            )
+        )
     return tuple(findings)
 
 
@@ -2182,6 +2322,14 @@ def verify_workflows(root: Path) -> tuple[Finding, ...]:
                 "protected release evidence workflow is absent",
             )
         )
+    if root / _M30_CAMPAIGN_WORKFLOW_PATH not in paths:
+        findings.append(
+            Finding(
+                "m30_manifest_attestation_missing",
+                _M30_CAMPAIGN_WORKFLOW_PATH,
+                "protected M30 manifest attestation workflow is absent",
+            )
+        )
     for path in paths:
         relative = str(path.relative_to(root))
         documents, parse_findings = _parse_yaml_documents(path, relative=relative)
@@ -2215,6 +2363,7 @@ def verify_workflows(root: Path) -> tuple[Finding, ...]:
         findings.extend(_top_level_permissions_findings(path, document, root))
         findings.extend(_workflow_job_permission_findings(path, document, root))
         findings.extend(_ci_workflow_findings(path, document, root))
+        findings.extend(_m30_campaign_workflow_findings(path, document, root))
         findings.extend(_supply_chain_artifact_upload_findings(path, document, root))
         findings.extend(_checkout_credentials_findings(path, document, root))
         findings.extend(_trivy_cache_findings(path, document, root))

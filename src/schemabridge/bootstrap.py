@@ -110,7 +110,10 @@ from schemabridge.application.ports.intents import (
     IntentParserPort,
 )
 from schemabridge.application.ports.planning import GovernedSemanticRegistryPort
-from schemabridge.application.ports.production_evidence import M30ReadinessReportWriterPort
+from schemabridge.application.ports.production_evidence import (
+    M30ManifestAuthenticationReportWriterPort,
+    M30ReadinessReportWriterPort,
+)
 from schemabridge.application.ports.publication_audit import (
     PublicationAuditStoreError,
     PublicationAuditStorePort,
@@ -145,6 +148,10 @@ from schemabridge.application.ports.workflows import (
 from schemabridge.application.postgres_health import (
     CheckDatabaseReadiness,
     DatabaseConfigurationError,
+)
+from schemabridge.application.production_campaign import (
+    AuthenticateM30CampaignManifest,
+    ValidateM30CampaignManifest,
 )
 from schemabridge.application.production_readiness import AssessM30Readiness
 from schemabridge.application.query_cost import AssessGovernedQueryCost
@@ -1714,6 +1721,72 @@ def build_m30_readiness_report_writer(
     from schemabridge.adapters.evaluation.m30_readiness import FileM30ReadinessReportWriter
 
     return FileM30ReadinessReportWriter((repository_root or Path.cwd()).resolve())
+
+
+def build_m30_campaign_manifest_authenticator(
+    *,
+    manifest_path: Path,
+    attestation_bundle_path: Path,
+    repository_root: Path | None = None,
+) -> AuthenticateM30CampaignManifest:
+    """Compose Phase 1a with no local trust-key or unsigned bypass."""
+
+    from schemabridge.adapters.evaluation.m30_campaign import (
+        GitHubCliM30ManifestAuthenticator,
+        SystemM30Clock,
+    )
+
+    root = (repository_root or Path.cwd()).resolve()
+    return AuthenticateM30CampaignManifest(
+        validator=build_m30_campaign_manifest_validator(
+            manifest_path=manifest_path,
+            repository_root=root,
+        ),
+        authenticator=GitHubCliM30ManifestAuthenticator(
+            root,
+            manifest_path,
+            attestation_bundle_path,
+        ),
+        clock=SystemM30Clock(),
+    )
+
+
+def build_m30_campaign_manifest_validator(
+    *,
+    manifest_path: Path,
+    repository_root: Path | None = None,
+) -> ValidateM30CampaignManifest:
+    """Compose canonical Phase-1a validation without authentication or execution authority."""
+
+    from schemabridge.adapters.evaluation.m30_campaign import FileM30CampaignManifest
+    from schemabridge.adapters.evaluation.m30_readiness import (
+        FileM30CampaignContract,
+        GitM30CandidateIdentity,
+    )
+
+    root = (repository_root or Path.cwd()).resolve()
+    contract_loader = FileM30CampaignContract(root)
+    return ValidateM30CampaignManifest(
+        readiness=AssessM30Readiness(
+            contract_loader=contract_loader,
+            candidate_identity=GitM30CandidateIdentity(root),
+        ),
+        contract_loader=contract_loader,
+        manifest_loader=FileM30CampaignManifest(root, manifest_path),
+    )
+
+
+def build_m30_manifest_authentication_report_writer(
+    *,
+    repository_root: Path | None = None,
+) -> M30ManifestAuthenticationReportWriterPort:
+    """Compose the deterministic Phase-1a report writer."""
+
+    from schemabridge.adapters.evaluation.m30_campaign import (
+        FileM30ManifestAuthenticationReportWriter,
+    )
+
+    return FileM30ManifestAuthenticationReportWriter((repository_root or Path.cwd()).resolve())
 
 
 def build_review_store(

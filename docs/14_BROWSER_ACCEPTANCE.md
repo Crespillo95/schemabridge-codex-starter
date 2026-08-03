@@ -757,8 +757,9 @@ temporary directory was removed.
 
 ### 2026-08-03 advanced copy-path verification
 
-The Codex in-app browser completed the exact advanced Spanish reference path on the real local
-Streamlit entrypoint. Before confirmation the page exposed the typed 3-model/11-field/2-join
+The Codex in-app browser completed exactly one desktop happy path: the advanced Spanish reference
+on the real local Streamlit entrypoint. Before confirmation the page exposed the typed
+3-model/11-field/2-join
 closure, completed-order filter, three metrics, `HAVING`, rank, percent-of-total, running sum and
 top-three output filter with no SQL. After the exact checkbox confirmation it rendered one
 106-line PostgreSQL statement with compiler-owned `aggregated`/`windowed` CTEs, `LIMIT 100`, no
@@ -766,6 +767,21 @@ driver placeholders, the standalone download control, double-AST-validation noti
 `Ejecutado: No`. The optional validation/execution button remained disabled and browser
 warning/error logs were empty. This is a pass for that one required happy path, not a retroactive
 pass for the complete desktop/mobile and blocked-state matrix above.
+
+### 2026-08-03 M30 commercial-audit recheck
+
+The production Streamlit entrypoint was started again on `127.0.0.1:8510` with an isolated
+temporary draft store and the synthetic `recorded`/`fake` profile. Its health endpoint returned
+`ok`. The Codex in-app browser then became unavailable before a tab could be created and exact
+browser discovery returned `[]`. In accordance with the browser-control contract, no external
+browser or standalone Playwright substitute was used. The server was stopped, its port was
+released and the temporary directory was removed.
+
+The separate automated copy-first Streamlit acceptance was rerun on the same application bytes:
+`3 passed in 4.30 s`. It covers the advanced, simple and ambiguity contracts, but it is not visual
+browser evidence. This recheck therefore adds no manual PASS and does not change the status above:
+exactly one earlier advanced desktop happy path is observed, and the rest of the desktop/mobile,
+blocked-state, clipboard/download, focus, overflow and hostile-input matrix remains pending.
 
 ## M34 governed-publication browser acceptance
 

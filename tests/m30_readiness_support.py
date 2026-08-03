@@ -6,25 +6,11 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from schemabridge.domain.production_readiness import M30_REQUIRED_SOURCE_PATHS
+
 ROOT = Path(__file__).parents[1]
 
-_FILES = (
-    ".gitignore",
-    ".github/workflows/ci.yml",
-    ".github/workflows/release-evidence.yml",
-    "Dockerfile.runtime",
-    "docs/06_SECURITY.md",
-    "docs/19_COMMERCIAL_USAGE.md",
-    "plans/M30_CAMPAIGN_CONTRACT.yml",
-    "plans/M30_PRODUCTION_EVALUATION_SECURITY.md",
-    "pyproject.toml",
-    "requirements/build.txt",
-    "requirements/runtime-built.txt",
-    "requirements/runtime.txt",
-    "requirements/vulnerability-exceptions.json",
-    "requirements/watchdog-build.txt",
-    "uv.lock",
-)
+_FILES = tuple(sorted(set(M30_REQUIRED_SOURCE_PATHS.values())))
 
 
 def build_candidate_repository(

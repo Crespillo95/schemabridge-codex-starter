@@ -365,8 +365,14 @@ SCALE_PREFLIGHT_REPORT_JSON ?= reports/m25-scale-preflight.json
 SCALE_PREFLIGHT_REPORT_MARKDOWN ?= reports/m25-scale-preflight.md
 SCALE_REPORT_JSON ?= reports/m25-scale-report.json
 SCALE_REPORT_MARKDOWN ?= reports/m25-scale-report.md
+M30_MANIFEST ?=
+M30_ATTESTATION_BUNDLE ?=
+M30_AUTHENTICATION_OUTPUT ?= .local/m30/manifest-authentication
+export SCHEMABRIDGE_M30_MANIFEST_RUNTIME := $(value M30_MANIFEST)
+export SCHEMABRIDGE_M30_ATTESTATION_BUNDLE_RUNTIME := $(value M30_ATTESTATION_BUNDLE)
+export SCHEMABRIDGE_M30_AUTHENTICATION_OUTPUT_RUNTIME := $(value M30_AUTHENTICATION_OUTPUT)
 
-.PHONY: help bootstrap install check runtime-wheel-smoke supply-chain-lock supply-chain-static supply-chain-licenses m29-recovery-help m29-recovery-policy-check m30-readiness format lint type test test-performance coverage coverage-unit doctor evaluate submission-package submission-package-dev release-audit release-clean judge-build judge-smoke demo-up demo-down demo-reset demo-seed-check demo-reset-proof demo-health demo-query demo-compile demo-preview demo-guard demo-governed-plan demo-governed-preview demo-intent control-plane-up control-plane-down control-plane-reset control-plane-migrate control-plane-check api observer worker worker-once registry-publisher registry-publisher-once registry-publisher-probe catalog catalog-once semantic-reconciler semantic-reconciler-once semantic-reconciler-probe semantic-profile-worker semantic-profile-worker-once semantic-profile-worker-probe test-api-integration test-worker-integration test-intent test-scale-correctness benchmark-scale-preflight benchmark-scale test-integration test-acceptance datahub-version datahub-start datahub-health datahub-init-admin datahub-ingest datahub-provision-mcp datahub-provision-writer datahub-catalog-check datahub-registry-check datahub-restart datahub-reset datahub-stop datahub-mcp-check ui clean
+.PHONY: help bootstrap install check runtime-wheel-smoke supply-chain-lock supply-chain-static supply-chain-licenses m29-recovery-help m29-recovery-policy-check m30-readiness m30-manifest-schema m30-manifest-validate m30-authenticate-manifest format lint type test test-performance coverage coverage-unit doctor evaluate submission-package submission-package-dev release-audit release-clean judge-build judge-smoke demo-up demo-down demo-reset demo-seed-check demo-reset-proof demo-health demo-query demo-compile demo-preview demo-guard demo-governed-plan demo-governed-preview demo-intent control-plane-up control-plane-down control-plane-reset control-plane-migrate control-plane-check api observer worker worker-once registry-publisher registry-publisher-once registry-publisher-probe catalog catalog-once semantic-reconciler semantic-reconciler-once semantic-reconciler-probe semantic-profile-worker semantic-profile-worker-once semantic-profile-worker-probe test-api-integration test-worker-integration test-intent test-scale-correctness benchmark-scale-preflight benchmark-scale test-integration test-acceptance datahub-version datahub-start datahub-health datahub-init-admin datahub-ingest datahub-provision-mcp datahub-provision-writer datahub-catalog-check datahub-registry-check datahub-restart datahub-reset datahub-stop datahub-mcp-check ui clean
 
 help:
 	@printf '%s\n' \
@@ -379,6 +385,9 @@ help:
 	  'make m29-recovery-help Show the safe M29 recovery operator commands' \
 	  'make m29-recovery-policy-check Validate the exact M29 recovery policy' \
 	  'make m30-readiness Materialize the explicit offline M30 NO-GO preflight' \
+	  'make m30-manifest-schema Print the structural Phase-1a JSON Schema; validator remains authoritative' \
+	  'make m30-manifest-validate Validate external M30 frozen inputs without authenticating them' \
+	  'make m30-authenticate-manifest Verify external manifest bytes; execution/release stay blocked' \
 	  'make test-performance Run the isolated service-free wall-clock scale smoke' \
 	  'make coverage    Run the >=80% full-suite coverage gate (services required)' \
 	  'make coverage-unit Report service-free unit coverage without release gating' \
@@ -511,6 +520,22 @@ m29-recovery-policy-check:
 
 m30-readiness:
 	@$(BIN)/python scripts/m30_readiness.py --report-only
+
+m30-manifest-schema:
+	@$(BIN)/python scripts/m30_validate_campaign_manifest.py --print-json-schema
+
+m30-manifest-validate:
+	@test -n "$$SCHEMABRIDGE_M30_MANIFEST_RUNTIME" || { printf '%s\n' 'Set M30_MANIFEST to a canonical file outside the repository.' >&2; exit 2; }
+	@$(BIN)/python scripts/m30_validate_campaign_manifest.py \
+	  --manifest "$$SCHEMABRIDGE_M30_MANIFEST_RUNTIME"
+
+m30-authenticate-manifest:
+	@test -n "$$SCHEMABRIDGE_M30_MANIFEST_RUNTIME" || { printf '%s\n' 'Set M30_MANIFEST to a canonical file outside the repository.' >&2; exit 2; }
+	@test -n "$$SCHEMABRIDGE_M30_ATTESTATION_BUNDLE_RUNTIME" || { printf '%s\n' 'Set M30_ATTESTATION_BUNDLE to the downloaded GitHub bundle outside the repository.' >&2; exit 2; }
+	@$(BIN)/python scripts/m30_authenticate_campaign_manifest.py \
+	  --manifest "$$SCHEMABRIDGE_M30_MANIFEST_RUNTIME" \
+	  --attestation-bundle "$$SCHEMABRIDGE_M30_ATTESTATION_BUNDLE_RUNTIME" \
+	  --output-directory "$$SCHEMABRIDGE_M30_AUTHENTICATION_OUTPUT_RUNTIME"
 
 doctor:
 	$(BIN)/schemabridge doctor

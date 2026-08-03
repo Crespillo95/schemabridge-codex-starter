@@ -1,0 +1,162 @@
+name: M30 campaign manifest attestation
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing annotated stable tag at protected main HEAD
+        required: true
+        type: string
+      manifest_base64:
+        description: Canonical public manifest bytes encoded as one base64 string; no private cases or answer key
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: schemabridge-m30-manifest-attestation
+  cancel-in-progress: false
+
+env:
+  GH_API_VERSION: "2026-03-10"
+  NO_COLOR: "1"
+  RELEASE_TAG: ${{ inputs.release_tag }}
+  SOURCE_REF: ${{ github.ref }}
+  SOURCE_REVISION: ${{ github.sha }}
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      manifest_sha256: ${{ steps.manifest.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          # The preflight observes an actual `main` branch. The event itself remains the
+          # annotated tag selected by the operator and is checked below against this HEAD.
+          ref: main
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.13.14"
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          version: "0.11.30"
+          enable-cache: false
+      - name: Verify exact protected tagged-main source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          test "$SOURCE_REF" = "refs/tags/$RELEASE_TAG"
+          test "$(git rev-parse HEAD)" = "$SOURCE_REVISION"
+          test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = "tag"
+          test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$SOURCE_REVISION"
+          project_version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          test "$RELEASE_TAG" = "v$project_version"
+          repository="$(gh api --header "X-GitHub-Api-Version: $GH_API_VERSION" "repos/$GITHUB_REPOSITORY")"
+          test "$(jq -r '.default_branch' <<<"$repository")" = "main"
+          main_ref="$(gh api --header "X-GitHub-Api-Version: $GH_API_VERSION" "repos/$GITHUB_REPOSITORY/git/ref/heads/main")"
+          test "$(jq -r '.object.type' <<<"$main_ref")" = "commit"
+          test "$(jq -r '.object.sha' <<<"$main_ref")" = "$SOURCE_REVISION"
+          branch="$(gh api --header "X-GitHub-Api-Version: $GH_API_VERSION" "repos/$GITHUB_REPOSITORY/branches/main")"
+          test "$(jq -r '.protected' <<<"$branch")" = "true"
+          tag_ref="$(gh api --header "X-GitHub-Api-Version: $GH_API_VERSION" "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG")"
+          test "$(jq -r '.object.type' <<<"$tag_ref")" = "tag"
+          tag_object="$(jq -er '.object.sha | select(test("^[0-9a-f]{40}$"))' <<<"$tag_ref")"
+          tag_payload="$(gh api --header "X-GitHub-Api-Version: $GH_API_VERSION" "repos/$GITHUB_REPOSITORY/git/tags/$tag_object")"
+          test "$(jq -r '.object.type' <<<"$tag_payload")" = "commit"
+          test "$(jq -r '.object.sha' <<<"$tag_payload")" = "$SOURCE_REVISION"
+      - name: Decode and validate the untrusted frozen-input manifest
+        id: manifest
+        shell: bash
+        env:
+          MANIFEST_BASE64: ${{ inputs.manifest_base64 }}
+        run: |
+          set -euo pipefail
+          test "${#MANIFEST_BASE64}" -ge 16
+          test "${#MANIFEST_BASE64}" -le 61440
+          [[ "$MANIFEST_BASE64" =~ ^[A-Za-z0-9+/]+={0,2}$ ]]
+          manifest="$RUNNER_TEMP/m30-campaign-manifest.json"
+          printf '%s' "$MANIFEST_BASE64" | base64 --decode > "$manifest"
+          test "$(stat --format='%s' "$manifest")" -ge 1
+          test "$(stat --format='%s' "$manifest")" -le 46080
+          make bootstrap
+          .venv/bin/python scripts/m30_validate_campaign_manifest.py \
+            --repository-root "$GITHUB_WORKSPACE" \
+            --manifest "$manifest"
+          manifest_sha256="$(sha256sum "$manifest" | cut -d' ' -f1)"
+          [[ "$manifest_sha256" =~ ^[0-9a-f]{64}$ ]]
+          printf 'path=%s\n' "$manifest" >> "$GITHUB_OUTPUT"
+          printf 'sha256=%s\n' "$manifest_sha256" >> "$GITHUB_OUTPUT"
+      - name: Retain the exact public manifest for bounded retrieval
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: m30-campaign-manifest-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.manifest.outputs.path }}
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: false
+          include-hidden-files: false
+          retention-days: 35
+
+  sign:
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: m30-manifest-attestation
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      - name: Retrieve only the validated manifest from this run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: m30-campaign-manifest-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/m30-subject
+      - name: Verify the transferred subject without candidate code
+        id: subject
+        shell: bash
+        env:
+          EXPECTED_MANIFEST_SHA256: ${{ needs.validate.outputs.manifest_sha256 }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          subject="$RUNNER_TEMP/m30-subject/m30-campaign-manifest.json"
+          test -f "$subject"
+          test ! -L "$subject"
+          test "$(find "$RUNNER_TEMP/m30-subject" -mindepth 1 -maxdepth 1 | wc -l)" -eq 1
+          test "$(stat --format='%s' "$subject")" -ge 1
+          test "$(stat --format='%s' "$subject")" -le 46080
+          manifest_sha256="$(sha256sum "$subject" | cut -d' ' -f1)"
+          test "$manifest_sha256" = "$EXPECTED_MANIFEST_SHA256"
+          printf 'path=%s\n' "$subject" >> "$GITHUB_OUTPUT"
+          printf 'sha256=%s\n' "$manifest_sha256" >> "$GITHUB_OUTPUT"
+      - name: Create the GitHub-hosted manifest attestation
+        id: attest
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: ${{ steps.subject.outputs.path }}
+      - name: Record authenticated subject without adjudicating controls
+        shell: bash
+        env:
+          ATTESTATION_ID: ${{ steps.attest.outputs.attestation-id }}
+          MANIFEST_SHA256: ${{ steps.subject.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          test -n "$ATTESTATION_ID"
+          [[ "$MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          printf '%s\n' "Manifest authenticated: sha256:$MANIFEST_SHA256"
+          printf '%s\n' "Campaign controls adjudicated: 0/24"
+          printf '%s\n' "Release decision: NO-GO"

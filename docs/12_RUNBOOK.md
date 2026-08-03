@@ -4582,11 +4582,111 @@ Exit `2` means required candidate/external evidence is missing; exit `3` means t
 repository could not be inspected. Neither code authorizes a release. Do not edit the report to
 advance a gate. Hosted evidence must be obtained from the exact candidate subject, not a PR merge
 ref; operated and independent controls require their target/assessor evidence paths defined in the
-M30 plan. This Phase-0 command observes repository bytes and tags only. Until the signed campaign
-manifest verifier exists, the operator must manually invalidate the run when a model/provider,
-prompt, built artifact or target-environment input changes; none of those external identities is
-bound or certified by this local report.
+M30 plan. This Phase-0 command observes repository bytes and tags only. Phase 1a binds the
+model/provider, prompt, built artifacts and target environment in a separate authenticated
+manifest; Phase 0 alone still certifies none of those identities.
 
 The local code and contract are part of the candidate they inspect, so this report is not its own
-trust root. The next verifier must consume an independently authorized signed campaign manifest
-with exact per-family/risk case counts and candidate/artifact/provider/environment identities.
+trust root. Campaign execution must consume the separately authenticated Phase-1a manifest with
+exact per-family/risk case counts and candidate/artifact/provider/environment identities.
+The Phase-1a matrix requires every slice to contain equal Spanish/English counts and every
+supported advanced family to include `standard`, `high` and `critical` cases; totals alone are
+insufficient.
+
+## Commercial operator index
+
+This chronological development runbook is not an executable tenant lifecycle manual. The target
+cross-milestone sequence, RACI, onboarding, daily M32 use, incident/DR, offboarding and pilot
+scorecard are indexed in the NO-GO operating-model draft at
+[`docs/commercial/README.md`](commercial/README.md). The M33–M35 scenario
+apps remain local acceptance instrumentation; a second operator must use the authenticated API,
+dedicated workers and separately authorized M23 controls in a real pilot.
+
+M30 Phase 1a is a byte-authentication procedure, not campaign authorization. After separately
+evidencing protected `main`/annotated-tag rules and the independently reviewed, no-secret
+`m30-manifest-attestation` environment, a second operator performs this exact sequence from a
+clean tagged-main checkout:
+
+```bash
+M30_REPOSITORY='Crespillo95/schemabridge-codex-starter'
+M30_EVIDENCE_DIR='/external/evidence/m30'
+M30_MANIFEST="$M30_EVIDENCE_DIR/m30-campaign-manifest.json"
+M30_SCHEMA="$M30_EVIDENCE_DIR/m30-campaign-manifest.schema.json"
+M30_REVISION="$(git rev-parse HEAD)"
+M30_TAG="v$(.venv/bin/python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+
+make m30-manifest-schema > "$M30_SCHEMA"
+# Populate only public opaque IDs/digests outside the checkout; never raw cases, SQL or secrets.
+make m30-manifest-validate M30_MANIFEST="$M30_MANIFEST"
+M30_MANIFEST_B64="$(.venv/bin/python -c 'import base64,pathlib,sys; print(base64.b64encode(pathlib.Path(sys.argv[1]).read_bytes()).decode("ascii"))' "$M30_MANIFEST")"
+gh workflow run m30-manifest-attestation.yml --repo "$M30_REPOSITORY" --ref "$M30_TAG" \
+  -f release_tag="$M30_TAG" -f manifest_base64="$M30_MANIFEST_B64"
+unset M30_MANIFEST_B64
+gh run list --repo "$M30_REPOSITORY" --workflow m30-manifest-attestation.yml \
+  --branch "$M30_TAG" --event workflow_dispatch --limit 10 \
+  --json databaseId,headSha,headBranch,createdAt,status,url
+```
+
+The operator compares `headSha` with `M30_REVISION`, records the exact run ID/URL in the change
+record and never lets unattended automation interpret “latest” as identity. After assigning the
+recorded ID, the REST lookup records both actor identities:
+
+```bash
+M30_RUN_ID='<recorded workflow run databaseId>'
+gh run view "$M30_RUN_ID" --repo "$M30_REPOSITORY" \
+  --json attempt,event,headBranch,headSha,status,conclusion,url
+gh api "repos/$M30_REPOSITORY/actions/runs/$M30_RUN_ID" \
+  --jq '{actor: .actor.login, actor_id: .actor.id, triggering_actor: .triggering_actor.login}'
+gh run watch "$M30_RUN_ID" --repo "$M30_REPOSITORY" --exit-status
+M30_RUN_ATTEMPT="$(gh run view "$M30_RUN_ID" --repo "$M30_REPOSITORY" --json attempt --jq '.attempt')"
+M30_RUN_DIR="$M30_EVIDENCE_DIR/run-$M30_RUN_ID-attempt-$M30_RUN_ATTEMPT"
+mkdir -m 0700 "$M30_RUN_DIR"
+gh run download "$M30_RUN_ID" --repo "$M30_REPOSITORY" \
+  --name "m30-campaign-manifest-$M30_REVISION-$M30_RUN_ID-$M30_RUN_ATTEMPT" \
+  --dir "$M30_RUN_DIR"
+M30_DOWNLOADED_MANIFEST="$M30_RUN_DIR/m30-campaign-manifest.json"
+cmp -s "$M30_MANIFEST" "$M30_DOWNLOADED_MANIFEST"
+M30_MANIFEST_SHA256="$(shasum -a 256 "$M30_DOWNLOADED_MANIFEST" | cut -d' ' -f1)"
+(cd "$M30_RUN_DIR" && gh attestation download "$M30_DOWNLOADED_MANIFEST" \
+  --repo "$M30_REPOSITORY" --predicate-type 'https://slsa.dev/provenance/v1' --limit 1)
+M30_BUNDLE="$M30_RUN_DIR/sha256:$M30_MANIFEST_SHA256.jsonl"
+make m30-authenticate-manifest M30_MANIFEST="$M30_DOWNLOADED_MANIFEST" \
+  M30_ATTESTATION_BUNDLE="$M30_BUNDLE" \
+  M30_AUTHENTICATION_OUTPUT="$M30_RUN_DIR/authentication"
+```
+
+Retry only with `gh run rerun "$M30_RUN_ID"`, which reruns all jobs. `gh run rerun --failed` is
+forbidden here: `sign` uses the current `run_attempt` artifact name and must not reuse validation
+from an earlier attempt.
+
+The schema, manifest and bundle inputs must remain outside the candidate. The verifier requires
+the official GitHub CLI 2.96.0 release executable, exact tagged-main identity, GitHub-hosted signer
+workflow and a cryptographically verified log/TSA timestamp. Branch/tag/environment protection is
+separate pre-dispatch evidence, not a fact inferred from the bundle. Supplying `--bundle` avoids an attestation API
+lookup; `gh` can still bootstrap/update its trusted root unless the operator separately provisions
+a reviewed custom root, so this is not an air-gapped verification claim. The canonical manifest
+must be at most 45 KiB (61,440 base64 characters), leaving headroom under GitHub's aggregate
+dispatch-input limit. `authentication.json` and `authentication.md` bind the exact report. Exit
+`0` means only validation/authentication succeeded, `2` means blocked, and `3` means malformed or
+unavailable evidence, trust-provider failure or report-write failure. Success reports
+`workflow_attested_manifest_authenticated=true`, `campaign_executable=false`,
+`release_decision=no_go`, zero material controls passed and 24 remaining. It must not be used with a
+local key, self-authored bundle, PR merge ref or unattested manifest. Retain all external evidence
+under the tenant policy and never commit it.
+
+The verifier does not trust caller `PATH`, a package-manager rebuild or version text alone. Install
+the `bin/gh` executable from one of the immutable official v2.96.0 archives in `/usr/local/bin` or
+`/opt/homebrew/bin`, make it non-writable by group/other, and retain the archive/checksum receipt.
+The authentication report records the selected platform and exact executable digest. These are the
+reviewed [GitHub release checksums](https://github.com/cli/cli/releases/download/v2.96.0/gh_2.96.0_checksums.txt)
+and the SHA-256 of the extracted executable:
+
+| Platform archive | Archive SHA-256 | Extracted `bin/gh` SHA-256 |
+|---|---|---|
+| `gh_2.96.0_macOS_arm64.zip` | `f23a0c37d963aacc3bed703ccbd59b41c5ca22101fab7f00eb2b7cad23aba463` | `b1d6c442fde99ca27c04e1e74d624895abe37785f4a3e9e9b684bf7586ce4bc8` |
+| `gh_2.96.0_macOS_amd64.zip` | `4bd449df9ad639391bc62b8032546f0fe9edcd8526e06682a4f88abd8c5d163c` | `49380b19e758c14ce5509afe0ced58777fe45cfbcd5989941f7314d5f7e468c8` |
+| `gh_2.96.0_linux_arm64.tar.gz` | `06f86ec7103d41993b76cd78072f43595c34aaa56506d971d9860e67140bf909` | `f903d2fa04ae78ee8f8df0186364d0b92f078d2720053941a47e0a3beaef54f0` |
+| `gh_2.96.0_linux_amd64.tar.gz` | `83d5c2ccad5498f58bf6368acb1ab32588cf43ab3a4b1c301bf36328b1c8bd60` | `56b8bbbb27b066ecb33dbef9a256dc9d1314adaeff0908a752feba6c34053b40` |
+
+Any other OS/architecture or executable digest fails as
+`m30_trust_provider_unavailable`; review and byte-pin a new matrix rather than bypassing it.

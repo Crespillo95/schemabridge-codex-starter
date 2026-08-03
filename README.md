@@ -26,7 +26,9 @@ approved semantic context can be written back to DataHub through its separate ap
 > Live-provider evaluation, independent security verification, an operated pilot, and every
 > production/release control remain open. No error-free, all-SQL-dialects, or production claim is
 > made. The exact support matrix and adoption gates are in the
-> [commercial usage plan](docs/19_COMMERCIAL_USAGE.md).
+> [commercial usage plan](docs/19_COMMERCIAL_USAGE.md); the tenant lifecycle, RACI, daily use,
+> incident and offboarding procedures are in the
+> [objective commercial operating model — NO-GO draft](docs/commercial/README.md).
 
 ## The result in 90 seconds
 
@@ -540,10 +542,12 @@ contract and ground truth are in
 M32 is accepted locally for this bounded deterministic/synthetic capability: `304/304` targeted
 checks pass; the advanced standalone SQL SHA-256 is
 `ec589a1527d0d641f4f7f7eb7e052ca1ace5b092013b437da72542ce4145d4f3`; and the global quality
-gate passes `3,587` tests with `224` explicit deselections. The in-app browser was unavailable, so
-no manual desktop/mobile/browser PASS is claimed. See the
+gate passes `3,587` tests with `224` explicit deselections. The original 2026-07-30 in-app browser
+attempt was unavailable. A later 2026-08-03 session passed exactly one advanced Spanish desktop
+happy path; the remaining simple, v1/v2, blocked-state, hostile-input and 390×844 M32 browser
+matrix is still pending, so no complete desktop/mobile/browser PASS is claimed. See the
 [M32 deterministic evaluation](reports/m32-copyable-sql-deterministic-evaluation.md) and
-[M32 handoff](tasks/M32_HANDOFF.md).
+[canonical browser record](docs/14_BROWSER_ACCEPTANCE.md).
 
 ## Measured synthetic evidence
 
@@ -617,6 +621,7 @@ or GA gates. The public recorded judge profile remains intentionally anonymous a
 - [M35 registry-v2 change plan](plans/M35_REGISTRY_V2_CHANGE_LIFECYCLE.md)
 - [M35 accepted local handoff](tasks/M35_HANDOFF.md)
 - [Commercial support matrix and adoption plan](docs/19_COMMERCIAL_USAGE.md)
+- [Objective commercial operating model and tenant lifecycle — NO-GO draft](docs/commercial/README.md)
 - [M30 production evaluation/security plan](plans/M30_PRODUCTION_EVALUATION_SECURITY.md)
 - [M31 controlled pilot/GA-readiness plan](plans/M31_CONTROLLED_PILOT_GA_READINESS.md)
 - [Evaluation methodology](docs/15_EVALUATION.md)

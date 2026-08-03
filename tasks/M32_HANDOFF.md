@@ -134,6 +134,11 @@ SQL. No primary-flow query is executed.
 The 2026-07-30 attempt started Streamlit and passed health, but browser discovery returned `[]`.
 The manual viewport/console/interaction matrix therefore remains **not run**, not PASS.
 
+Later, on 2026-08-03, Codex completed exactly the advanced Spanish desktop happy path, recorded in
+`docs/14_BROWSER_ACCEPTANCE.md` and `tasks/M34_HANDOFF.md`. That partial observation does not change
+this milestone's original result and does not close the remaining simple, v1/v2, blocked-state,
+hostile-input, clipboard/download or 390×844 M32 matrix.
+
 ## Architecture and security review
 
 - Dependency direction: domain remains pure; application uses typed ports; adapters own

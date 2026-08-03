@@ -19,6 +19,10 @@ copy-first, aislada por cliente, sólo después de cerrar todos los P0 de M35/M3
 Sigue siendo **NO-GO hoy** y **NO-GO para GA multi-base/multi-dialecto**. Los planes ejecutables son
 [M30](../plans/M30_PRODUCTION_EVALUATION_SECURITY.md) y
 [M31](../plans/M31_CONTROLLED_PILOT_GA_READINESS.md).
+El procedimiento de roles, despliegue, onboarding, uso diario, incidentes, retirada y scorecard
+está separado en el
+[modelo operativo comercial objetivo — borrador NO-GO](commercial/README.md); documentarlo no
+prueba que esas operaciones hayan sido ejecutadas.
 
 La promesa comercial correcta es **exactitud acotada y fallo cerrado**, no “experto supremo sin
 errores”. Una consulta de 50 líneas puede ser compatible y otra de 5 líneas puede no serlo: manda
@@ -40,6 +44,20 @@ devolver una explicación sin SQL.
 | Cambio M35 | Join nuevo y reemplazo/remediación de un modelo sobre una base v2 exacta, con dependencias y joins incidentes cerrados | No permite cambio masivo, cross-connection, borrado de modelo ni activación automática |
 | Operación gestionada | Contratos locales de identidad, aislamiento, secretos, observabilidad, backup y supply chain | No equivalen a evidencia de proveedor/cluster/guardias operadas en producción |
 
+### Matriz de bases, tablas y dialectos
+
+“Multi-base” no significa lo mismo que “multi-dialecto” ni que “muchas tablas”. La promesa se
+interpreta sólo mediante esta matriz:
+
+| Escenario | Estado comercial | Condición/límite |
+|---|---|---|
+| Varios tenants, cada uno con PostgreSQL aislado | objetivo de beta, hoy NO-GO | onboarding, target binding, M30/M31 y operación independientes por tenant |
+| Miles de tablas inventariadas en un tenant | catálogo paginado disponible localmente; escala comercial no certificada | no aumenta el máximo por consulta ni elimina cuotas/capacity tests |
+| Una consulta sobre una conexión PostgreSQL | candidato acotado | máximo tres tablas y dos joins aprobados; `target_fingerprint` no nulo y confirmado antes de uso comercial |
+| Join entre conexiones o PostgreSQL distintos | no soportado | no hay federación ni autoridad semántica compartida entre conexiones |
+| Más de tres tablas o más de dos joins en una petición | no soportado | requiere contrato, fanout/coste, compilador/guard, corpus y release separados |
+| MySQL, SQL Server, Oracle, BigQuery, Snowflake u otro motor | no soportado | cada dialecto requiere implementación y certificación propias; traducir sintaxis no basta |
+
 ### Relación con el benchmark LearnSQL solicitado
 
 La referencia de nivel es
@@ -55,6 +73,20 @@ gaps-and-islands y `ROLLUP`. Este último permanece fuera hasta que un contrato 
 flags `GROUPING()` capaces de distinguir un subtotal `NULL` de un `NULL` gobernado real. El criterio
 de aceptación comercial será una matriz por familia y significado, no “genera 25 de 25” ni una
 comparación por longitud del texto SQL.
+
+| Grupo comparable del artículo | Estado verificable hoy | Puerta restante |
+|---|---|---|
+| Proyección, filtros, orden/límite | representado por el lenguaje tipado y aceptación automatizada | M30 con corpus ciego por significado |
+| Agregados, `HAVING`, `CASE` condicional y buckets | representado y compilado determinísticamente | equivalencia/oracle M30 por familia y riesgo |
+| Top-N, ranking y `NTILE` | representado por plan v2 | corpus holdout y target binding certificado |
+| Ventanas móviles, running totals, `LAG`/`LEAD` y porcentajes | representado por plan v2; un happy path avanzado desktop observado | matriz manual completa y campaña M30 |
+| `CROSS JOIN` y self join | no soportado | contrato semántico/fanout, compilador, guard y certificación futuros |
+| Subconsultas arbitrarias/correlacionadas y `INTERSECT`/set operations | no soportado | álgebra tipada y certificación futuras |
+| `ROLLUP`/`GROUPING` seguro | no soportado | política total que distinga subtotal `NULL` de dato `NULL` y nueva campaña |
+| Recursión y gaps-and-islands | no soportado | roadmap separado con límites, coste, guard y oracle propios |
+
+Esta tabla demuestra paridad parcial por familias, no cobertura literal **25/25**. Ningún grupo de
+roadmap puede venderse como disponible por producir SQL parecido o por superar cierta longitud.
 
 No están soportados como promesa comercial actual:
 
@@ -292,8 +324,9 @@ operado contra el sujeto exacto.
 El mínimo queda equilibrado en 500 casos ES y 500 EN, pero la preflight no ejecuta ese corpus ni
 demuestra sus resultados. El JSON local es sólo el marcador del bundle y enlaza el digest del
 Markdown. El código y el contrato pertenecen al mismo candidato, por lo que la autoridad real de
-la campaña deberá ser un manifiesto firmado por un propietario independiente, con casos por
-familia/riesgo e identidades exactas de artefactos, proveedor y entorno.
+la Phase 1a autentica un manifiesto atestado por el workflow con casos por familia/riesgo e
+identidades exactas de artefactos, proveedor y entorno. Eso no demuestra las firmas separadas de
+owners ni habilita ejecutar la campaña.
 
 El plan completo, corpus mínimo, métricas y umbrales están en
 [`plans/M30_PRODUCTION_EVALUATION_SECURITY.md`](../plans/M30_PRODUCTION_EVALUATION_SECURITY.md).
@@ -316,13 +349,16 @@ en [`plans/M31_CONTROLLED_PILOT_GA_READINESS.md`](../plans/M31_CONTROLLED_PILOT_
 - onboarding/offboarding de clientes, RBAC/SCIM si el segmento lo requiere, cuotas y facturación;
 - matriz de compatibilidad publicada y versionada;
 - dos personas distintas autorizan publicación/release y se prueba recuperación en destino fresco;
-- go/no-go firmado por producto, seguridad, operaciones, legal y propietario del cliente.
+- go/no-go firmado por producto, cliente, semántica, seguridad, operaciones, soporte y legal.
 
 ## Auditoría de lo que aún falta para una versión comercial
 
 | Prioridad | Brecha actual | Evidencia necesaria para cerrarla |
 |---|---|---|
 | P0 | Calidad del lenguaje natural no certificada con proveedor real | M30: corpus ciego representativo, exactitud semántica/ejecutable, rechazo seguro, adversariales, umbrales firmados y regresión por versión |
+| P0 | El despliegue production-shaped mantiene NL/IA deshabilitado | Overlay y composición M32 live tenant-bound, con proveedor/modelo/prompt exactos, secretos operados y pruebas de navegador/API sin habilitar ejecución automática |
+| P0 | El artefacto copiable no queda ligado hoy a una base concreta | `target_fingerprint`, conexión/base/schema y contrato de tipo visibles y confirmados; equivalencia exacta entre SQL parametrizado y standalone sobre dos schemas físicos distintos |
+| P0 | No hay recorrido comercial integrado ni offboarding ejecutable | Consola/API versionada para M33→M34→M23→M35→M32, runbooks operados por otra persona y retirada con exportación, revocación, retención/borrado y certificado |
 | P0 | Seguridad y operación sólo demostradas localmente | Pentest independiente, IAM exclusivo DataHub, secret manager/rotación, cluster admission/NetworkPolicy, SIEM/paging, backup/restore y simulacro de incidente operados |
 | P0 | No existe piloto real aceptado | M31 con un tenant autorizado, SLO/coste/capacidad observados, runbooks y salida/rollback firmados |
 | P0 | Falta cierre legal y de servicio | DPA, privacidad/retención/borrado, subprocesadores, residencia, soporte, SLO, facturación y go/no-go multifunción |
@@ -343,6 +379,8 @@ parte de la versión actual.
 No iniciar tráfico hasta que todos los elementos aplicables tengan evidencia enlazada.
 
 - [ ] Dialecto PostgreSQL, versión, región y contexto destino registrados.
+- [ ] `target_fingerprint` no nulo, visible y confirmado contra la conexión/base/schema exactas; la
+      revisión manual no sustituye este gate.
 - [ ] Propietarios técnico, steward, publisher, auditor y contacto de incidente asignados.
 - [ ] OIDC y grupos probados; sin usuarios compartidos ni identidad local en managed.
 - [ ] API, workers y PostgreSQL sincronizados con una fuente horaria operada; skew y alertas
@@ -354,6 +392,9 @@ No iniciar tráfico hasta que todos los elementos aplicables tengan evidencia en
 - [ ] M34 publica/read-back y M23 activa/rollbacka el registro exacto en el entorno real sin
       credencial writer en web/API.
 - [ ] Corpus M30 del alcance contractual supera umbrales acordados y pruebas adversariales.
+- [ ] Matriz M32 completa en desktop y 390×844, más versiones soportadas de
+      Chrome/Safari/Firefox/Edge y objetivo de accesibilidad, sin convertir el único happy path
+      avanzado observado en un PASS general.
 - [ ] Aislamiento tenant, IDOR, inyección, XSS, CSRF y filtración de secretos revisados.
 - [ ] Alertas, dashboards, SIEM y paging reciben eventos reales del runtime desplegado.
 - [ ] Backup firmado, restore en destino fresco y RPO/RTO medidos.
@@ -428,6 +469,10 @@ active_registry_pointer=not_configured
 automatic_activation=false
 ```
 
+Aquí `external_writes=1` es exclusivamente el contador del adaptador sintético en memoria; no
+representa una llamada, una mutación ni evidencia operada de DataHub real. En una primera creación
+real se permite exactamente una escritura; un replay/read-back exacto puede realizar cero nuevas.
+
 La prueba equivalente es
 `.venv/bin/pytest tests/acceptance/test_m34_registry_publication.py`. La evidencia en memoria no
 sustituye la integración PostgreSQL ni un DataHub/secret-manager/cluster real.
@@ -455,20 +500,21 @@ PostgreSQL/HTTP y aceptación; el criterio manual M35 exige sólo el recorrido d
 
 ## Prueba manual del nivel SQL solicitado
 
-Query Studio se probó también en el navegador interno con el runtime real de la aplicación y sus
-adaptadores recorded/fake, sin ejecución de fuente. Una petición avanzada en español pidió, por
-mes y categoría, ingresos netos, unidades y pedidos distintos, mínimo cuatro pedidos, ranking
-determinista top-3, porcentaje sobre el total elegible e ingreso acumulado. Antes de confirmar no
-había bloque SQL ni descarga. Tras confirmar se obtuvo PostgreSQL standalone de 106 líneas y 2.975
-caracteres con dos CTE, `COUNT(DISTINCT ...)`, `HAVING`, `ROW_NUMBER`, porcentaje y ventana
-acumulada, terminando en `LIMIT 100`; no contenía placeholders y `executed=false`.
+El 3 de agosto de 2026, Query Studio pasó **exactamente un happy path manual avanzado en escritorio**
+con el runtime local y adaptadores recorded/fake, sin ejecución de fuente. La petición en español
+pidió, por mes y categoría, ingresos netos, unidades y pedidos distintos, mínimo cuatro pedidos,
+ranking determinista top-3, porcentaje sobre el total elegible e ingreso acumulado. Antes de
+confirmar no había bloque SQL ni descarga. Tras confirmar se obtuvo PostgreSQL standalone de 106
+líneas y 2.975 caracteres con dos CTE, `COUNT(DISTINCT ...)`, `HAVING`, `ROW_NUMBER`, porcentaje y
+ventana acumulada, terminando en `LIMIT 100`; no contenía placeholders y `executed=false`.
 
-Una petición simple de productos activos generó un `SELECT` de una tabla con proyección, filtro,
-orden y `LIMIT 50`, también sin ejecución. La frase ambigua “Muestra las ventas por fecha” devolvió
-`date_meaning` y cero SQL/confirmación/descarga. El viewport 390×844 no presentó overflow. Esta
-evidencia prueba una familia avanzada material y el fallo cerrado de una ambigüedad; no convierte
-en soportadas las subconsultas arbitrarias, self/CROSS joins, `INTERSECT`, recursión o `ROLLUP` del
-benchmark externo.
+Los recorridos simple y ambiguo están cubiertos por aceptación automatizada, no por esa sesión
+manual. La matriz M32 restante —simple, v1/v2, stale, physical-only, unsupported, inyección,
+provider failure, clipboard/download, foco, overflow y viewport 390×844— sigue pendiente. La
+fuente canónica es [`docs/14_BROWSER_ACCEPTANCE.md`](14_BROWSER_ACCEPTANCE.md), que conserva el
+estado parcial y prohíbe convertir este único happy path en un PASS desktop/mobile completo. Esta
+evidencia parcial no convierte en soportadas las subconsultas arbitrarias, self/CROSS joins,
+`INTERSECT`, recursión o `ROLLUP` del benchmark externo.
 
 ## Cómo interpretar una consulta solicitada
 

@@ -152,7 +152,8 @@ SQL families return no SQL. Operated M29 controls, M30 blind bilingual quality/s
 large-scale customer evidence, legal/service controls and separate certification for every future
 dialect remain mandatory.
 
-M30 Phase 0 is implemented locally under D130; M30 itself is not accepted. The exact machine
+M30 Phase 0 and the fail-closed Phase-1a manifest-authentication vertical are implemented locally
+under D130/D132; M30 itself is not accepted. The exact machine
 contract now fixes the PostgreSQL typed-plan-v2 copy-first SKU, one connection/three tables/two
 joins, request/window/context/preview/timeout/`NULL`/fanout limits, supported and unsupported
 families, five corpus classes totalling 500 Spanish plus 500 English cases, zero-tolerance and
@@ -169,6 +170,26 @@ tagged, built and attested on its exact subject before a blind campaign may star
 The local implementation gate passes 3,931 tests with 246 explicit deselections; the runtime wheel
 validates migrations 1–15 and all entrypoints. Independent post-remediation review reports P0=0,
 P1=0 and P2=0. None of those local facts satisfies an external M30 control.
+
+Phase 1a adds canonical external JSON, a structural schema plus authoritative validator, exact
+artifact/provider/target/corpus/owner/control freezes and workflow-attested byte authentication.
+Every corpus slice is equally Spanish/English and every supported advanced family now has
+standard/high/critical cases, preventing monolingual slices and a vacuous critical threshold. The
+split workflow SHA-256 is
+`8944a48a3a14fe0c2aca4edca2d0a7bed00d0a0ce7fc699f5ff420ff5668d3d0`; candidate code runs only in
+the read-only validation job. The signing job never checks out or executes candidate code. The
+detached-bundle verifier pins exact GitHub attestation facts and official platform-specific `gh`
+2.96.0 executable bytes, records verifier/bundle/certificate/timestamp hashes and uses private
+snapshots plus sanitized config. Even success is only workflow-attested bytes:
+`campaign_executable=false`, `release_decision=no_go`, zero controls passed and 24 remaining.
+
+The final isolated Phase-1a local gate passes Ruff format/lint, strict mypy over 364 source files,
+the isolated performance node and 3,988 functional tests with 248 explicit deselections in
+1,132.41 seconds. An earlier contended full-gate attempt had one transient
+`inspect.getsource(build_api_http_services)` assertion after 3,967 passes; its exact test and all
+13 tests in that module passed unchanged before the clean full rerun. Focused M30, commercial,
+supply-chain, corpus-mutation and acceptance regressions also pass. This is local implementation
+evidence only and does not satisfy any of the 24 external M30 controls.
 
 Phase 0 commit `c7e72cc97e4226b2d953f5c1e8ef55178a1598f5` and warmup commit
 `3f57a2ea89220ff0c68ac58f0f8e668069e93f81` are published on
@@ -196,7 +217,10 @@ non-performance harness tests include tracked-format-v2 rendering compatibility.
 scale/release/evaluation tests pass 42, and `make test-scale-correctness` passes 29 tests with 1
 deselection followed by 8 tests with 4 deselections. Final `make check` passes the isolated node
 plus 3,933 functional tests with 247 explicit deselections in 943.82 seconds; supply-chain, release
-audit, Ruff and mypy pass. Only the commit-bound hosted rerun remains pending at this snapshot. The
+audit, Ruff and mypy pass. Hosted PR run `30826970514` later passed quality, PostgreSQL integration
+and supply chain for branch head `e49e5d7d52f9e4005e4d469b24e7b23797a59aeb`, but the executed
+evaluation subject was PR merge ref `43b4c21676c7bbffaa7b81c2e98d398692e43e8f`; it predates
+Phase 1a and is not exact candidate evidence. The
 explicit 5,000-read
 concurrency-16 PostgreSQL benchmark remains the authoritative operated gate, and
 production/release remain NO-GO.
@@ -1903,8 +1927,10 @@ protected release provenance, M30, and M31 still require separate acceptance.
 M32 — bounded simple/advanced natural language to standalone PostgreSQL — is complete and accepted
 locally under D125. Its deterministic language, retrieval, v1/v2, compiler, independent guard,
 copy renderer, CLI/Streamlit, acceptance, optional read-only PostgreSQL, and global quality gates
-pass. Manual browser evidence, a live-provider holdout campaign, other SQL dialects/destination
-databases, M30 production evaluation/security verification, and M31 pilot/GA remain open.
+pass. A later manual session passed exactly one advanced desktop happy path; the remaining M32
+desktop/mobile and blocked-state matrix, a live-provider holdout campaign, other SQL dialects/
+destination databases, M30 production evaluation/security verification, and M31 pilot/GA remain
+open.
 M33 — generic governed semantic onboarding — is complete and accepted locally under D126. Its
 exact preflight, tenant-bound schema-v13 persistence, explicit decisions, identity-lineage replay,
 distinct-publisher handoff, focused/PostgreSQL/acceptance tests, independent P0/P1=0 review, final
@@ -1919,9 +1945,14 @@ locally under D129. Its schema-v15 authoring/profile authority, exact M34 public
 replacement witness/handoff, HTTP/PostgreSQL/backup/acceptance/browser/full gates and retained
 commercial limitations are recorded in `tasks/M35_HANDOFF.md`. M30 remains blocked on operated
 M29 prerequisites and live evaluation/security inputs; production/release remain NO-GO.
-M30 Phase 0 now provides the exact offline candidate-readiness contract and NO-GO report under
-D130. The campaign remains blocked on an exact clean tagged main candidate, exact-subject hosted
-artifacts, the blind corpus, operated target controls, independent assessment and owner signatures.
+M30 Phase 0 plus the Phase-1a local candidate provide the exact offline candidate-readiness
+contract, NO-GO report, canonical manifest validator and workflow-attested byte authenticator under
+D130/D132, and pass the final current-byte local gate. That does not accept M30. The current
+development preflight reports four repository failures, 24 missing external controls and 37 exact
+source digests. GitHub `main` remains unprotected with zero environments/rulesets/tags, so the
+attestation workflow must not be dispatched. Campaign remains blocked on an exact clean tagged-main
+candidate, exact-subject hosted artifacts, the blind corpus, operated target controls, independent
+assessment and owner signatures.
 M17/M18 release work remains independently blocked on a reviewed clean commit, strict
 `make release-clean`, exact-commit deployment, public/incognito and cold-start evidence, final
 media/links/checksums, and external reviewer sign-off.

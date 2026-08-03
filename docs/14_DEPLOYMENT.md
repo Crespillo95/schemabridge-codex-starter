@@ -1153,8 +1153,8 @@ M28_POST_FIX_MAKE_CHECK=PASS_2714
 M28_POST_FIX_COVERAGE=PASS_81.76_PERCENT
 ```
 
-Local M28 acceptance did not itself start M29 and was not a production deployment GO. M29 is now
-in progress, while operated external
+This paragraph records the historical M28 handoff; M29 is now accepted locally, not operated in a
+production target. Operated external
 secrets, rotation/revocation, TLS/NetworkPolicy, metrics/logs/traces/SIEM, alerts and runbooks,
 production replica/traffic/tenant scale, availability/SLOs, backup/restore and HA/DR drills,
 provider/legal governance, real-tenant metadata evaluation, penetration/security review, a clean
@@ -1172,10 +1172,11 @@ signed release identity, and M29–M31 remain required.
 
 ## M29 production-shaped deployment profile
 
-`deploy/kubernetes/m29` is the canonical M29 deployment contract. Its base contains seven
-long-running workloads—web, API, execution worker, catalog, profile, reconciler, and observer—with
-distinct service accounts and control identities. Connector workload identity exists only for web
-preflight, execution, catalog, and profile. Six internal metrics targets use port `9464`; API
+`deploy/kubernetes/m29` is the canonical M29 deployment contract. Its base contains eight
+long-running workloads—web, API, execution worker, publisher, catalog, profile, reconciler, and
+observer—with distinct service accounts and control identities. Capability-scoped workload
+identity exists only where composed; publisher material never enters web/API. Seven internal
+metrics targets use port `9464`; API
 business traffic remains on `8520` and does not serve `/metrics`. The same base contains one
 hourly bounded backup CronJob with its own read-only control identity and one PrometheusRule with
 only producer-backed active alert groups. The active alert expressions are the canonical PromQL
@@ -1186,7 +1187,7 @@ uncomposed metrics, or a PrometheusRule that differs from the canonical group.
 
 There is no composed OTLP exporter in M29. The base intentionally has neither an
 OpenTelemetry-collector peer nor TCP/4317 egress, and the rendered validator rejects adding one.
-Structured JSON remains a bounded local process output and metrics are pulled through the six
+Structured JSON remains a bounded local process output and metrics are pulled through the seven
 allowlisted `ServiceMonitor` targets. OTLP egress may be introduced only with a reviewed exporter,
 destination authentication, buffering/loss accounting, sanitized payload tests, and operated
 delivery evidence.
@@ -1233,10 +1234,13 @@ The web ConfigMap explicitly sets execution and publication to `disabled`. Query
 useful for bounded field matching, active-registry resolution, deterministic compilation,
 independent SQL validation, and cost preflight, while the web pod receives no execution or DataHub
 writer credential. The authenticated API and execution worker already provide a queued execution
-boundary, but this release has no Streamlit-to-API submission client. It also has no typed durable
-publication approval queue or dedicated publisher worker. Treat both web actions as NO-GO until
-those separately reviewed lanes are implemented; never work around the boundary with `live` or
-recorded/fake production modes.
+boundary, but this release has no Streamlit-to-API submission client. M34 now provides a typed
+durable registry-publication approval queue and a dedicated publisher worker that stops at
+`activation_ready`; M35 reuses that isolated lane for approved registry-v2 changes. Neither lane is
+wired into one commercial Streamlit console, and the local/synthetic read-back does not prove
+target DataHub IAM, secrets, cluster operation or separate M23 activation. Treat browser execution,
+browser publication and automatic activation as NO-GO; never work around the boundary with `live`
+or recorded/fake production modes.
 
 Control schema v11 separates each private provider version from the public connector
 `route_revision`. Roll out migration `0011_connector_secret_versions.sql` before the binaries that

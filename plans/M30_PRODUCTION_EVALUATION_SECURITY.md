@@ -2,8 +2,9 @@
 
 ## Status
 
-- State: Phase 0 candidate-readiness contract implemented locally; campaign execution blocked
-  until the operated M29 prerequisites and independent evaluation inputs exist
+- State: Phase 0 and the Phase-1a manifest authenticator/workflow are locally prepared and pass the
+  final current-byte gate; no externally authenticated manifest or operated receipt exists, so
+  M30, campaign and release remain blocked
 - Release decision: **NO-GO**
 - Candidate SKU: PostgreSQL copy-first private beta, isolated per customer
 - Depends on: accepted M29 contracts in the target environment and accepted M35 registry lifecycle
@@ -39,7 +40,7 @@ schema size per query, or support for families absent from the typed language.
 
 ## Frozen inputs
 
-Before campaign execution, release engineering records and signs:
+Before campaign execution, release engineering records a workflow-attested freeze:
 
 - commit, lockfile, container and wheel digests;
 - PostgreSQL, DataHub and browser versions;
@@ -48,7 +49,8 @@ Before campaign execution, release engineering records and signs:
 - supported/unsupported SQL-family matrix;
 - corpus manifest and hidden answer-key digest;
 - target environment, IAM grants, NetworkPolicy, secret versions and observability endpoints;
-- owners for product, data semantics, security, operations and release approval.
+- six named authorities: product, data semantics, security, operations, release and independent
+  evaluation. Naming an authority or its key fingerprint is not its signature.
 
 Changing any frozen input invalidates the campaign or starts a separately identified run.
 
@@ -79,12 +81,131 @@ gitlink objects and unexpected migrations; hashes tracked worktree bytes/modes w
 filters; and rechecks HEAD/tree/branch/tags/index/worktree before returning. JSON is written last
 as the report-bundle commit marker and binds the Markdown digest.
 These controls still do not create an external trust root: the candidate contains this code and
-contract. Phase 1 therefore requires the separately authorized signed campaign manifest before
-any corpus runner may consume the freeze.
+contract. Phase 1a therefore authenticates a separately workflow-attested manifest; it still does
+not permit a corpus runner to touch provider, source or target.
 
 The Phase 0 contract requires every named SQL family and balanced language/class totals. The
-future signed corpus manifest must additionally freeze exact per-family/risk counts and case IDs;
+Phase-1a corpus manifest additionally freezes exact per-family/risk counts and case IDs;
 Phase 0 cannot run or accept the campaign until that independently owned manifest exists.
+
+### Phase 1a authenticated campaign manifest
+
+Phase 1a defines canonical JSON frozen inputs and authenticates their exact bytes with GitHub
+Artifact Attestations. The manifest binds the complete Phase-0 candidate observation, contract/SKU,
+wheel/image/SBOM/provenance/frozen-requirements digests, provider/model/config/prompt/parameters,
+target versions/IAM/network/secrets/observability, corpus/IDs/hidden-answer-key/oracle digests,
+balanced class/language/family/risk slices, six owner authorities and all 24 control assignments.
+It has an exact UTC window of at most 30 days.
+
+Every slice is exactly balanced between Spanish and English. Simple families are `standard`;
+every advanced family appears once at each of `standard`, `high` and `critical`; ambiguity is
+`cross_family/high`, every unsupported family is `high`, and adversarial security is
+`security/critical`. This prevents both monolingual family slices and a vacuous “zero critical
+semantic failures” threshold.
+
+The manual workflow `.github/workflows/m30-manifest-attestation.yml` accepts only public canonical
+manifest bytes and may run only from an existing annotated stable tag whose commit is protected
+`main`; it validates that requirement, processes the manifest outside the checkout and creates a
+GitHub-hosted SLSA provenance attestation. The dedicated
+`m30-manifest-attestation` environment **must** have independent required reviewers, self-review
+and administrator bypass disabled, no secrets, and retained deployment evidence. Those settings,
+tag/default-branch protection and exclusive authority remain unproven external prerequisites; do
+not dispatch without them. Canonical bytes are capped at 45 KiB so their 61,440-character base64 encoding stays
+below GitHub's aggregate dispatch-input limit; no raw case, answer key, secret, SQL or row belongs in
+the workflow input.
+
+After the external environment/tag protections have been evidenced, a second operator uses the
+following sequence from a clean, tagged `main` checkout. Every path below is outside the candidate;
+the manifest contains only public, opaque identifiers and digests. The operator creates the
+canonical JSON against the candidate-generated schema, validates it locally, dispatches the exact
+tag, and records the returned run from the run listing in the change record:
+
+```bash
+M30_REPOSITORY='Crespillo95/schemabridge-codex-starter'
+M30_EVIDENCE_DIR='/external/evidence/m30'
+M30_MANIFEST="$M30_EVIDENCE_DIR/m30-campaign-manifest.json"
+M30_SCHEMA="$M30_EVIDENCE_DIR/m30-campaign-manifest.schema.json"
+M30_REVISION="$(git rev-parse HEAD)"
+M30_TAG="v$(.venv/bin/python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+
+make m30-manifest-schema > "$M30_SCHEMA"
+# Independently populate M30_MANIFEST; the schema never supplies owner approval or hidden cases.
+make m30-manifest-validate M30_MANIFEST="$M30_MANIFEST"
+M30_MANIFEST_B64="$(.venv/bin/python -c 'import base64,pathlib,sys; print(base64.b64encode(pathlib.Path(sys.argv[1]).read_bytes()).decode("ascii"))' "$M30_MANIFEST")"
+gh workflow run m30-manifest-attestation.yml \
+  --repo "$M30_REPOSITORY" \
+  --ref "$M30_TAG" \
+  -f release_tag="$M30_TAG" \
+  -f manifest_base64="$M30_MANIFEST_B64"
+unset M30_MANIFEST_B64
+gh run list \
+  --repo "$M30_REPOSITORY" \
+  --workflow m30-manifest-attestation.yml \
+  --branch "$M30_TAG" \
+  --event workflow_dispatch \
+  --limit 10 \
+  --json databaseId,headSha,headBranch,createdAt,status,url
+```
+
+The operator selects only the just-dispatched row whose `headSha` equals `M30_REVISION`, records
+its ID/URL, and then retrieves the exact run, actor and attestation. Do not derive the ID from
+“latest” in unattended automation:
+
+```bash
+M30_RUN_ID='<recorded workflow run databaseId>'
+gh run view "$M30_RUN_ID" --repo "$M30_REPOSITORY" \
+  --json attempt,event,headBranch,headSha,status,conclusion,url
+gh api "repos/$M30_REPOSITORY/actions/runs/$M30_RUN_ID" \
+  --jq '{actor: .actor.login, actor_id: .actor.id, triggering_actor: .triggering_actor.login}'
+gh run watch "$M30_RUN_ID" --repo "$M30_REPOSITORY" --exit-status
+M30_RUN_ATTEMPT="$(gh run view "$M30_RUN_ID" --repo "$M30_REPOSITORY" --json attempt --jq '.attempt')"
+M30_RUN_DIR="$M30_EVIDENCE_DIR/run-$M30_RUN_ID-attempt-$M30_RUN_ATTEMPT"
+mkdir -m 0700 "$M30_RUN_DIR"
+gh run download "$M30_RUN_ID" --repo "$M30_REPOSITORY" \
+  --name "m30-campaign-manifest-$M30_REVISION-$M30_RUN_ID-$M30_RUN_ATTEMPT" \
+  --dir "$M30_RUN_DIR"
+M30_DOWNLOADED_MANIFEST="$M30_RUN_DIR/m30-campaign-manifest.json"
+cmp -s "$M30_MANIFEST" "$M30_DOWNLOADED_MANIFEST"
+M30_MANIFEST_SHA256="$(shasum -a 256 "$M30_DOWNLOADED_MANIFEST" | cut -d' ' -f1)"
+(cd "$M30_RUN_DIR" && gh attestation download "$M30_DOWNLOADED_MANIFEST" \
+  --repo "$M30_REPOSITORY" \
+  --predicate-type 'https://slsa.dev/provenance/v1' \
+  --limit 1)
+M30_BUNDLE="$M30_RUN_DIR/sha256:$M30_MANIFEST_SHA256.jsonl"
+make m30-authenticate-manifest \
+  M30_MANIFEST="$M30_DOWNLOADED_MANIFEST" \
+  M30_ATTESTATION_BUNDLE="$M30_BUNDLE" \
+  M30_AUTHENTICATION_OUTPUT="$M30_RUN_DIR/authentication"
+```
+
+If the run must be retried, rerun **all** jobs with `gh run rerun "$M30_RUN_ID"`; never use
+`--failed`, because the artifact name is bound to `run_attempt` and `sign` cannot reuse a prior
+attempt's validation artifact.
+
+The two report files are `authentication.json` and `authentication.md`. Validation or
+authentication exit `0` only for their bounded success, `2` for a blocked candidate/manifest, and
+`3` for malformed/unavailable evidence, provider failure or report-write failure. The operator
+retains the schema, original/downloaded manifest digests, run metadata, detached bundle and both
+reports under the tenant evidence-retention policy; they are not committed to the repository.
+
+The verifier requires an official-release, platform-specific byte-pinned GitHub CLI 2.96.0
+executable (archive and binary checksums are in the runbook), repository and signer workflow identity, candidate
+revision as source/signer digest, exact tag ref, GitHub OIDC issuer, SLSA predicate, hosted runner,
+detached bundle and at least one cryptographically verified log/TSA timestamp. `--bundle` avoids an attestation API lookup,
+but GitHub CLI can still bootstrap/update its trusted root; this is not an air-gapped verification
+claim. Inputs are bounded regular non-symlink files outside the repository, copied into private
+owner-only snapshots for verification and reread before/after to reject TOCTOU. There is no
+key/issuer, unattested, `status`, `report-only` or bypass argument. The report binds hashes of the
+official verifier executable plus its platform, bundle, certificate evidence, verification summary
+and trusted timestamps; it does not call a TSA timestamp “transparency” or count owner fingerprints
+as owner signatures.
+
+Success means only `workflow_attested_manifest_authenticated=true` and
+`campaign_executable=false`. Provider, source, target and corpus execution stay blocked, release
+remains `no_go`, synthetic evidence is not accepted, material controls passed remain `0` and all 24
+controls remain unadjudicated. Phase 1b must define control-specific authenticated receipts,
+prerequisite ordering and deterministic adjudicators; a signed `claimed_outcome=passed` can never be
+sufficient by itself.
 
 ## Blind bilingual evaluation
 
@@ -171,14 +292,17 @@ artifacts.
 
 ## Required artifacts
 
-- signed campaign manifest and immutable raw-result bundle;
+- workflow-attested campaign manifest and immutable raw-result bundle;
+- separate candidate-specific approvals from product, semantic, security, operations and release
+  owners; the independent evaluator signs/adjudicates its corpus and equivalence evidence but cannot
+  replace an owner approval;
 - bilingual corpus report with per-slice failures and adjudication trail;
 - PostgreSQL execution-equivalence and AST-safety report;
 - scale/cost envelope and proposed quotas;
 - independent penetration-test attestation and remediation evidence;
 - IAM, secrets, network, SIEM, backup/restore and incident-drill evidence;
 - browser/accessibility compatibility report;
-- release risk register and product/security/operations go/no-go signatures.
+- release risk register and product/semantic/security/operations/release go/no-go signatures.
 
 ## Acceptance criteria
 
@@ -188,7 +312,8 @@ artifacts.
 4. M35 replacement/remediation, publication and separate activation paths are in the campaign.
 5. The scale envelope names what was tested and does not extrapolate beyond it.
 6. Documentation, UI and sales claims match the measured PostgreSQL contract.
-7. Product, security, operations and semantic owners sign one candidate-specific decision.
+7. Product, semantic, security, operations and release owners sign one candidate-specific
+   decision; the independent evaluator separately signs its adjudication evidence.
 
 Failure keeps release **NO-GO**. Fixing a failure creates a new candidate and reruns every affected
 campaign slice; a changed model/prompt/compiler/guard always reruns the complete language and
@@ -196,7 +321,8 @@ safety corpus.
 
 ## Operator sequence
 
-1. Freeze and sign the candidate and campaign manifest.
+1. Freeze the candidate, authenticate the workflow-attested campaign manifest and retain the
+   independent environment-review evidence; this does not yet authorize campaign execution.
 2. Restore the clean-room environment and migrate a fresh control plane.
 3. Verify IAM, network and secret boundaries before loading corpus metadata.
 4. Run deterministic unit/integration/acceptance gates.
