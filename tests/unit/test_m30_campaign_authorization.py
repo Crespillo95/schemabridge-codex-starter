@@ -426,7 +426,12 @@ def test_authorization_report_writer_is_stable_and_external_overwrite_fails(
 
     assert first == second
     payload = json.loads(first[0].read_text(encoding="utf-8"))
+    markdown = first[1].read_text(encoding="utf-8")
     assert payload["report_sha256"] == report.fingerprint()
+    assert payload["report"]["schema_version"] == 2
+    assert report.completed_at.isoformat() in markdown
+    assert report.control_policy_id in markdown
+    assert report.control_policy_sha256 in markdown
     first[1].write_text("different\n", encoding="utf-8")
     with pytest.raises(ProductionEvidenceError) as overwrite:
         writer.write(report, output)

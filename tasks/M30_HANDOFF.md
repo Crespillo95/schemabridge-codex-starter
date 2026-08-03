@@ -2,15 +2,15 @@
 
 ## Summary
 
-- Milestone: M30 — Production evaluation and security verification, Phase 0 + Phase 1a + schema-v2
-  qsp3 target-bound copy-SQL hardening
-- Status: partial; preparation/authentication and qsp3 target binding are implemented locally, with
-  focused evidence passing while the final exact-current-byte `make check`, managed/operated browser
-  campaign and all external campaign evidence remain pending or blocked
+- Milestone: M30 — Production evaluation and security verification, Phase 0 + Phase 1a + fail-closed
+  Phase 1b policy preparation + schema-v2 qsp3 target-bound copy-SQL hardening
+- Status: partial; preparation/authentication and qsp3 target binding are implemented locally and
+  the full local implementation gate passes, while the managed/operated browser campaign and all
+  external campaign evidence remain pending or blocked
 - Recommended operator decision: publish only to draft PR #1 for review; do not merge, tag or
   dispatch Phase 1a, and retain M30, pilot, commercial availability, production and release
   **NO-GO**
-- Proposed commit message: `feat: bind governed copy SQL to current target`
+- Proposed commit message: `feat: harden governed SQL target and M30 policy`
 - GitHub delivery: update draft PR #1 on `agent/ignore-node-modules`; do not merge or tag
 
 ## Implemented
@@ -42,9 +42,15 @@
 - Added deterministic JSON/Markdown reports under the exact ignored local path or a new external
   destination. Success always retains `campaign_executable=false`, `release_decision=no_go`,
   `external_controls_passed=0` and `external_controls_remaining=24`.
-- Held the exploratory Phase-1b policy/receipt draft out of the publishable candidate after
-  independent P1 review found self-assertable PASS objects, no trusted clock/anti-replay ledger and
-  a same-UID path race. No Phase-1b code or PASS claim is included as evidence.
+- Added the remediated Phase-1b policy-preparation boundary under D135. Manifest schema v2 binds one
+  canonical external policy that freezes all 24 controls, their exact DAG, receipt kinds, evidence
+  subjects, immutable producer workflows, authorization stages and five-role quorum. The composed
+  CLI only validates that binding and always returns trust/authentication false, 0/24, no
+  capabilities and `no_go`; the receipt adjudicator remains uncomposed.
+- Closed the first draft's direct hazards: canonical hashes are internal, GitHub workflow identity
+  is case-insensitive, retries remain attempt 1 pending a ledger, prerequisites carry exact
+  campaign/manifest/policy bindings, and Phase-1a/1b completion times reject rollback and receipts
+  that predate authentication.
 - Added a mandatory managed semantic/target boundary: staging/production gates the complete active
   registry through M26 before target/provider access, gates selected dependencies after
   interpretation/at confirmation/before generation and then resolves the exact current registry-v2
@@ -74,7 +80,11 @@
   contracts.
 - `plans/M30_CAMPAIGN_CONTRACT.yml`, `src/schemabridge/domain/production_readiness.py` and
   `tests/unit/test_m30_readiness.py`: schema-v2 managed copy-SQL contract and weakening regressions;
-  the reviewed candidate source inventory remains 37.
+  the reviewed candidate source inventory is 41.
+- `src/schemabridge/domain/production_campaign_receipts.py`,
+  `src/schemabridge/application/production_control_policy.py`,
+  `scripts/m30_validate_control_policy.py`, `docs/20_M30_PHASE1B_CONTROL_POLICY.md` and their tests:
+  closed policy/DAG contracts, fail-closed validation/reporting and the explicit operator boundary.
 - `src/schemabridge/domain/advanced_query_studio.py`,
   `src/schemabridge/application/natural_sql.py`,
   `src/schemabridge/application/ports/advanced_query_studio.py`,
@@ -93,7 +103,7 @@
   unit/acceptance/Streamlit cuts: exact target propagation, route drift, substitution,
   cross-connection and unavailable-target failures.
 - `tasks/CURRENT_TASK.md`, `tasks/PROJECT_STATE.md`, `tasks/WORK_QUEUE.md`, `tasks/M30_HANDOFF.md`
-  and `tasks/DECISION_LOG.md`: current candidate state, bounded local evidence and D132/D133.
+  and `tasks/DECISION_LOG.md`: current candidate state, bounded local evidence and D132–D135.
 
 ## Commands executed
 
@@ -121,10 +131,14 @@
 | Streamlit copy-first selection | pass | 4 passed, including purge after managed target rotation |
 | Consolidated M26/qsp3/M32 selection | pass | 124 passed in 6.82 seconds |
 | Schema-v2 M30 readiness/campaign selection | pass | 103 passed in 89.65 seconds |
+| `.venv/bin/pytest -q -k m30` | pass | 145 passed, 4,149 deselected in 231.27 seconds on the remediated Phase-1b bytes |
+| Phase-1b policy unit/acceptance selection | pass | 32 passed; policy preparation only, no receipt/control accepted |
+| Independent Phase-1b final review | pass with known P2 | P0=0/P1=0 on composed surface; pathname race requires dirfd/openat before authority |
 | Qsp3/contract focal format, Ruff and mypy | pass | Seven qsp3 source files plus the contract model pass |
 | `git diff --check` | preliminary pass | Current qsp3 implementation/state bytes pass; rerun after final consolidation |
 | Codex in-app-browser local/recorded subset | bounded pre-final observation | Advanced desktop, 390×844 no-overflow and `date_meaning`; clean console; not managed/final-byte evidence |
-| Final exact-current-byte qsp3 `make check` | **PENDING** | Must complete on the exact publishable snapshot before upload |
+| Final Codex in-app-browser retry | unavailable | Runtime connected, but browser inventory was empty; no substitute browser used and no PASS claimed |
+| Final implementation-snapshot `make check` | pass | Supply-chain/release audit, Ruff, Mypy over 366 source files, performance and 4,044 functional tests pass; 250 deselected in 1,176.63 seconds |
 
 ## Automated test results
 
@@ -132,12 +146,13 @@
   M30/commercial/supply-chain selection, 19 in the final verifier/CLI/workflow selection, 4
   commercial-documentation contracts and the final corpus mutation regression. Current qsp3 cuts
   pass 16 specific, 74 broad, 96 with M26/governed execution/recipes, four Streamlit and 124 in the
-  consolidated selection. Schema-v2 M30 contract/readiness/campaign passes 103.
-- `make check`: the isolated 3,988-test pass predates the final trust, clock and verifier-TOCTOU
-  closures. The exact final-byte local attempt reached 65% with no recorded assertion failure but
-  was terminated by the execution environment, so it is not a pass. The exact current-byte focal
-  selection passes 52 tests with 158 deselections. The qsp3 changes have no final
-  exact-current-byte `make check` yet; exact-head hosted CI also remains pending.
+  consolidated selection. Schema-v2 M30 contract/readiness/campaign passes 103; the exact current
+  M30 cut passes 145 and the focused Phase-1b policy selection passes 32.
+- `make check`: after the historical incomplete attempts, the final implementation snapshot passes
+  supply-chain/release audit, formatting, Ruff, strict Mypy over 366 source files, the isolated
+  performance node and 4,044 functional tests with 250 deselections in 1,176.63 seconds. Only this
+  handoff Markdown is updated afterward; its dedicated documentation/diff checks are recorded
+  separately. Exact-head hosted CI remains pending.
 - Integration tests: Phase 1a adds no service adapter. Qsp3 composes the governed execution-target
   resolver in managed mode and exercises exact synthetic registry-v2 target contracts, but no
   operated destination receipt exists; old hosted PostgreSQL evidence for a prior PR merge subject
@@ -150,8 +165,8 @@
   advanced desktop path, 390×844 no-overflow and `date_meaning` ambiguity with empty warning/error
   console, 106 SQL lines only after confirmation, no placeholders, download visible,
   `Ejecutado=No`, `Sin ligar` and non-commercial warning. Post-remediation managed rotation is
-  AppTest only. A current-final-byte managed/operated browser PASS and integrated commercial surface
-  remain absent.
+  AppTest only. The 2026-08-03 final retry found an empty in-app-browser inventory. A
+  current-final-byte managed/operated browser PASS and integrated commercial surface remain absent.
 
 ## Operator manual test
 
@@ -164,6 +179,8 @@ Qsp3 local/recorded observation completed pre-final; managed/operated verificati
   warnings/errors were empty;
 - post-remediation automation: four Streamlit AppTests include target rotation after an artifact and
   prove SQL/download are purged with a sanitized error;
+- the final Codex in-app-browser retry connected to its runtime but exposed no browser instance, so
+  it could not execute the managed matrix and was not replaced with another browser surface;
 - this does not prove current-final-byte managed or operated behavior.
 
 Remaining managed procedure:
@@ -207,6 +224,16 @@ Exit `0` authenticates/validates only the bounded Phase-1a subject; `2` is block
 invalid/unavailable evidence, trust-provider or report-write failure. No code path authorizes
 provider/source/target/corpus access, production or release.
 
+Phase-1b policy preparation — also not a receipt or dispatch authority:
+
+1. Obtain the authenticated Phase-1a manifest/bundle plus canonical policy from the future
+   independent authority, all outside the checkout.
+2. Run `make m30-control-policy-schema` for the structural schema, then
+   `make m30-control-policy-validate` with `M30_MANIFEST`, `M30_ATTESTATION_BUNDLE` and
+   `M30_CONTROL_POLICY` set to those exact files.
+3. Inspect both reports and require policy bound true, external trust/authentication false, 0/24,
+   `campaign_executable=false` and `no_go`. Any claim that this passes a control is invalid.
+
 ## Architecture and security review
 
 - Dependency direction: domain remains pure; application depends on protocols; filesystem/GitHub
@@ -221,16 +248,16 @@ provider/source/target/corpus access, production or release.
   fingerprint; route drift, target substitution and cross-connection resolution fail before SQL is
   exposed, and later UI reruns purge a retained artifact on drift.
 - DataHub mutation approval: no DataHub port or writer credential is composed.
-- Receipt trust: no Phase-1b policy/receipt implementation is included. The exploratory draft was
-  rejected because caller-built authentication literals/digests/booleans could represent PASS
-  without authenticated raw measurement, trusted time or a durable replay ledger.
+- Receipt trust: Phase 1b composes policy validation only. The pure contract-level receipt model/
+  adjudicator has no port, adapter or CLI path; caller-built authentication literals and signed
+  booleans are not operated evidence and cannot enable a capability.
 - Secrets/proprietary data: workflow input permits only public opaque IDs, versions and digests;
   raw cases, answer key, prompts, SQL, rows, credentials and protected topology are forbidden.
 - Fanout/semantic risks: the existing one-connection/three-table/two-join boundary is frozen; exact
   language/family/risk slices prevent aggregate scores from hiding a missing critical family.
-- Independent review: qsp3 reports P0=0/P1=0. The excluded Phase-1b draft reports no composed P0 and
-  multiple P1 findings. The four official GitHub
-  CLI 2.96.0 archive/binary digests were checked against the release artifacts, while the local
+- Independent review: qsp3 and the remediated composed Phase-1b surface report P0=0/P1=0. Phase 1b
+  retains one P2 pathname race and may not become authority before dirfd/openat hardening. The four
+  official GitHub CLI 2.96.0 archive/binary digests were checked against the release artifacts, while the local
   acceptance still substitutes the verifier response. Real Artifact Attestations → detached bundle
   → byte-pinned CLI interoperability remains external evidence, not an M30 control for this
   candidate.
@@ -255,6 +282,11 @@ provider/source/target/corpus access, production or release.
 - Reason: policy chosen by the candidate, replayable attempts and caller-supplied signed facts do
   not prove truthful independent measurement.
 - Logged in: D134.
+- Decision: publish only the remediated canonical policy-preparation boundary; retain receipt
+  adjudication and every capability as uncomposed.
+- Reason: the binding/DAG/report are useful and fail closed after remediation, while independent
+  trust, raw measurement, replay safety and filesystem authority are still absent.
+- Logged in: D135, which supersedes D134 only for policy validation.
 
 ## Known limitations or unverified items
 
@@ -263,17 +295,21 @@ provider/source/target/corpus access, production or release.
   exist.
 - No exact clean tagged candidate, final-candidate hosted CI/SBOM/provenance, authenticated Phase-1a
   manifest or control receipt exists.
-- Phase 1b remains unimplemented. It needs an independently controlled trust root, cryptographic
-  verifier over canonical raw snapshots, trusted time and durable compare-and-swap replay ledger
-  before any deterministic control-specific adjudicator can be accepted.
+- Phase-1b policy preparation is implemented, but receipt authentication/adjudication remains
+  uncomposed. It needs an independently controlled trust root, cryptographic verifier over
+  canonical raw snapshots, trusted time and a durable compare-and-swap replay ledger before any
+  deterministic control-specific adjudicator can be accepted.
 - Same-UID precheck/process/postcheck replacement is a residual local threat-model limitation; it
   cannot enable campaign/release in Phase 1a, but must be removed or independently sandboxed before
   reusing this boundary as execution authority.
+- Phase-1b external read/report paths still operate by checked pathname. Replace them with
+  per-component `openat`/dirfd + `O_NOFOLLOW` and same-dirfd atomic rename/fsync before those
+  artifacts are consumed as commercial authority.
 - The 1,000-case blind corpus, exact provider/target operation, equivalence, scale/soak,
   browser/accessibility, IAM/network/secrets/SIEM/restore, pentest and owner decisions are absent.
 - The pre-final local/recorded browser observation and post-remediation AppTest are not a
-  current-final-byte managed/operated browser PASS. Final exact-current-byte `make check` is still
-  pending.
+  current-final-byte managed/operated browser PASS. The full local implementation gate passes, but
+  browser evidence remains separate.
 - PostgreSQL is the only output dialect. Arbitrary SQL, cross-database portability, federation,
   more than three tables/two joins and unsupported families are not certified.
 - Managed staging/production now rejects an absent or stale target binding. Local/recorded mode may
@@ -286,16 +322,16 @@ provider/source/target/corpus access, production or release.
 
 - External GitHub protection and independent attestation authority.
 - Independent receipt trust bundle, verifier, raw-measurement derivation and anti-replay ledger.
-- Final exact-current-byte `make check` and managed/operated qsp3 browser matrix.
+- Managed/operated qsp3 browser matrix and exact-head hosted CI.
 - Operated M29 prerequisites and all 24 M30 hosted/target/third-party/owner controls.
 - M30 corpus/security campaign and M31 design-partner pilot.
 
 ## Next milestone readiness
 
-- Dependencies satisfied: M35 and M29 local baselines; Phase 0/1a repository preparation and qsp3
-  target-binding implementation only.
-- Recommended next prompt: first consolidate the final qsp3 browser matrix and exact-current-byte
-  `make check`; then provision the external GitHub/target/assessor trust bundle and implement the
+- Dependencies satisfied: M35 and M29 local baselines; Phase 0/1a, fail-closed Phase-1b policy
+  preparation and qsp3 target-binding implementation only.
+- Recommended next prompt: first consolidate the final qsp3 managed browser matrix; then provision
+  the external GitHub/target/assessor trust bundle and implement the
   concrete receipt verifier plus replay ledger before composing the first hosted adjudicator.
 - Required operator prerequisites: protected GitHub controls, exact candidate/tag/artifacts,
   independently owned corpus/answer key, real isolated target, pentest assessor and distinct

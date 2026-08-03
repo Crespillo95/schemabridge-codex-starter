@@ -66,7 +66,9 @@ def test_exact_hosted_manifest_authenticates_inputs_but_keeps_campaign_blocked(
 
     assert exit_code == 0
     payload = json.loads((output / "authentication.json").read_text(encoding="utf-8"))["report"]
+    assert payload["schema_version"] == 2
     assert payload["state"] == "authenticated"
+    assert payload["completed_at"]
     assert payload["campaign_executable"] is False
     assert payload["release_decision"] == "no_go"
     assert payload["workflow_attested_manifest_authenticated"] is True

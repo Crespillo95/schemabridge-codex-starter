@@ -1383,3 +1383,7 @@ pilot evidence remain mandatory commercial/production gates.
   derive criteria from canonical raw snapshots; and a durable trusted-clock/compare-and-swap
   attempt ledger must reject replay, gaps and stale predecessors. Signed booleans or caller-built
   `authenticated=true` models are not commercial evidence.
+- External Phase-1b files and reports still use checked pathnames. Their hashes and 0/24-only CLI
+  prevent a current authority bypass, but a same-UID parent swap remains a P2. Any future authority
+  use requires per-component dirfd/`openat` with `O_NOFOLLOW`, owner/mode checks and atomic rename/
+  fsync on the same directory descriptor.

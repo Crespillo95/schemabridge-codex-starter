@@ -41,15 +41,19 @@ def build_manifest(
     *,
     not_before: datetime | None = None,
     expires_at: datetime | None = None,
+    control_policy_id: str = "policy:m30:controls:001",
+    control_policy_sha256: str = "a" * 64,
 ) -> M30CampaignManifest:
     contract = FileM30CampaignContract(repository).load()
     candidate = GitM30CandidateIdentity(repository).inspect(contract)
     return M30CampaignManifest(
-        schema_version=1,
+        schema_version=2,
         kind="schemabridge.m30.campaign-manifest",
         campaign_id="campaign:m30:2026-08-03:001",
         source_repository="Crespillo95/schemabridge-codex-starter",
         trust_policy_id="github-actions-m30-v1",
+        control_policy_id=control_policy_id,
+        control_policy_sha256=control_policy_sha256,
         issued_at=VERIFICATION_TIME - timedelta(hours=1),
         not_before=not_before or VERIFICATION_TIME - timedelta(minutes=5),
         expires_at=expires_at or VERIFICATION_TIME + timedelta(days=7),

@@ -13,6 +13,10 @@ from schemabridge.domain.production_campaign import (
     M30CampaignManifest,
     M30ManifestAuthenticationReport,
 )
+from schemabridge.domain.production_campaign_receipts import (
+    M30ControlPolicy,
+    M30ControlPolicyValidationReport,
+)
 from schemabridge.domain.production_readiness import (
     M30CampaignContract,
     M30CandidateObservation,
@@ -29,6 +33,9 @@ class ProductionEvidenceErrorCode(StrEnum):
     MANIFEST_INVALID = "m30_manifest_invalid"
     MANIFEST_AUTHENTICATION_FAILED = "m30_manifest_authentication_failed"
     TRUST_PROVIDER_UNAVAILABLE = "m30_trust_provider_unavailable"
+    CONTROL_POLICY_UNAVAILABLE = "m30_control_policy_unavailable"
+    CONTROL_POLICY_INVALID = "m30_control_policy_invalid"
+    CONTROL_POLICY_REPORT_WRITE_FAILED = "m30_control_policy_report_write_failed"
 
 
 class ProductionEvidenceError(RuntimeError):
@@ -91,13 +98,38 @@ class M30ManifestAuthenticationReportWriterPort(Protocol):
         """Write deterministic JSON/Markdown Phase-1a authentication reports."""
 
 
+@dataclass(frozen=True, slots=True)
+class LoadedM30ControlPolicy:
+    """Parsed canonical policy bytes loaded outside the candidate checkout."""
+
+    policy: M30ControlPolicy
+    raw_sha256: str
+
+
+class M30ControlPolicyPort(Protocol):
+    def load(self) -> LoadedM30ControlPolicy:
+        """Load one external canonical Phase-1b control policy."""
+
+
+class M30ControlPolicyReportWriterPort(Protocol):
+    def write(
+        self,
+        report: M30ControlPolicyValidationReport,
+        output_directory: Path,
+    ) -> tuple[Path, Path]:
+        """Write deterministic JSON/Markdown Phase-1b policy reports."""
+
+
 __all__ = [
     "LoadedM30CampaignManifest",
+    "LoadedM30ControlPolicy",
     "M30CampaignContractPort",
     "M30CampaignManifestAuthenticationPort",
     "M30CampaignManifestPort",
     "M30CandidateIdentityPort",
     "M30ClockPort",
+    "M30ControlPolicyPort",
+    "M30ControlPolicyReportWriterPort",
     "M30ManifestAuthenticationReportWriterPort",
     "M30ReadinessReportWriterPort",
     "ProductionEvidenceError",

@@ -363,11 +363,13 @@ class M30CampaignControlAssignment(FrozenDomainModel):
 class M30CampaignManifest(FrozenDomainModel):
     """Canonical frozen inputs authenticated before, but not results from, an M30 campaign."""
 
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     kind: Literal["schemabridge.m30.campaign-manifest"]
     campaign_id: str = Field(min_length=8, max_length=160)
     source_repository: Literal["Crespillo95/schemabridge-codex-starter"]
     trust_policy_id: Literal["github-actions-m30-v1"]
+    control_policy_id: str = Field(min_length=8, max_length=160)
+    control_policy_sha256: str
     issued_at: datetime
     not_before: datetime
     expires_at: datetime
@@ -383,17 +385,17 @@ class M30CampaignManifest(FrozenDomainModel):
     unsupported_families: tuple[str, ...] = Field(min_length=1, max_length=64)
     controls: tuple[M30CampaignControlAssignment, ...] = Field(min_length=24, max_length=24)
 
-    @field_validator("campaign_id")
+    @field_validator("campaign_id", "control_policy_id")
     @classmethod
     def campaign_id_is_inert(cls, value: str) -> str:
         if _INERT_ID.fullmatch(value) is None:
-            raise ValueError("M30 campaign id must be opaque and inert")
+            raise ValueError("M30 campaign and control-policy ids must be opaque and inert")
         return value
 
-    @field_validator("contract_sha256")
+    @field_validator("contract_sha256", "control_policy_sha256")
     @classmethod
     def contract_digest_is_sha256(cls, value: str) -> str:
-        return _require_sha256(value, "M30 campaign contract digest")
+        return _require_sha256(value, "M30 campaign policy or contract digest")
 
     @field_validator("issued_at", "not_before", "expires_at")
     @classmethod
@@ -526,7 +528,7 @@ class M30CampaignBlockReason(StrEnum):
 
 
 class M30ManifestAuthenticationReport(FrozenDomainModel):
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     milestone: Literal["M30"]
     phase: Literal["1a"]
     preflight: M30ReadinessReport
@@ -534,7 +536,10 @@ class M30ManifestAuthenticationReport(FrozenDomainModel):
     blocking_reasons: tuple[M30CampaignBlockReason, ...] = Field(max_length=4)
     campaign_id: str | None = Field(default=None, min_length=8, max_length=160)
     manifest_sha256: str | None = None
+    control_policy_id: str | None = Field(default=None, min_length=8, max_length=160)
+    control_policy_sha256: str | None = None
     authentication: M30AuthenticatedManifest | None = None
+    completed_at: datetime
     campaign_executable: Literal[False]
     release_decision: Literal[M30ReleaseDecision.NO_GO]
     workflow_attested_manifest_authenticated: bool
@@ -545,10 +550,17 @@ class M30ManifestAuthenticationReport(FrozenDomainModel):
     datahub_writes: Literal[0]
     source_writes: Literal[0]
 
-    @field_validator("manifest_sha256")
+    @field_validator("manifest_sha256", "control_policy_sha256")
     @classmethod
     def optional_manifest_digest_is_sha256(cls, value: str | None) -> str | None:
         return None if value is None else _require_sha256(value, "M30 report manifest digest")
+
+    @field_validator("completed_at")
+    @classmethod
+    def completion_time_is_utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != timedelta(0):
+            raise ValueError("M30 authentication completion time must be timezone-aware UTC")
+        return value.astimezone(UTC)
 
     @model_validator(mode="after")
     def authentication_state_matches_evidence(self) -> M30ManifestAuthenticationReport:
@@ -560,9 +572,12 @@ class M30ManifestAuthenticationReport(FrozenDomainModel):
                 self.blocking_reasons
                 or self.campaign_id is None
                 or self.manifest_sha256 is None
+                or self.control_policy_id is None
+                or self.control_policy_sha256 is None
                 or self.authentication is None
                 or self.authentication.manifest_sha256 != self.manifest_sha256
                 or self.authentication.source_revision != self.preflight.candidate.revision
+                or self.completed_at < self.authentication.verified_at
             ):
                 raise ValueError("authenticated M30 campaign report lacks exact evidence")
         elif (

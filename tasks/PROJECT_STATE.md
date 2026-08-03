@@ -185,13 +185,18 @@ detached-bundle verifier pins exact GitHub attestation facts and official platfo
 snapshots plus sanitized config. Even success is only workflow-attested bytes:
 `campaign_executable=false`, `release_decision=no_go`, zero controls passed and 24 remaining.
 
-Phase 1b is not implemented or accepted in the publishable candidate. An exploratory local draft
-was independently reviewed and held back because authenticated-looking producers/approvers and a
-direct adjudication model could construct `PASSED` from caller-supplied booleans/digests, attempts
-lacked trusted-clock/ledger replay protection, positive access fields resembled grants and external
-path checks retained a same-UID parent-swap race. No Phase-1b source, CLI, guide, receipt or PASS
-claim is candidate evidence. The next design must derive facts from authenticated raw snapshots
-through an independent verifier and durable CAS ledger.
+Under D135, Phase 1b includes only a fail-closed policy-preparation boundary. Manifest schema v2
+binds a canonical external policy that freezes the exact 24-node DAG, receipt kinds, evidence
+subjects, immutable producer workflows, authorization stages and five-role quorum. The composed
+CLI validates that binding and always reports `external_policy_trust_authenticated=false`,
+`receipt_authentication_enabled=false`, 0/24 and `no_go`; it has no provider/source/target/corpus/
+DataHub capability. Hashes are computed internally, workflow aliases are casefolded, retries are
+limited to attempt 1 until a ledger exists, prerequisite references are campaign/policy bound and
+Phase-1a/1b completion times reject rollback. The exact M30 cut passes 145 tests with 4,149
+deselections; focal policy tests pass 32. Review reports P0=0/P1=0 on the composed surface and one
+known P2 pathname-race hardening item. The receipt adjudicator remains uncomposed: independent
+trust, cryptographic verification, raw-snapshot derivation, CAS anti-replay and dirfd/openat I/O
+remain mandatory before any control or capability can be accepted.
 
 A pre-final isolated Phase-1a local gate passed Ruff format/lint, strict mypy over 364 source files,
 the isolated performance node and 3,988 functional tests with 248 explicit deselections in
@@ -219,8 +224,12 @@ the consolidated M26/qsp3/M32 selection passes 124. The schema-v2 M30 contract/r
 selection passes 103. Focal formatting/Ruff, mypy over seven qsp3 files plus the contract model and
 `git diff --check` pass. The in-app browser observed the pre-final local/recorded advanced desktop,
 390×844 no-overflow and `date_meaning` ambiguity paths with clean console; post-remediation managed
-rotation is AppTest only, not managed browser evidence. Final exact-current-byte `make check` and a
-managed/operated browser campaign remain pending. These checks do not satisfy any of the 24
+rotation is AppTest only, not managed browser evidence. The final implementation-snapshot
+`make check` passes supply-chain/release audit, formatting, Ruff, strict Mypy over 366 source files,
+the isolated performance node and 4,044 functional tests with 250 deselections in 1,176.63 seconds.
+Only handoff Markdown changed afterward and receives dedicated documentation/diff checks. The
+2026-08-03 final retry found no available in-app browser instance, so a managed/operated browser
+campaign remains pending. These checks do not satisfy any of the 24
 external controls or change the M30/M31, commercial, production and release **NO-GO**.
 
 Phase 0 commit `c7e72cc97e4226b2d953f5c1e8ef55178a1598f5` and warmup commit

@@ -21,6 +21,7 @@ from pydantic import ValidationError
 from schemabridge.adapters.evaluation.m30_readiness import _run_safe_git
 from schemabridge.application.ports.production_evidence import (
     LoadedM30CampaignManifest,
+    LoadedM30ControlPolicy,
     ProductionEvidenceError,
     ProductionEvidenceErrorCode,
 )
@@ -35,10 +36,15 @@ from schemabridge.domain.production_campaign import (
     M30CampaignManifest,
     M30ManifestAuthenticationReport,
 )
+from schemabridge.domain.production_campaign_receipts import (
+    M30ControlPolicy,
+    M30ControlPolicyValidationReport,
+)
 
 # 45 KiB encodes to 61,440 base64 characters and leaves bounded headroom below
 # GitHub workflow_dispatch's 65,535-character aggregate inputs limit.
 _MAX_MANIFEST_BYTES = 45 * 1024
+_MAX_CONTROL_POLICY_BYTES = 256 * 1024
 _MAX_BUNDLE_BYTES = 8 * 1024 * 1024
 _MAX_REPORT_BYTES = 2 * 1024 * 1024
 _MAX_JSON_NODES = 20_000
@@ -116,6 +122,50 @@ class FileM30CampaignManifest:
             raise ProductionEvidenceError(
                 ProductionEvidenceErrorCode.MANIFEST_INVALID,
                 "M30 campaign manifest is invalid",
+            ) from error
+
+
+class FileM30ControlPolicy:
+    """Load one canonical external control policy without trusting candidate fixtures."""
+
+    def __init__(self, repository_root: Path, policy_path: Path) -> None:
+        self._root = repository_root.resolve()
+        self._path = policy_path
+
+    def load(self) -> LoadedM30ControlPolicy:
+        try:
+            raw = _read_external_regular_file(
+                self._path,
+                repository_root=self._root,
+                maximum_bytes=_MAX_CONTROL_POLICY_BYTES,
+            )
+            if not raw or b"\x00" in raw:
+                raise ValueError("control policy bytes are empty or contain NUL")
+            payload = json.loads(raw.decode("ascii"), object_pairs_hook=_unique_json_object)
+            _validate_json_shape(payload)
+            policy = M30ControlPolicy.model_validate(payload)
+            if raw != policy.canonical_bytes():
+                raise ValueError("control policy is not exact canonical JSON")
+            return LoadedM30ControlPolicy(
+                policy=policy,
+                raw_sha256=hashlib.sha256(raw).hexdigest(),
+            )
+        except FileNotFoundError as error:
+            raise ProductionEvidenceError(
+                ProductionEvidenceErrorCode.CONTROL_POLICY_UNAVAILABLE,
+                "M30 external control policy is unavailable",
+            ) from error
+        except (
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RecursionError,
+            ValidationError,
+            ValueError,
+        ) as error:
+            raise ProductionEvidenceError(
+                ProductionEvidenceErrorCode.CONTROL_POLICY_INVALID,
+                "M30 external control policy is invalid",
             ) from error
 
 
@@ -317,6 +367,74 @@ class FileM30ManifestAuthenticationReportWriter:
             raise ProductionEvidenceError(
                 ProductionEvidenceErrorCode.REPORT_WRITE_FAILED,
                 "M30 manifest authentication report could not be written",
+            ) from error
+
+
+class FileM30ControlPolicyReportWriter:
+    """Write the bounded Phase-1b policy report without accepting control evidence."""
+
+    def __init__(self, repository_root: Path) -> None:
+        self._root = repository_root.resolve()
+        self._canonical_destination = (self._root / ".local/m30/control-policy").resolve()
+
+    def write(
+        self,
+        report: M30ControlPolicyValidationReport,
+        output_directory: Path,
+    ) -> tuple[Path, Path]:
+        try:
+            if ".." in output_directory.parts:
+                raise OSError("M30 policy report destination cannot contain parent traversal")
+            _reject_existing_symlink_ancestors(output_directory)
+            destination = output_directory.resolve()
+            candidate_local = destination.is_relative_to(self._root)
+            if candidate_local and destination != self._canonical_destination:
+                raise OSError("M30 policy reports cannot enter the candidate source tree")
+            if candidate_local:
+                ignored = _run_safe_git(
+                    self._root,
+                    "check-ignore",
+                    "--verbose",
+                    "--no-index",
+                    "--",
+                    ".local/m30/control-policy/policy-validation.json",
+                )
+                if ignored.returncode != 0 or not ignored.stdout.startswith(b".gitignore:"):
+                    raise OSError("canonical M30 policy report is not Git-ignored")
+            destination.mkdir(parents=True, exist_ok=True)
+            _reject_existing_symlink_ancestors(destination)
+            if not destination.is_dir() or destination.is_symlink():
+                raise OSError("M30 policy report destination is invalid")
+            json_path = destination / "policy-validation.json"
+            markdown_path = destination / "policy-validation.md"
+            markdown = _render_control_policy_markdown(report)
+            payload = {
+                "bundle_schema_version": 1,
+                "markdown_sha256": hashlib.sha256(markdown.encode()).hexdigest(),
+                "report": report.model_dump(mode="json"),
+                "report_sha256": report.fingerprint(),
+            }
+            document = json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=True) + "\n"
+            write_markdown = _validate_atomic_target(
+                markdown_path,
+                markdown,
+                allow_replace=candidate_local,
+            )
+            write_json = _validate_atomic_target(
+                json_path,
+                document,
+                allow_replace=candidate_local,
+            )
+            if write_markdown:
+                _atomic_write(markdown_path, markdown)
+            if write_json:
+                _atomic_write(json_path, document)
+            _fsync_directory(destination)
+            return json_path, markdown_path
+        except (OSError, subprocess.SubprocessError) as error:
+            raise ProductionEvidenceError(
+                ProductionEvidenceErrorCode.CONTROL_POLICY_REPORT_WRITE_FAILED,
+                "M30 control-policy report could not be written",
             ) from error
 
 
@@ -670,6 +788,9 @@ def _render_markdown(report: M30ManifestAuthenticationReport) -> str:
         f"- Candidate revision: `{report.preflight.candidate.revision}`",
         f"- Campaign ID: `{report.campaign_id or 'not-authenticated'}`",
         f"- Manifest SHA-256: `{report.manifest_sha256 or 'not-authenticated'}`",
+        f"- Control policy ID: `{report.control_policy_id or 'not-bound'}`",
+        f"- Control policy SHA-256: `{report.control_policy_sha256 or 'not-bound'}`",
+        f"- Authentication completed at: `{report.completed_at.isoformat()}`",
         f"- Workflow-attested manifest authenticated: "
         f"`{str(report.workflow_attested_manifest_authenticated).lower()}`",
         f"- Material external controls passed: `{report.external_controls_passed}`",
@@ -708,8 +829,58 @@ def _render_markdown(report: M30ManifestAuthenticationReport) -> str:
     return "\n".join(rows)
 
 
+def _render_control_policy_markdown(report: M30ControlPolicyValidationReport) -> str:
+    rows = [
+        "# M30 Phase 1b control-policy validation",
+        "",
+        f"- State: **{report.state.value.upper()}**",
+        f"- Campaign ID: `{report.campaign_id or 'not-authenticated'}`",
+        f"- Manifest SHA-256: `{report.manifest_sha256 or 'not-authenticated'}`",
+        "- Manifest authentication report SHA-256: "
+        f"`{report.manifest_authentication_sha256 or 'not-authenticated'}`",
+        f"- Control policy ID: `{report.control_policy_id or 'not-bound'}`",
+        f"- Control policy SHA-256: `{report.control_policy_sha256 or 'not-bound'}`",
+        f"- Observed at: `{report.observed_at.isoformat()}`",
+        f"- Policy not before: "
+        f"`{report.policy_not_before.isoformat() if report.policy_not_before else 'not-loaded'}`",
+        f"- Policy expires at: "
+        f"`{report.policy_expires_at.isoformat() if report.policy_expires_at else 'not-loaded'}`",
+        f"- Policy bound to authenticated manifest: "
+        f"`{str(report.policy_bound_to_authenticated_manifest).lower()}`",
+        f"- Closed prerequisite DAG validated: `{str(report.control_dag_validated).lower()}`",
+        f"- External policy trust authenticated: "
+        f"`{str(report.external_policy_trust_authenticated).lower()}`",
+        f"- Receipt authentication enabled: `{str(report.receipt_authentication_enabled).lower()}`",
+        f"- Implemented deterministic adjudicators: `{report.implemented_adjudicators}`",
+        f"- Admitted but unadjudicated controls: `{report.admitted_unadjudicated_controls}`",
+        f"- External controls passed: `{report.external_controls_passed}`",
+        f"- Campaign executable: `{str(report.campaign_executable).lower()}`",
+        f"- Release decision: **{report.release_decision.value.upper()}**",
+        "",
+    ]
+    if report.blocking_reasons:
+        rows.extend(
+            (
+                "## Blocking reasons",
+                "",
+                *(f"- `{reason.value}`" for reason in report.blocking_reasons),
+                "",
+            )
+        )
+    rows.extend(
+        (
+            "A validated policy freezes trust, quorum, criteria and ordering only. It is not a "
+            "control receipt, an operated result, campaign authority, M30 acceptance or release.",
+            "",
+        )
+    )
+    return "\n".join(rows)
+
+
 __all__ = [
     "FileM30CampaignManifest",
+    "FileM30ControlPolicy",
+    "FileM30ControlPolicyReportWriter",
     "FileM30ManifestAuthenticationReportWriter",
     "GitHubCliM30ManifestAuthenticator",
     "SystemM30Clock",

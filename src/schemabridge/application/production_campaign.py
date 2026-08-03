@@ -106,6 +106,17 @@ class AuthenticateM30CampaignManifest:
                 manifest_sha256=(
                     validation.loaded.raw_sha256 if validation.loaded is not None else None
                 ),
+                control_policy_id=(
+                    validation.loaded.manifest.control_policy_id
+                    if validation.loaded is not None
+                    else None
+                ),
+                control_policy_sha256=(
+                    validation.loaded.manifest.control_policy_sha256
+                    if validation.loaded is not None
+                    else None
+                ),
+                completed_at=verified_at,
             )
         loaded = validation.loaded
         if loaded is None:
@@ -154,9 +165,12 @@ class AuthenticateM30CampaignManifest:
                 reasons=completion_reasons,
                 campaign_id=manifest.campaign_id,
                 manifest_sha256=loaded.raw_sha256,
+                control_policy_id=manifest.control_policy_id,
+                control_policy_sha256=manifest.control_policy_sha256,
+                completed_at=completed_at,
             )
         return M30ManifestAuthenticationReport(
-            schema_version=1,
+            schema_version=2,
             milestone="M30",
             phase="1a",
             preflight=validation.preflight,
@@ -164,7 +178,10 @@ class AuthenticateM30CampaignManifest:
             blocking_reasons=(),
             campaign_id=manifest.campaign_id,
             manifest_sha256=loaded.raw_sha256,
+            control_policy_id=manifest.control_policy_id,
+            control_policy_sha256=manifest.control_policy_sha256,
             authentication=authentication,
+            completed_at=completed_at,
             campaign_executable=False,
             release_decision=M30ReleaseDecision.NO_GO,
             workflow_attested_manifest_authenticated=True,
@@ -256,11 +273,14 @@ def _blocked_report(
     *,
     preflight: M30ReadinessReport,
     reasons: tuple[M30CampaignBlockReason, ...],
+    completed_at: datetime,
     campaign_id: str | None = None,
     manifest_sha256: str | None = None,
+    control_policy_id: str | None = None,
+    control_policy_sha256: str | None = None,
 ) -> M30ManifestAuthenticationReport:
     return M30ManifestAuthenticationReport(
-        schema_version=1,
+        schema_version=2,
         milestone="M30",
         phase="1a",
         preflight=preflight,
@@ -268,7 +288,10 @@ def _blocked_report(
         blocking_reasons=reasons,
         campaign_id=campaign_id,
         manifest_sha256=manifest_sha256,
+        control_policy_id=control_policy_id,
+        control_policy_sha256=control_policy_sha256,
         authentication=None,
+        completed_at=completed_at,
         campaign_executable=False,
         release_decision=M30ReleaseDecision.NO_GO,
         workflow_attested_manifest_authenticated=False,

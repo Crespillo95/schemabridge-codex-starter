@@ -111,6 +111,7 @@ from schemabridge.application.ports.intents import (
 )
 from schemabridge.application.ports.planning import GovernedSemanticRegistryPort
 from schemabridge.application.ports.production_evidence import (
+    M30ControlPolicyReportWriterPort,
     M30ManifestAuthenticationReportWriterPort,
     M30ReadinessReportWriterPort,
 )
@@ -153,6 +154,7 @@ from schemabridge.application.production_campaign import (
     AuthenticateM30CampaignManifest,
     ValidateM30CampaignManifest,
 )
+from schemabridge.application.production_control_policy import ValidateM30ControlPolicy
 from schemabridge.application.production_readiness import AssessM30Readiness
 from schemabridge.application.query_cost import AssessGovernedQueryCost
 from schemabridge.application.query_execution import (
@@ -1787,6 +1789,45 @@ def build_m30_manifest_authentication_report_writer(
     )
 
     return FileM30ManifestAuthenticationReportWriter((repository_root or Path.cwd()).resolve())
+
+
+def build_m30_control_policy_validator(
+    *,
+    manifest_path: Path,
+    attestation_bundle_path: Path,
+    control_policy_path: Path,
+    repository_root: Path | None = None,
+) -> ValidateM30ControlPolicy:
+    """Compose Phase-1b policy binding without campaign or protected-resource access."""
+
+    from schemabridge.adapters.evaluation.m30_campaign import (
+        FileM30CampaignManifest,
+        FileM30ControlPolicy,
+        SystemM30Clock,
+    )
+
+    root = (repository_root or Path.cwd()).resolve()
+    return ValidateM30ControlPolicy(
+        manifest_authenticator=build_m30_campaign_manifest_authenticator(
+            manifest_path=manifest_path,
+            attestation_bundle_path=attestation_bundle_path,
+            repository_root=root,
+        ),
+        manifest_loader=FileM30CampaignManifest(root, manifest_path),
+        policy_loader=FileM30ControlPolicy(root, control_policy_path),
+        clock=SystemM30Clock(),
+    )
+
+
+def build_m30_control_policy_report_writer(
+    *,
+    repository_root: Path | None = None,
+) -> M30ControlPolicyReportWriterPort:
+    """Compose the deterministic Phase-1b control-policy report writer."""
+
+    from schemabridge.adapters.evaluation.m30_campaign import FileM30ControlPolicyReportWriter
+
+    return FileM30ControlPolicyReportWriter((repository_root or Path.cwd()).resolve())
 
 
 def build_review_store(

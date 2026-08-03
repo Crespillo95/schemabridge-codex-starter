@@ -219,6 +219,28 @@ controls remain unadjudicated. Phase 1b must define control-specific authenticat
 prerequisite ordering and deterministic adjudicators; a signed `claimed_outcome=passed` can never be
 sufficient by itself.
 
+### Phase 1b external control-policy preparation
+
+Phase 1b now validates one canonical policy outside the candidate checkout and binds its ID and
+SHA-256 to the Phase-1a manifest schema v2. The policy freezes all 24 control rules in one exact
+topological order, their direct prerequisites, closed receipt kinds, independent immutable
+producer workflows, evidence subjects, five authorization stages and the five-role owner quorum.
+The candidate repository is rejected as a producer even through case variation.
+
+`make m30-control-policy-schema` prints the structural schema. After a real Phase-1a manifest and
+bundle exist, an operator can run `make m30-control-policy-validate` with
+`M30_MANIFEST`, `M30_ATTESTATION_BUNDLE` and `M30_CONTROL_POLICY` pointing to canonical external
+regular files. The deterministic report always retains zero of 24 controls, no campaign
+capability, `campaign_executable=false` and `release_decision=no_go`. It also records
+`external_policy_trust_authenticated=false` and `receipt_authentication_enabled=false`.
+
+The pure contract-level adjudicator for `signed_campaign_manifest` is deliberately not composed by
+the CLI or an application port. It cannot become an operated adjudicator until an independently
+authenticated trust bundle, concrete signature/timestamp verifier, canonical raw-governance
+snapshot derivation and durable anti-replay attempt ledger exist. The remaining 23 controls cannot
+represent a passed or failed adjudication in this slice. The exact operator procedure and open
+commercial blockers are in `docs/20_M30_PHASE1B_CONTROL_POLICY.md`.
+
 ## Blind bilingual evaluation
 
 An evaluator who did not author the implementation owns the hidden answer key. The corpus uses
