@@ -188,7 +188,7 @@ performance node in a fresh service-free Pytest process and increases the synthe
 to 1,000 reads: at least 51 observations over 250 ms fail p95 and at least 11 over 500 ms fail
 p99. Four correlated transients are only 0.4%; no sample is discarded and reports add sanitized
 tail counts. Coverage and correctness-only targets exclude the wall-clock node. The prior
-`3f57a2e` bytes passed local `make check` with 3,931 tests and 246 deselections in 1,235.97 seconds.
+`3f57a2e` bytes passed local `make check` with 3,931 tests and 246 deselections in 1,235.07 seconds.
 On the current D131 bytes, the exact isolated
 1,000-read node passes in 2.72 seconds; a direct run records p50/p95/p99/max
 9.775/10.761/12.288/19.260 ms, all observations accounted for and zero over both budgets. The 23
