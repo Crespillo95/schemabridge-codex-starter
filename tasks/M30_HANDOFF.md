@@ -4,14 +4,14 @@
 
 - Milestone: M30 — Production evaluation and security verification, Phase 0 + Phase 1a + fail-closed
   Phase 1b policy preparation + schema-v2 qsp3 target-bound copy-SQL hardening
-- Status: partial; preparation/authentication and qsp3 target binding are implemented locally and
-  the full local implementation gate passes, while the managed/operated browser campaign and all
-  external campaign evidence remain pending or blocked
-- Recommended operator decision: publish only to draft PR #1 for review; do not merge, tag or
-  dispatch Phase 1a, and retain M30, pilot, commercial availability, production and release
+- Status: partial; preparation/authentication and qsp3 target binding are published on draft PR #1,
+  and exact commit `23dea0f` passes the local clean-room gate, while the managed/operated browser
+  campaign and all external campaign evidence remain pending or blocked
+- Recommended operator decision: keep draft PR #1 open for review; do not merge, tag or dispatch
+  Phase 1a, and retain M30, pilot, commercial availability, production and release
   **NO-GO**
-- Proposed commit message: `feat: harden governed SQL target and M30 policy`
-- GitHub delivery: update draft PR #1 on `agent/ignore-node-modules`; do not merge or tag
+- Published implementation commits: `785a052` (qsp3) and `23dea0f` (Phase 1b preparation)
+- GitHub delivery: draft PR #1 on `agent/ignore-node-modules`; do not merge or tag
 
 ## Implemented
 
@@ -122,9 +122,9 @@
 | GitHub configuration read-only audit | pass/read-only | `main` unprotected; zero environments, rulesets and tags |
 | First `make check` attempt | fail | One transient `inspect.getsource` assertion failed; 3,967 passed and 248 deselected in 895.58 s |
 | Exact failing test and complete test module reruns | pass | 1 passed, then all 13 module tests passed without code or assertion changes |
-| Pre-final isolated `make check` | pass | Ruff format/lint, mypy over 364 source files, performance node and 3,988 functional tests passed; 248 deselected in 1,132.41 s before the final trust/clock/TOCTOU closures |
+| Pre-final isolated `make check` | pass | Ruff format/lint, mypy over 364 source files, performance node and 3,988 functional tests passed; 248 deselected in 1,132.41 s before the final trust/clock/byte-revalidation hardening |
 | Exact final-byte local `make check` | incomplete (environment termination) | Reached 65% with no recorded test failure before SIGTERM 15; it is not a pass |
-| Exact current-byte M30/supply-chain selection | pass | 52 passed, 158 deselected after the final trust/clock/TOCTOU closures |
+| Exact current-byte M30/supply-chain selection | pass | 52 passed, 158 deselected after the final trust/clock/byte-revalidation hardening |
 | Specific qsp3/bootstrap/acceptance selection | pass | 16 passed after M26/target-bound-plan remediation |
 | Broad qsp3 selection | pass | 74 passed |
 | M26/governed execution/recipes/qsp3 selection | pass | 96 passed |
@@ -135,10 +135,18 @@
 | Phase-1b policy unit/acceptance selection | pass | 32 passed; policy preparation only, no receipt/control accepted |
 | Independent Phase-1b final review | pass with known P2 | P0=0/P1=0 on composed surface; pathname race requires dirfd/openat before authority |
 | Qsp3/contract focal format, Ruff and mypy | pass | Seven qsp3 source files plus the contract model pass |
-| `git diff --check` | preliminary pass | Current qsp3 implementation/state bytes pass; rerun after final consolidation |
+| Final documentation patch `git diff --check` | pass | Six documentation/state files only; no whitespace errors |
 | Codex in-app-browser local/recorded subset | bounded pre-final observation | Advanced desktop, 390×844 no-overflow and `date_meaning`; clean console; not managed/final-byte evidence |
 | Final Codex in-app-browser retry | unavailable | Runtime connected, but browser inventory was empty; no substitute browser used and no PASS claimed |
 | Final implementation-snapshot `make check` | pass | Supply-chain/release audit, Ruff, Mypy over 366 source files, performance and 4,044 functional tests pass; 250 deselected in 1,176.63 seconds |
+| Clean-room qsp3-parent `make check`, first attempt | fail (transient timeout) | Exact `785a052`: 4,011 passed, one Streamlit AppTest exceeded 15 seconds and 249 were deselected in 1,154.17 seconds while another local full gate consumed CPU |
+| Timed-out Streamlit AppTest, isolated rerun | pass | 1 passed in 2.01 seconds without a code or assertion change |
+| Clean-room qsp3-parent `make check`, isolated rerun | pass | Exact `785a052`: 4,012 passed and 249 deselected in 934.84 seconds; supply chain, release audit, Ruff, Mypy over 364 files and performance pass |
+| Exact Phase-1b focal unit/acceptance cut | pass | Exact `23dea0f`: 33 passed in 56.51 seconds; preparation only, no receipt/control accepted |
+| Exact current-head clean-room `make check` | pass | Exact `23dea0f`: 4,044 passed and 250 deselected in 1,023.35 seconds; supply chain, release audit over 1,060 files/23 licenses, Ruff over 745 files, Mypy over 366 source files and performance pass |
+| Exact current-head independent review | pass with known P2 | `23dea0f` composed surface P0=0/P1=0; adjudication/capabilities remain uncomposed and pathname-race hardening remains required |
+| Final documentation/readiness contract selection | pass | 62 passed; commercial documentation and M30 readiness contracts cover the final evidence wording |
+| Final documentation snapshot `make m30-readiness` | pass with explicit NO-GO | 41 source paths, 24 `missing_external` controls, zero source/DataHub writes or network calls, `campaign_executable=false`, `release_decision=no_go` |
 
 ## Automated test results
 
@@ -148,11 +156,11 @@
   pass 16 specific, 74 broad, 96 with M26/governed execution/recipes, four Streamlit and 124 in the
   consolidated selection. Schema-v2 M30 contract/readiness/campaign passes 103; the exact current
   M30 cut passes 145 and the focused Phase-1b policy selection passes 32.
-- `make check`: after the historical incomplete attempts, the final implementation snapshot passes
-  supply-chain/release audit, formatting, Ruff, strict Mypy over 366 source files, the isolated
-  performance node and 4,044 functional tests with 250 deselections in 1,176.63 seconds. Only this
-  handoff Markdown is updated afterward; its dedicated documentation/diff checks are recorded
-  separately. Exact-head hosted CI remains pending.
+- `make check`: exact commit `23dea0f` passes a dedicated clean-room run: supply-chain/release
+  audit, formatting, Ruff, strict Mypy over 366 source files, the isolated performance node and
+  4,044 functional tests with 250 deselections in 1,023.35 seconds. The later documentation-only
+  evidence correction receives dedicated documentation/readiness/diff checks. PR CI executes a
+  merge ref; an exact clean tagged-main production candidate remains absent.
 - Integration tests: Phase 1a adds no service adapter. Qsp3 composes the governed execution-target
   resolver in managed mode and exercises exact synthetic registry-v2 target contracts, but no
   operated destination receipt exists; old hosted PostgreSQL evidence for a prior PR merge subject
@@ -322,7 +330,7 @@ Phase-1b policy preparation — also not a receipt or dispatch authority:
 
 - External GitHub protection and independent attestation authority.
 - Independent receipt trust bundle, verifier, raw-measurement derivation and anti-replay ledger.
-- Managed/operated qsp3 browser matrix and exact-head hosted CI.
+- Managed/operated qsp3 browser matrix and exact clean tagged-main candidate CI.
 - Operated M29 prerequisites and all 24 M30 hosted/target/third-party/owner controls.
 - M30 corpus/security campaign and M31 design-partner pilot.
 

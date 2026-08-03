@@ -152,8 +152,9 @@ SQL families return no SQL. Operated M29 controls, M30 blind bilingual quality/s
 large-scale customer evidence, legal/service controls and separate certification for every future
 dialect remain mandatory.
 
-M30 Phase 0, the fail-closed Phase-1a manifest-authentication vertical and the qsp3 target-bound
-copy-SQL hardening are implemented locally under D130/D132/D133; M30 itself is not accepted. The
+M30 Phase 0, the fail-closed Phase-1a manifest-authentication vertical, Phase-1b policy preparation
+and qsp3 target-bound copy-SQL hardening are published on draft PR #1 under D130/D132/D133/D135;
+M30 itself is not accepted. The
 exact schema-v2 machine contract now fixes the PostgreSQL typed-plan-v2 copy-first SKU, one
 connection/three tables/two joins, request/window/context/preview/timeout/`NULL`/fanout limits,
 qsp3/M26 checkpoints, the complete target tuple and target-bound consumers, retained-artifact
@@ -201,12 +202,13 @@ remain mandatory before any control or capability can be accepted.
 A pre-final isolated Phase-1a local gate passed Ruff format/lint, strict mypy over 364 source files,
 the isolated performance node and 3,988 functional tests with 248 explicit deselections in
 1,132.41 seconds. It predates the final trust-fact revalidation, injected-clock expiry check and
-verifier-TOCTOU closure. The exact final-byte local `make check` reached 65% with no recorded test
+verifier byte-revalidation hardening. The exact final-byte local `make check` reached 65% with no recorded test
 failure before the execution environment sent SIGTERM 15, so it is not a pass. The exact
 current-byte M30/supply-chain selection passes 52 tests with 158 deselections, and the clean
 `bf7d18a` preflight reports only the expected `main`/annotated-tag repository failures plus all 24
-external controls missing. Exact-head hosted CI remains the pending full gate. This is local
-implementation evidence only and does not satisfy any external M30 control.
+external controls missing. These historical attempts are superseded by the exact-commit clean-room
+gate for `23dea0f` recorded below. PR merge-ref CI remains distinct from exact tagged-main candidate
+evidence. This is local implementation evidence only and does not satisfy any external M30 control.
 
 D133 closes the previous local managed-target ambiguity without broadening SQL scope. Managed
 staging/production first gates the complete registry through M26 before target/provider access and
@@ -224,10 +226,11 @@ the consolidated M26/qsp3/M32 selection passes 124. The schema-v2 M30 contract/r
 selection passes 103. Focal formatting/Ruff, mypy over seven qsp3 files plus the contract model and
 `git diff --check` pass. The in-app browser observed the pre-final local/recorded advanced desktop,
 390×844 no-overflow and `date_meaning` ambiguity paths with clean console; post-remediation managed
-rotation is AppTest only, not managed browser evidence. The final implementation-snapshot
-`make check` passes supply-chain/release audit, formatting, Ruff, strict Mypy over 366 source files,
-the isolated performance node and 4,044 functional tests with 250 deselections in 1,176.63 seconds.
-Only handoff Markdown changed afterward and receives dedicated documentation/diff checks. The
+rotation is AppTest only, not managed browser evidence. Exact commit `23dea0f` passes a dedicated
+clean-room `make check`: supply-chain/release audit, formatting, Ruff, strict Mypy over 366 source
+files, the isolated performance node and 4,044 functional tests with 250 deselections in 1,023.35
+seconds. Subsequent documentation-only evidence corrections receive dedicated documentation,
+readiness and diff checks and do not alter implementation code. The
 2026-08-03 final retry found no available in-app browser instance, so a managed/operated browser
 campaign remains pending. These checks do not satisfy any of the 24
 external controls or change the M30/M31, commercial, production and release **NO-GO**.
@@ -1988,13 +1991,12 @@ locally under D129. Its schema-v15 authoring/profile authority, exact M34 public
 replacement witness/handoff, HTTP/PostgreSQL/backup/acceptance/browser/full gates and retained
 commercial limitations are recorded in `tasks/M35_HANDOFF.md`. M30 remains blocked on operated
 M29 prerequisites and live evaluation/security inputs; production/release remain NO-GO.
-M30 Phase 0 plus the Phase-1a local candidate provide the exact offline candidate-readiness
-contract, NO-GO report, canonical manifest validator and workflow-attested byte authenticator under
-D130/D132. D133 additionally implements the managed qsp3 current-target binding through compiler,
-guards, renderer and non-executed artifact. Its focused test results are preliminary; final browser
-consolidation and exact-current-byte `make check` remain pending. None of this accepts M30. The
-current development preflight reports four repository failures, 24 missing external controls and 37 exact
-source digests. GitHub `main` remains unprotected with zero environments/rulesets/tags, so the
+M30 Phase 0, Phase 1a, fail-closed Phase 1b policy preparation and managed qsp3 current-target
+binding are published on draft PR #1 under D130/D132/D133/D135. Exact commit `23dea0f` passes its
+local clean-room gate with 4,044 functional tests, while the managed/operated browser campaign and
+all external controls remain absent. None of this accepts M30. The current source inventory contains
+41 exact paths and the fail-closed development preflight remains unable to satisfy any of the 24
+external controls. GitHub `main` remains unprotected with zero environments/rulesets/tags, so the
 attestation workflow must not be dispatched. Campaign remains blocked on an exact clean tagged-main
 candidate, exact-subject hosted artifacts, the blind corpus, operated target controls, independent
 assessment and owner signatures.

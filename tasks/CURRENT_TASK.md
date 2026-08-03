@@ -2,9 +2,9 @@
 
 - Current milestone: M30 — Production evaluation and security verification
 - Status: Phase 0, Phase 1a, fail-closed Phase 1b policy preparation and the qsp3 target-bound
-  copy-SQL vertical are implemented locally; the final implementation gate passes while the
-  managed/operated browser campaign remains pending; campaign, pilot, commercial availability,
-  production and release remain blocked
+  copy-SQL vertical are published on draft PR #1; exact commit `23dea0f` passes the local clean-room
+  gate while the managed/operated browser campaign remains pending; campaign, pilot, commercial
+  availability, production and release remain blocked
 - Plan: `plans/M30_PRODUCTION_EVALUATION_SECURITY.md`
 - Machine contract: `plans/M30_CAMPAIGN_CONTRACT.yml`
 - Handoff: `tasks/M30_HANDOFF.md`
@@ -67,10 +67,10 @@ it can be accepted; repository evidence alone cannot do that.
   `missing_external` controls, 37 exact source digests, no external calls or writes,
   `campaign_executable=false` and `release_decision=no_go`.
 - Focused current-byte M30/supply-chain tests pass 52 tests with 158 deselections after the final
-  trust, clock and verifier-TOCTOU hardening. A historical final-byte attempt was terminated
+  trust, clock and verifier byte-revalidation hardening. A historical final-byte attempt was terminated
   externally at 65% without a recorded test failure; it was superseded by the completed final
-  implementation-snapshot `make check` recorded below. Exact-head hosted CI remains separate and
-  must not be reported as passed before completion.
+  implementation-snapshot and exact-commit clean-room `make check` results recorded below. PR CI
+  executes a merge ref and remains separate from exact tagged-main candidate evidence.
 - Current qsp3 evidence passes 16 specific target/bootstrap/acceptance tests, 74 in the broad qsp3
   cut, 96 with M26/governed execution/recipes, four Streamlit cases including post-artifact target
   rotation, and a consolidated 124-test M26/qsp3/M32 selection. The schema-v2 contract/readiness/
@@ -86,10 +86,14 @@ it can be accepted; repository evidence alone cannot do that.
   post-remediation AppTest only. On 2026-08-03 the requested final retry connected to the browser
   runtime but returned an empty browser inventory, so no current-final-byte managed/operated
   browser PASS is claimed.
-- Final implementation-snapshot `make check` passes supply-chain/release audit, formatting, Ruff,
-  strict Mypy over 366 source files, the isolated performance node and 4,044 functional tests with
-  250 deselections in 1,176.63 seconds. Subsequent handoff-only Markdown updates receive their
-  dedicated documentation/diff checks; exact-head hosted CI remains separate.
+- Exact commit `23dea0f` passes a dedicated clean-room `make check`: supply-chain/release audit,
+  formatting, Ruff, strict Mypy over 366 source files, the isolated performance node and 4,044
+  functional tests pass with 250 deselections in 1,023.35 seconds. The later documentation-only
+  evidence correction receives dedicated documentation/readiness/diff checks; PR merge-ref CI and
+  exact tagged-main candidate evidence remain separate.
+- Draft PR #1 publishes `785a052` (qsp3 target binding) and `23dea0f` (fail-closed Phase 1b policy
+  preparation). Run `30847018014` is correlated to head `23dea0f` but executes merge ref `00f72c1`;
+  it must not be described as exact-head or tagged-main candidate evidence.
 - Hosted PR run `30826970514` passed quality, PostgreSQL integration and supply chain for branch
   head `e49e5d7d52f9e4005e4d469b24e7b23797a59aeb`, but its test checkout/evaluation subject is PR merge
   ref `43b4c21676c7bbffaa7b81c2e98d398692e43e8f`; it predates Phase 1a and is not exact M30 candidate

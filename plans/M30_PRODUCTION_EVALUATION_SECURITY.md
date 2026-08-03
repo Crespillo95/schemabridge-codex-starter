@@ -2,9 +2,9 @@
 
 ## Status
 
-- State: Phase 0 and Phase 1a pass their prior local gate; M30 target-binding hardening is under
-  final verification. No externally authenticated manifest or operated receipt exists, so M30,
-  campaign and release remain blocked
+- State: Phase 0, Phase 1a, fail-closed Phase 1b policy preparation and qsp3 target binding are
+  published on draft PR #1. Exact commit `23dea0f` passes the local clean-room gate. No externally
+  authenticated manifest or operated receipt exists, so M30, campaign and release remain blocked
 - Release decision: **NO-GO**
 - Candidate SKU: PostgreSQL copy-first private beta, isolated per customer
 - Depends on: accepted M29 contracts in the target environment and accepted M35 registry lifecycle
@@ -206,7 +206,9 @@ revision as source/signer digest, exact tag ref, GitHub OIDC issuer, SLSA predic
 detached bundle and at least one cryptographically verified log/TSA timestamp. `--bundle` avoids an attestation API lookup,
 but GitHub CLI can still bootstrap/update its trusted root; this is not an air-gapped verification
 claim. Inputs are bounded regular non-symlink files outside the repository, copied into private
-owner-only snapshots for verification and reread before/after to reject TOCTOU. There is no
+owner-only snapshots for verification and reread before/after to detect byte changes around the
+verification step. This does not remove the documented same-UID parent-path substitution race;
+`openat`/dirfd hardening remains mandatory before these artifacts become authority. There is no
 key/issuer, unattested, `status`, `report-only` or bypass argument. The report binds hashes of the
 official verifier executable plus its platform, bundle, certificate evidence, verification summary
 and trusted timestamps; it does not call a TSA timestamp “transparency” or count owner fingerprints
