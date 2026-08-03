@@ -711,6 +711,40 @@ def test_publisher_publishes_post_write_verifies_and_replays_idempotently(
     ]
 
 
+def test_legacy_publisher_tolerates_the_historical_target_grant(
+    live_registry: GovernedSemanticRegistrySnapshot,
+    approval: RegistryPublicationApproval,
+) -> None:
+    client = FakeRegistryWriteClient(
+        identity_value=DataHubRegistryIdentity(
+            actor_urn=WRITER_ACTOR,
+            granted_platform_mutation_privileges=frozenset(
+                {
+                    "generatePersonalAccessTokens",
+                    "manageDocuments",
+                    "manageGlossaries",
+                    "manageStructuredProperties",
+                }
+            ),
+            granted_target_edit_privileges=frozenset({"MANAGE_DOCUMENTS"}),
+        )
+    )
+
+    result = _publisher(client).publish(live_registry, approval)
+
+    assert result.status is RegistryPublicationStatus.PUBLISHED
+    assert len(client.upserts) == 1
+
+    client.identity_value = replace(
+        client.identity_value,
+        granted_target_edit_privileges=frozenset({"MANAGE_DOCUMENTS", "canEditProperties"}),
+    )
+    with pytest.raises(RegistryPublicationError) as raised:
+        _publisher(client).publish(live_registry, approval)
+
+    assert raised.value.code is RegistryPublicationErrorCode.CATALOG_PERMISSION_DENIED
+
+
 def test_publisher_rejects_reissued_approval_id_with_changed_immutable_facts(
     live_registry: GovernedSemanticRegistrySnapshot,
     approval: RegistryPublicationApproval,

@@ -70,7 +70,9 @@
 | `make test-acceptance` | pass with external skips | 56 passed, 4 explicit external-DataHub skips in 38.14 s |
 | `./.venv/bin/mypy src` | pass | 343 source files |
 | First `make check` | fail, corrected | Supply chain/Ruff passed; mypy exposed an omitted explicit compatibility re-export |
-| Final `UV_CACHE_DIR=.local/uv-cache make check` | pass | 3,778 passed, 238 deselected; repeated after handoff completion on the exact commit candidate |
+| First hosted CI on `7b8e6b2` | fail, corrected | The legacy v1 `registry-publish` path rejected the stock M22 target grant after the v2 privilege split; the v1 contract was restored without weakening v2 |
+| Legacy/v2 DataHub privilege regression | pass | 56 tests prove the historical v1 grant is tolerated while v2 remains document-only |
+| Final `UV_CACHE_DIR=.local/uv-cache make check` | pass | 3,779 passed, 238 deselected; repeated after handoff completion on the exact commit candidate |
 | `git diff --check` | pass | No whitespace errors on the exact commit candidate |
 
 ## Automated test results
@@ -78,7 +80,7 @@
 - Focused tests: 118 passed, 5 skipped; includes exact document-only writer rejection and all
   required M34 unit/integration/acceptance files.
 - `make check`: pass on the exact commit candidate: supply-chain static policy, release audit,
-  Ruff format/lint, mypy over 343 source files, and 3,778 unit tests with 238 explicit
+  Ruff format/lint, mypy over 343 source files, and 3,779 unit tests with 238 explicit
   deselections. A repository-local uv cache avoids relying on sandbox-external cache permissions.
 - Integration tests: full integration gate passes 171 with 12 explicit external/retained-fixture
   skips. The 17 fresh M34/M23/recipe/observer cases pass; all 5 exact live DataHub-v2 cases skip

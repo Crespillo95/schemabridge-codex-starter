@@ -35,7 +35,7 @@ fresh approval of the complete assembled candidate, independent exact read-back,
   M32 Spanish request also produced a twice-guarded 106-line standalone PostgreSQL query without
   execution.
 - The final full gate passes supply-chain/release policy, Ruff, mypy over 343 source files and
-  3,778 unit tests with 238 explicit deselections. Independent review and exact commands are
+  3,779 unit tests with 238 explicit deselections. Independent review and exact commands are
   recorded in `tasks/M34_HANDOFF.md`.
 
 ## Commercial status

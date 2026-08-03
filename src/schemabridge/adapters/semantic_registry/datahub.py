@@ -134,6 +134,7 @@ _LEGACY_ALLOWED_WRITER_PRIVILEGES = frozenset(
         "manageStructuredProperties",
     }
 )
+_LEGACY_ALLOWED_TARGET_GRANTS = frozenset({"MANAGE_DOCUMENTS"})
 _M34_WRITER_PRIVILEGES = frozenset({"manageDocuments"})
 
 
@@ -963,11 +964,13 @@ def _require_bounded_writer_identity(
     identity: DataHubRegistryIdentity,
     config: DataHubRegistryWriteConfig,
 ) -> None:
+    """Preserve the bounded M22/v1 identity contract for the legacy publisher."""
+
     if (
         identity.actor_urn != config.actor_urn
         or "manageDocuments" not in identity.granted_platform_mutation_privileges
         or not identity.granted_platform_mutation_privileges <= _LEGACY_ALLOWED_WRITER_PRIVILEGES
-        or bool(identity.granted_target_edit_privileges)
+        or not identity.granted_target_edit_privileges <= _LEGACY_ALLOWED_TARGET_GRANTS
     ):
         raise RegistryPublicationError(
             RegistryPublicationErrorCode.CATALOG_PERMISSION_DENIED,

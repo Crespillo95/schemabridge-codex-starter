@@ -103,7 +103,7 @@ The required M34 matrix passes 118 tests with 5 explicit live-DataHub skips beca
 and writer credentials are absent. Fresh schema-v14 PostgreSQL publication, full M23, recipe and
 operational-observer regressions pass 17 tests; deployment/runtime/metrics tests pass 215; the
 installable wheel covers migrations 1–14 and every runtime entrypoint. The exact commit candidate
-passes supply-chain/release policy, Ruff, mypy over 343 source files and the full 3,778-test unit
+passes supply-chain/release policy, Ruff, mypy over 343 source files and the full 3,779-test unit
 gate with 238 explicit deselections. Codex internal-browser
 evidence passes the exact queued → leased → awaiting-approval → approved → leased →
 activation-ready path with one immutable write, one opaque related asset and an unchanged active
