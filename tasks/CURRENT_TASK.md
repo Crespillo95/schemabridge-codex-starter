@@ -56,7 +56,7 @@ Coverage and correctness targets explicitly exclude this wall-clock node. The 5,
 concurrency-16 PostgreSQL benchmark remains the authoritative operated scale gate.
 
 The published `3f57a2e` bytes passed a full local `make check` with 3,931 tests and 246 explicit
-deselections in 1,235.07 seconds. On the current D131 bytes, the exact isolated 1,000-read node
+deselections in 1,235.97 seconds. On the current D131 bytes, the exact isolated 1,000-read node
 passes in 2.72 seconds; a direct run records p50/p95/p99/max
 9.775/10.761/12.288/19.260 ms with all 1,000 observations accounted for and zero over both budgets.
 The 23 non-performance harness tests include tracked-format-v2 rendering compatibility. Combined,

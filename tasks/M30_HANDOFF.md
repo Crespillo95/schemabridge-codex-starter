@@ -58,7 +58,7 @@
 | `make m30-readiness` | pass with explicit NO-GO | Pre-commit run: four repository failures and 24 external controls missing; zero network/database/DataHub/source actions |
 | `make check` (initial attempt) | intentionally interrupted | 2,513 passed and 246 deselected before stopping to fix the independent-review P1 |
 | `make check` | pass | 3,931 passed, 246 deselected in 1,096.17 s; supply-chain, release audit, Ruff and mypy passed |
-| `make check` (post-hosted per-worker remediation) | pass | 3,931 passed, 246 deselected in 1,235.07 s; unchanged 250/500 ms scale budgets passed |
+| `make check` (post-hosted per-worker remediation) | pass | 3,931 passed, 246 deselected in 1,235.97 s; unchanged 250/500 ms scale budgets passed |
 | `make test-performance` (D131 focused bytes) | pass | Exact fresh 1,000-read node passed in 2.72 s |
 | `.venv/bin/pytest -q -m 'not performance' tests/unit/test_scale_harness.py` | pass | 23 passed, 1 deselected in 3.63 s; validates isolation, stateless metadata, v2 rendering compatibility, tail diagnostics and percentile boundaries |
 | Direct 1,000-read diagnostic | pass | p50/p95/p99/max 9.775/10.761/12.288/19.260 ms; zero observations over 250/500; all 1,000 observations accounted for |
