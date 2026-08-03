@@ -2,7 +2,8 @@
 
 ## Status
 
-- State: planned; execution blocked until the operated M29 prerequisites exist
+- State: Phase 0 candidate-readiness contract implemented locally; campaign execution blocked
+  until the operated M29 prerequisites and independent evaluation inputs exist
 - Release decision: **NO-GO**
 - Candidate SKU: PostgreSQL copy-first private beta, isolated per customer
 - Depends on: accepted M29 contracts in the target environment and accepted M35 registry lifecycle
@@ -51,6 +52,40 @@ Before campaign execution, release engineering records and signs:
 
 Changing any frozen input invalidates the campaign or starts a separately identified run.
 
+### Phase 0 offline preflight
+
+`plans/M30_CAMPAIGN_CONTRACT.yml` is the machine-readable contract for the PostgreSQL typed-plan-v2
+SKU. It freezes copy-first/no-default-preview behavior, one connection, three tables, two joins,
+context and request-complexity bounds, 500 default/10,000 maximum preview rows, 5,000 ms timeout,
+explicit `NULL`/fanout policies, five corpus classes with 500 Spanish plus 500 English cases,
+zero-tolerance/quantitative thresholds, supported/unsupported SQL families and 24 required
+evidence controls. `make m30-readiness` materializes deterministic JSON and Markdown under ignored
+`.local/m30/`.
+
+This preflight reads only Git and repository files. It may pass repository-contract facts, but it
+deliberately cannot pass hosted CI, operated-target, independent-third-party or owner-approval
+controls. A pull-request artifact bound to an ephemeral merge ref, a checked-in synthetic report
+or a locally authored `status=passed` document never satisfies those controls. Missing evidence,
+a dirty tree, a non-`main` checkout, an absent annotated stable SemVer tag or an uncommitted contract
+returns `blocked_prerequisites`, `campaign_executable=false` and `release_decision=no_go`.
+
+The command's `--report-only` switch changes only its process exit code so an operator can retain
+the report. It cannot change any gate or verdict. Phase 0 is preparation evidence, not M30
+acceptance, a signed candidate freeze, campaign execution or release authority.
+
+The inspector neutralizes ambient Git configuration/environment, replacement refs, lazy fetch,
+hooks and fsmonitor; rejects a mismatched repository root, hidden/sparse index state, symlink or
+gitlink objects and unexpected migrations; hashes tracked worktree bytes/modes without Git clean
+filters; and rechecks HEAD/tree/branch/tags/index/worktree before returning. JSON is written last
+as the report-bundle commit marker and binds the Markdown digest.
+These controls still do not create an external trust root: the candidate contains this code and
+contract. Phase 1 therefore requires the separately authorized signed campaign manifest before
+any corpus runner may consume the freeze.
+
+The Phase 0 contract requires every named SQL family and balanced language/class totals. The
+future signed corpus manifest must additionally freeze exact per-family/risk counts and case IDs;
+Phase 0 cannot run or accept the campaign until that independently owned manifest exists.
+
 ## Blind bilingual evaluation
 
 An evaluator who did not author the implementation owns the hidden answer key. The corpus uses
@@ -59,13 +94,13 @@ logs. Paraphrases and held-out schemas are separated from development fixtures.
 
 The minimum campaign contains:
 
-| Class | Minimum cases | Required coverage |
-|---|---:|---|
-| Supported simple ES/EN | 200 | projection, filters, sorting, limits, `NULL`, dates and identifiers |
-| Supported advanced ES/EN | 300 | aggregates, `HAVING`, conditional aggregates, buckets, ranking, top-N, percentages, running totals, moving windows and lag/lead |
-| Ambiguous | 150 | unclear metric/date/grain/filter/join/tie/null/fanout meaning |
-| Deliberately unsupported | 150 | self/CROSS joins, arbitrary subqueries/sets, recursion, gaps/islands, unsafe `ROLLUP`, federation and over-limit plans |
-| Adversarial/security | 200 | prompt injection, SQL smuggling, comments, multi-statement input, DDL/DML/utility requests, stale authority, IDOR and payload tampering |
+| Class | Total | Spanish | English | Required coverage |
+|---|---:|---:|---:|---|
+| Supported simple | 200 | 100 | 100 | projection, filters, sorting, limits, `NULL`, dates and identifiers |
+| Supported advanced | 300 | 150 | 150 | aggregates, `HAVING`, conditional aggregates, buckets, ranking, top-N, percentages, running totals, moving windows and lag/lead |
+| Ambiguous | 150 | 75 | 75 | unclear metric/date/grain/filter/join/tie/null/fanout meaning |
+| Deliberately unsupported | 150 | 75 | 75 | self/CROSS joins, arbitrary subqueries/sets, recursion, gaps/islands, unsafe `ROLLUP`, federation and over-limit plans |
+| Adversarial/security | 200 | 100 | 100 | prompt injection, SQL smuggling, comments, multi-statement input, DDL/DML/utility requests, stale authority, IDOR and payload tampering |
 
 Every supported case specifies the accepted semantic intent, required registry facts, allowed SQL
 AST equivalence class, expected result over a frozen oracle dataset and acceptable ordering/null

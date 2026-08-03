@@ -4536,3 +4536,57 @@ natural-language selections, relevant PostgreSQL integration and browser accepta
 
 Do not mark M32 accepted from documentation, implementation presence, a generated SQL example, or
 an earlier partial test run. Production/release remain NO-GO independently of M32.
+
+## M30 Phase 0 — candidate-readiness preflight
+
+This operation prepares an exact PostgreSQL evaluation candidate without contacting GitHub,
+DataHub, a database, a model provider or a target environment:
+
+```bash
+make m30-readiness
+```
+
+It writes only ignored local reports:
+
+```text
+.local/m30/readiness.json
+.local/m30/readiness.md
+```
+
+Treat `readiness.json` as the bundle commit marker: its `report_sha256` binds the canonical report
+and `markdown_sha256` must match `readiness.md`. A mismatch means an interrupted/stale bundle and
+the preflight must be rerun. Do not place `--output-directory` inside the candidate source tree;
+only the canonical ignored `.local/m30` path or an external non-symlink directory is accepted.
+
+Inspect the candidate revision, branch, annotated tag, clean-tree state, source/migration/contract
+digests and every gate. The normal result before external operation is:
+
+```text
+preflight_state=blocked_prerequisites
+campaign_executable=false
+release_decision=no_go
+network_calls=0
+database_calls=0
+datahub_writes=0
+source_writes=0
+```
+
+The Make target passes `--report-only` only so this accurate report can be retained. Run the script
+without that switch when a non-zero exit is required for automation:
+
+```bash
+.venv/bin/python scripts/m30_readiness.py
+```
+
+Exit `2` means required candidate/external evidence is missing; exit `3` means the contract or
+repository could not be inspected. Neither code authorizes a release. Do not edit the report to
+advance a gate. Hosted evidence must be obtained from the exact candidate subject, not a PR merge
+ref; operated and independent controls require their target/assessor evidence paths defined in the
+M30 plan. This Phase-0 command observes repository bytes and tags only. Until the signed campaign
+manifest verifier exists, the operator must manually invalidate the run when a model/provider,
+prompt, built artifact or target-environment input changes; none of those external identities is
+bound or certified by this local report.
+
+The local code and contract are part of the candidate they inspect, so this report is not its own
+trust root. The next verifier must consume an independently authorized signed campaign manifest
+with exact per-family/risk case counts and candidate/artifact/provider/environment identities.

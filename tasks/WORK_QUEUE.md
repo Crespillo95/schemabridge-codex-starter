@@ -43,5 +43,6 @@ M17/M18 release evidence.
 | 31 | M32 | complete; accepted locally | bounded copy-first PostgreSQL capability; production gates remain open |
 | 32 | M33 | complete; accepted locally | generic tenant onboarding to an immutable ready-for-publication proposal |
 | 33 | M34 | complete; accepted locally | isolated writer/readback and activation-ready bridge pass local gates |
-| 34 | M30 | blocked | requires external evaluation/security inputs and an exact hosted M34 rerun |
-| 35 | M31 | blocked | requires accepted M30 and operated pilot evidence |
+| 34 | M35 | complete; accepted locally | bounded registry-v2 join and one-model replacement/remediation lifecycle |
+| 35 | M30 | Phase 0 prepared; campaign blocked | offline fail-closed preflight exists; exact candidate, operated M29 and independent evaluation/security evidence are absent |
+| 36 | M31 | blocked | requires accepted M30; M31 produces the operated pilot evidence |

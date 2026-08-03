@@ -457,6 +457,13 @@ def run_load(
     worker_counts = tuple(
         quotient + (1 if worker_index < remainder else 0) for worker_index in range(concurrency)
     )
+    warmup = reader.read_page("large", page_size=page_size, cursor=None)
+    if (
+        not warmup.item_keys
+        or len(warmup.item_keys) > page_size
+        or warmup.rows_read > page_size + 1
+    ):
+        raise ScaleHarnessError("scale load warmup page contract failed")
     started = time.perf_counter_ns()
     with ThreadPoolExecutor(
         max_workers=concurrency,
@@ -505,6 +512,8 @@ def run_load(
     passed = all(regression_checks.values())
     return {
         "read_count": read_count,
+        "warmup_read_count": 1,
+        "warmup_included_in_latency": False,
         "concurrency": concurrency,
         "page_size": page_size,
         "error_count": error_count,
@@ -1148,6 +1157,10 @@ def render_markdown(report: Mapping[str, object]) -> str:
                 (
                     f"- Reads / concurrency / page size: `{load['read_count']}` / "
                     f"`{load['concurrency']}` / `{load['page_size']}`."
+                ),
+                (
+                    f"- Unmeasured warmup reads: `{load['warmup_read_count']}`; included in "
+                    f"reported latency: `{load['warmup_included_in_latency']}`."
                 ),
                 f"- Unexpected errors: `{load['error_count']}`.",
                 (

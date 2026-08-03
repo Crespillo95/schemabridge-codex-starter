@@ -366,7 +366,7 @@ SCALE_PREFLIGHT_REPORT_MARKDOWN ?= reports/m25-scale-preflight.md
 SCALE_REPORT_JSON ?= reports/m25-scale-report.json
 SCALE_REPORT_MARKDOWN ?= reports/m25-scale-report.md
 
-.PHONY: help bootstrap install check runtime-wheel-smoke supply-chain-lock supply-chain-static supply-chain-licenses m29-recovery-help m29-recovery-policy-check format lint type test coverage coverage-unit doctor evaluate submission-package submission-package-dev release-audit release-clean judge-build judge-smoke demo-up demo-down demo-reset demo-seed-check demo-reset-proof demo-health demo-query demo-compile demo-preview demo-guard demo-governed-plan demo-governed-preview demo-intent control-plane-up control-plane-down control-plane-reset control-plane-migrate control-plane-check api observer worker worker-once registry-publisher registry-publisher-once registry-publisher-probe catalog catalog-once semantic-reconciler semantic-reconciler-once semantic-reconciler-probe semantic-profile-worker semantic-profile-worker-once semantic-profile-worker-probe test-api-integration test-worker-integration test-intent test-scale-correctness benchmark-scale-preflight benchmark-scale test-integration test-acceptance datahub-version datahub-start datahub-health datahub-init-admin datahub-ingest datahub-provision-mcp datahub-provision-writer datahub-catalog-check datahub-registry-check datahub-restart datahub-reset datahub-stop datahub-mcp-check ui clean
+.PHONY: help bootstrap install check runtime-wheel-smoke supply-chain-lock supply-chain-static supply-chain-licenses m29-recovery-help m29-recovery-policy-check m30-readiness format lint type test coverage coverage-unit doctor evaluate submission-package submission-package-dev release-audit release-clean judge-build judge-smoke demo-up demo-down demo-reset demo-seed-check demo-reset-proof demo-health demo-query demo-compile demo-preview demo-guard demo-governed-plan demo-governed-preview demo-intent control-plane-up control-plane-down control-plane-reset control-plane-migrate control-plane-check api observer worker worker-once registry-publisher registry-publisher-once registry-publisher-probe catalog catalog-once semantic-reconciler semantic-reconciler-once semantic-reconciler-probe semantic-profile-worker semantic-profile-worker-once semantic-profile-worker-probe test-api-integration test-worker-integration test-intent test-scale-correctness benchmark-scale-preflight benchmark-scale test-integration test-acceptance datahub-version datahub-start datahub-health datahub-init-admin datahub-ingest datahub-provision-mcp datahub-provision-writer datahub-catalog-check datahub-registry-check datahub-restart datahub-reset datahub-stop datahub-mcp-check ui clean
 
 help:
 	@printf '%s\n' \
@@ -378,6 +378,7 @@ help:
 	  'make supply-chain-lock Refresh the complete lock and exact hashed exports' \
 	  'make m29-recovery-help Show the safe M29 recovery operator commands' \
 	  'make m29-recovery-policy-check Validate the exact M29 recovery policy' \
+	  'make m30-readiness Materialize the explicit offline M30 NO-GO preflight' \
 	  'make coverage    Run the >=80% full-suite coverage gate (services required)' \
 	  'make coverage-unit Report service-free unit coverage without release gating' \
 	  'make doctor      Verify the local starter environment' \
@@ -500,6 +501,9 @@ m29-recovery-help:
 
 m29-recovery-policy-check:
 	@$(BIN)/python scripts/m29_recovery.py policy-check
+
+m30-readiness:
+	@$(BIN)/python scripts/m30_readiness.py --report-only
 
 doctor:
 	$(BIN)/schemabridge doctor

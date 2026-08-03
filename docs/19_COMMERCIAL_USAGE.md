@@ -26,7 +26,7 @@ la semántica solicitada, el dialecto, las relaciones aprobadas y los límites, 
 líneas. Si falta contexto, hay ambigüedad o la familia SQL no está representada, el producto debe
 devolver una explicación sin SQL.
 
-## Qué puede ofrecerse hoy
+## Qué capacidad local puede demostrarse hoy
 
 | Área | Estado verificable | Límite de la afirmación |
 |---|---|---|
@@ -81,8 +81,14 @@ Estos son límites de producto, no una estimación de rendimiento para cualquier
 | Conexiones por consulta | 1 |
 | Modelos en el cierre de contexto de una petición | 3 |
 | Campos en el cierre de contexto de una petición | 12 |
+| Longitud máxima de la petición en lenguaje natural | 2.000 caracteres |
+| Menciones semánticas por petición | 12 |
+| Profundidad máxima de predicados | 4 niveles |
+| Hojas máximas de predicados | 16 |
+| Valores máximos en un predicado `IN` | 64 |
 | Cálculos de ventana avanzados por petición | 4 |
-| Filas máximas de preview configurables por política | 10.000; valor por defecto 500 |
+| Preview | Deshabilitado por defecto; al habilitarlo, 500 filas por defecto y 10.000 máximo |
+| Timeout de sentencia | 5.000 ms |
 | Modelos por registro semántico | 100 |
 | Campos por registro semántico | 1.000 |
 | Mapeos por registro semántico | 2.000 |
@@ -262,12 +268,32 @@ el cluster destino, alertas/SIEM, recuperación y carga con el perfil del client
 
 - corpus ciego representativo por familia soportada, incluyendo positivos, ambiguos,
   no soportados y adversariales;
-- precisión semántica, exact match/ejecución controlada, tasa de rechazo seguro y regresiones por
-  versión con umbrales aprobados antes del piloto;
+- precisión semántica, equivalencia de AST y resultados sobre el oracle, ejecución controlada,
+  rechazo seguro y regresiones por versión con umbrales aprobados antes del piloto;
 - pruebas de carga/capacidad con el perfil real del cliente;
 - threat model actualizado, pentest independiente, revisión de aislamiento y resolución de todo
   hallazgo crítico/alto;
 - evidencia reproducible en un checkout limpio y artefactos firmados.
+
+La Phase 0 ya dispone de un contrato validable por máquina y una preflight explícitamente
+fail-closed:
+
+```bash
+make m30-readiness
+```
+
+Genera `.local/m30/readiness.json` y `.local/m30/readiness.md`. En el estado actual debe informar
+`blocked_prerequisites`, `campaign_executable=false` y `release_decision=no_go`. Sólo valida el
+contrato y la identidad Git/digests locales; no acepta fixtures, informes autodeclarados ni el
+artefacto de un merge-ref de PR como evidencia del candidato. Tampoco convierte en PASS el CI,
+pentest, corpus ciego, IAM, cluster, SIEM, restore, navegador o firmas que todavía no se han
+operado contra el sujeto exacto.
+
+El mínimo queda equilibrado en 500 casos ES y 500 EN, pero la preflight no ejecuta ese corpus ni
+demuestra sus resultados. El JSON local es sólo el marcador del bundle y enlaza el digest del
+Markdown. El código y el contrato pertenecen al mismo candidato, por lo que la autoridad real de
+la campaña deberá ser un manifiesto firmado por un propietario independiente, con casos por
+familia/riesgo e identidades exactas de artefactos, proveedor y entorno.
 
 El plan completo, corpus mínimo, métricas y umbrales están en
 [`plans/M30_PRODUCTION_EVALUATION_SECURITY.md`](../plans/M30_PRODUCTION_EVALUATION_SECURITY.md).

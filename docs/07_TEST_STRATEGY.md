@@ -645,6 +645,9 @@ not production availability or capacity claims.
 
 The short wall-clock smoke remains mandatory in the hosted service-free quality job with those
 limits unchanged; release clean-room likewise runs `make check` before starting project services.
+It performs and discloses one explicit unmeasured page warmup before starting the 64 timed reads,
+so the test matches its declared warm-cache profile instead of charging first-use model
+construction to p95.
 It carries the `performance` marker and coverage runs deselect that marker so the measurement does
 not inherit pytest-cov or active DataHub/PostgreSQL service-job contention. The pure deterministic
 regression gate remains selected by coverage and proves the exact error, percentile, row, and
@@ -1403,3 +1406,26 @@ M35 adds independent positive and fail-closed coverage for both delta families:
 Live DataHub, external IAM/secret manager, production load and provider quality remain separate
 M29/M30/M31 gates. Passing this matrix establishes the bounded local PostgreSQL lifecycle, not a
 multi-dialect or production/commercial claim.
+
+## M30 Phase 0 readiness tests
+
+The offline preflight is tested independently from the future M30 campaign. Unit tests require the
+machine contract to retain exactly 500 Spanish plus 500 English cases, the PostgreSQL copy-first
+typed-plan-v2 SKU, request/context/preview/timeout/`NULL`/fanout limits, the closed
+supported/unsupported families, zero-tolerance controls and all 24 reviewed evidence mappings.
+Mutation tests reject weakened language/class counts, critical thresholds, query limits,
+automatic execution, scalar coercion, extra YAML fields, duplicate/complex keys and substitution
+of repository evidence for an operated or independent control.
+
+A temporary clean Git repository proves exact HEAD/tree/source/migration/contract digests,
+`main`, one annotated `v{package_version}` SemVer tag and deterministic report bytes. Adversarial
+tests neutralize inherited `GIT_*`, replacement refs and fsmonitor; reject a repository
+subdirectory as root, assume-unchanged/skip-worktree state, symlink blobs and unexpected migrations; prove that
+hostile clean filters never execute and stat-cache tricks cannot hide changed bytes; and reject
+symlinked, traversing or candidate-source report destinations. Dirty, uncommitted, untagged and
+non-main candidates fail their repository gates. JSON is the bundle commit marker and binds the
+Markdown digest. A checked-in self-asserted `passed` document is ignored; every hosted, operated,
+independent and owner control remains `missing_external`.
+Acceptance asserts `campaign_executable=false`, `release_decision=no_go`, no accepted synthetic
+evidence and zero network/database/DataHub/source actions. These tests validate the preflight, not
+the missing 1,000-case campaign or any external security/operations result.

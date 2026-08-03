@@ -152,6 +152,24 @@ SQL families return no SQL. Operated M29 controls, M30 blind bilingual quality/s
 large-scale customer evidence, legal/service controls and separate certification for every future
 dialect remain mandatory.
 
+M30 Phase 0 is implemented locally under D130; M30 itself is not accepted. The exact machine
+contract now fixes the PostgreSQL typed-plan-v2 copy-first SKU, one connection/three tables/two
+joins, request/window/context/preview/timeout/`NULL`/fanout limits, supported and unsupported
+families, five corpus classes totalling 500 Spanish plus 500 English cases, zero-tolerance and
+quantitative thresholds, and the evidence class for all 24 external controls. The offline preflight
+binds Git HEAD/tree, lock/build/workflow files, migrations 1–15, schema v15 and contract/source
+digests, and produces deterministic ignored JSON/Markdown.
+
+The preflight cannot accept repository fixtures, self-authored pass documents or PR merge refs as
+hosted, operated, independent or owner evidence. Its focal unit/acceptance suite passes 49 tests.
+The recorded pre-commit run on the dirty non-main untagged development tree correctly reported four repository
+failures plus 24 missing external controls, `campaign_executable=false`, zero external actions and
+`release_decision=no_go`. That is preparation evidence only; the candidate must later be merged,
+tagged, built and attested on its exact subject before a blind campaign may start.
+The local implementation gate passes 3,931 tests with 246 explicit deselections; the runtime wheel
+validates migrations 1–15 and all entrypoints. Independent post-remediation review reports P0=0,
+P1=0 and P2=0. None of those local facts satisfies an external M30 control.
+
 Initial commit `09c3a2e0f47a7fbadb5297fa6bc4f9aca0d21950` and its 12-commit history pass
 the exact secret scan and are published on draft PR #1. Hosted run `30765372081` passed quality,
 supply chain and GitGuardian, then failed closed on the backup-evidence ceiling and stale legacy
@@ -1870,6 +1888,9 @@ locally under D129. Its schema-v15 authoring/profile authority, exact M34 public
 replacement witness/handoff, HTTP/PostgreSQL/backup/acceptance/browser/full gates and retained
 commercial limitations are recorded in `tasks/M35_HANDOFF.md`. M30 remains blocked on operated
 M29 prerequisites and live evaluation/security inputs; production/release remain NO-GO.
+M30 Phase 0 now provides the exact offline candidate-readiness contract and NO-GO report under
+D130. The campaign remains blocked on an exact clean tagged main candidate, exact-subject hosted
+artifacts, the blind corpus, operated target controls, independent assessment and owner signatures.
 M17/M18 release work remains independently blocked on a reviewed clean commit, strict
 `make release-clean`, exact-commit deployment, public/incognito and cold-start evidence, final
 media/links/checksums, and external reviewer sign-off.

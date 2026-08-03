@@ -110,6 +110,7 @@ from schemabridge.application.ports.intents import (
     IntentParserPort,
 )
 from schemabridge.application.ports.planning import GovernedSemanticRegistryPort
+from schemabridge.application.ports.production_evidence import M30ReadinessReportWriterPort
 from schemabridge.application.ports.publication_audit import (
     PublicationAuditStoreError,
     PublicationAuditStorePort,
@@ -145,6 +146,7 @@ from schemabridge.application.postgres_health import (
     CheckDatabaseReadiness,
     DatabaseConfigurationError,
 )
+from schemabridge.application.production_readiness import AssessM30Readiness
 from schemabridge.application.query_cost import AssessGovernedQueryCost
 from schemabridge.application.query_execution import (
     PrepareQuery,
@@ -1683,6 +1685,35 @@ def build_evaluation_report_writer(
     from schemabridge.adapters.evaluation.reporting import FileEvaluationReportWriter
 
     return FileEvaluationReportWriter((repository_root or Path.cwd()).resolve())
+
+
+def build_m30_readiness_assessor(
+    *,
+    repository_root: Path | None = None,
+) -> AssessM30Readiness:
+    """Compose the offline fail-closed M30 assessor at the only composition root."""
+
+    from schemabridge.adapters.evaluation.m30_readiness import (
+        FileM30CampaignContract,
+        GitM30CandidateIdentity,
+    )
+
+    root = (repository_root or Path.cwd()).resolve()
+    return AssessM30Readiness(
+        contract_loader=FileM30CampaignContract(root),
+        candidate_identity=GitM30CandidateIdentity(root),
+    )
+
+
+def build_m30_readiness_report_writer(
+    *,
+    repository_root: Path | None = None,
+) -> M30ReadinessReportWriterPort:
+    """Compose the M30 report writer with its exact candidate-root boundary."""
+
+    from schemabridge.adapters.evaluation.m30_readiness import FileM30ReadinessReportWriter
+
+    return FileM30ReadinessReportWriter((repository_root or Path.cwd()).resolve())
 
 
 def build_review_store(
