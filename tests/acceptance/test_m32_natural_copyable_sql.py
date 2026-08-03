@@ -11,6 +11,12 @@ from pathlib import Path
 import pytest
 from sqlglot import exp, parse_one
 from tests.m32_natural_support import M32_REFERENCE_QUESTION
+from tests.m32_target_support import (
+    MutableTargetResolver,
+    current_semantic_gate,
+    execution_target,
+    target_bound_registry,
+)
 
 from schemabridge.adapters.query_studio.advanced_fake_language import (
     DeterministicAdvancedLanguageAdapter,
@@ -21,9 +27,6 @@ from schemabridge.adapters.query_studio.advanced_security import (
 from schemabridge.adapters.query_studio.advanced_semantic_index import (
     RegistryWideAdvancedSemanticIndex,
 )
-from schemabridge.adapters.semantic_registry.memory import (
-    InMemoryGovernedSemanticRegistry,
-)
 from schemabridge.adapters.sql.compiler import PostgresQueryCompiler
 from schemabridge.adapters.sql.export import PostgresCopyableSqlRenderer
 from schemabridge.adapters.sql.guard import SqlGlotPolicyGuard
@@ -33,7 +36,6 @@ from schemabridge.application.natural_sql import (
     PrepareNaturalSqlPreview,
 )
 from schemabridge.application.query_execution import CompiledQuery
-from schemabridge.bootstrap import build_semantic_registry
 from schemabridge.domain.advanced_plans import AdvancedQueryPlan, RestrictedQueryPlan
 from schemabridge.domain.advanced_query_studio import (
     AdvancedNaturalLanguageInput,
@@ -83,8 +85,10 @@ class CountingCompiler:
 
 
 def test_reference_spanish_request_requires_confirmation_then_builds_copyable_sql() -> None:
-    loaded = build_semantic_registry(repository_root=ROOT).load()
-    registry = InMemoryGovernedSemanticRegistry(loaded.registry, loaded.scope)
+    registry = target_bound_registry()
+    scope = registry.load().scope
+    target = execution_target(workspace_id=scope.workspace_id)
+    target_resolver = MutableTargetResolver(target)
     language = DeterministicAdvancedLanguageAdapter()
     tokens = HmacAdvancedQueryPreviewTokens(bytes(range(32)))
     clock = FixedClock()
@@ -102,12 +106,19 @@ def test_reference_spanish_request_requires_confirmation_then_builds_copyable_sq
         preview_tokens=tokens,
         clock=clock,
         nonces=FixedNonce(),
+        target_resolver=target_resolver,
+        require_target_binding=True,
+        semantic_gate=current_semantic_gate(),
+        semantic_scope=scope,
     ).execute(query)
 
     assert preparation.preview is not None
     assert preparation.token is not None
-    assert preparation.token.root.startswith("qsp2.")
+    assert preparation.token.root.startswith("qsp3.")
     assert preparation.preview.route is AdvancedQueryRoute.V2
+    assert preparation.preview.connection_id == target.connection_id
+    assert preparation.preview.target_route_revision == target.route_revision
+    assert preparation.preview.target_fingerprint == target.fingerprint
     assert len(preparation.preview.mapping_reviews) == 9
     assert all(item.evidence for item in preparation.preview.mapping_reviews)
     assert len(preparation.preview.join_reviews) == 2
@@ -138,6 +149,10 @@ def test_reference_spanish_request_requires_confirmation_then_builds_copyable_sq
         registry=registry,
         preview_tokens=tokens,
         clock=clock,
+        target_resolver=target_resolver,
+        require_target_binding=True,
+        semantic_gate=current_semantic_gate(),
+        semantic_scope=scope,
     ).execute(preparation, confirmation)
 
     assert confirmed.validated_request == preparation.preview.validated_request
@@ -149,11 +164,17 @@ def test_reference_spanish_request_requires_confirmation_then_builds_copyable_sq
         guard=SqlGlotPolicyGuard(),
         renderer=PostgresCopyableSqlRenderer(),
         limits=ResolutionLimits(),
+        target_resolver=target_resolver,
+        require_target_binding=True,
+        semantic_gate=current_semantic_gate(),
+        semantic_scope=scope,
     ).execute(confirmed)
 
     assert compiler.calls == 1
     assert result.artifact.plan_version == 2
     assert result.artifact.executed is False
+    assert result.target == target
+    assert result.artifact.target_fingerprint == target.fingerprint
     assert result.artifact.sha256 == M32_REFERENCE_SQL_SHA256
     assert isinstance(result.resolved_plan.query_plan, AdvancedQueryPlan)
     assert result.resolved_plan.query_plan.version == 2

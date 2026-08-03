@@ -2,9 +2,9 @@
 
 ## Status
 
-- State: Phase 0 and the Phase-1a manifest authenticator/workflow are locally prepared and pass the
-  final current-byte gate; no externally authenticated manifest or operated receipt exists, so
-  M30, campaign and release remain blocked
+- State: Phase 0 and Phase 1a pass their prior local gate; M30 target-binding hardening is under
+  final verification. No externally authenticated manifest or operated receipt exists, so M30,
+  campaign and release remain blocked
 - Release decision: **NO-GO**
 - Candidate SKU: PostgreSQL copy-first private beta, isolated per customer
 - Depends on: accepted M29 contracts in the target environment and accepted M35 registry lifecycle
@@ -35,6 +35,16 @@ The candidate may claim only that it:
 6. supports at most one connection, three tables and two approved joins per request; and
 7. preserves the configured `NULL`, fanout, row-limit and timeout policies.
 
+The managed candidate must additionally bind one exact registry-v2 connection and current
+`GovernedExecutionTarget` before provider access. The complete active registry must pass M26 before
+either target or provider access, and selected-plan dependencies must pass M26 again after
+interpretation, at confirmation and before generation. A `qsp3` confirmation and resolved-plan
+fingerprint bind connection ID, route revision, target fingerprint and type-contract fingerprint;
+preparation, confirmation and generation re-resolve that identity, compiler plus both guards
+receive it, and the UI revalidates retained artifacts before every later display/download.
+Development or recorded `target_fingerprint=None` output is explicitly non-commercial and cannot
+enter M30.
+
 It may not claim infallibility, arbitrary SQL, cross-database portability, federation, unrestricted
 schema size per query, or support for families absent from the typed language.
 
@@ -56,8 +66,10 @@ Changing any frozen input invalidates the campaign or starts a separately identi
 
 ### Phase 0 offline preflight
 
-`plans/M30_CAMPAIGN_CONTRACT.yml` is the machine-readable contract for the PostgreSQL typed-plan-v2
-SKU. It freezes copy-first/no-default-preview behavior, one connection, three tables, two joins,
+`plans/M30_CAMPAIGN_CONTRACT.yml` schema v2 is the machine-readable contract for the PostgreSQL
+typed-plan-v2 SKU. It freezes copy-first/no-default-preview behavior, one connection, three tables,
+two joins, the qsp3 target tuple, M26/target-resolution checkpoints, target-bound consumers and
+provider-free retained-artifact revalidation,
 context and request-complexity bounds, 500 default/10,000 maximum preview rows, 5,000 ms timeout,
 explicit `NULL`/fanout policies, five corpus classes with 500 Spanish plus 500 English cases,
 zero-tolerance/quantitative thresholds, supported/unsupported SQL families and 24 required

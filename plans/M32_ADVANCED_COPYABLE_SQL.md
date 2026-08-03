@@ -1,7 +1,8 @@
 # M32: Simple and advanced natural language to copyable PostgreSQL
 
-- Status: complete and accepted locally for the deterministic/synthetic product-capability scope;
-  manual browser evidence and all production/release gates remain open
+- Status: complete and accepted locally for the original deterministic/synthetic product-capability
+  scope; a qsp3 pre-final local/recorded browser subset was observed, while its fresh final gate,
+  managed/operated browser evidence and all production/release gates remain open
 - Started: 2026-07-30
 - Timebox: one vertical product milestone
 - Dependency: M29 locally accepted baseline; M30 and M31 retain their reserved production roles
@@ -203,10 +204,16 @@ For copy/download only, a deterministic renderer:
 AST traversal order is not used to associate values with placeholders. Non-finite numbers, NUL,
 an unsupported value type, count mismatch, parse drift, or remaining parameter fails closed.
 
-The artifact carries dialect, plan version, request/plan fingerprints, target identity where
-applicable, SQL SHA-256, and `executed=false`. SQL text and embedded literals are transient
-user-facing output and are forbidden from audit logs, telemetry, provider payloads, recipes, and
-durable reports. Only bounded fingerprints and capability metadata may persist.
+The artifact carries dialect, plan version, request/plan fingerprints, SQL SHA-256 and
+`executed=false`. In staging/production the complete registry first passes the M26 semantic-current
+gate, selected dependencies pass it again at every later trust boundary, and the same current
+target tuple is bound into the `qsp3` preview, resolved-plan fingerprint and compiler/guard path;
+semantic or target absence/drift yields no artifact. Streamlit provider-free revalidates the
+retained confirmed request and regenerated artifact on every later rerun before showing SQL or
+download. Development or recorded mode may leave the target absent only when explicitly labelled
+non-commercial. SQL text and embedded literals are transient user-facing output and are forbidden
+from audit logs, telemetry, provider payloads, recipes, and durable reports. Only bounded
+fingerprints and capability metadata may persist.
 
 The standalone artifact never reaches the executor. The optional preview lane accepts only the
 parameterized, guarded query and existing typed bindings.
@@ -295,7 +302,11 @@ The percentage denominator is explicitly the categories that survive `HAVING`.
   optional, separate, and disabled by default.
 - [x] Operator documentation explains PostgreSQL-only portability and the difference between
   parameterized executor SQL and standalone copy SQL.
-- [x] Relevant focused tests, integration/acceptance tests, and `make check` pass on final bytes.
+- [x] Relevant focused tests, integration/acceptance tests, and `make check` passed on the original
+  M32 final bytes accepted under D125.
+- [ ] The later D133 qsp3 amendment still requires its exact-current-byte `make check` and a managed
+  operated browser/target campaign. Its local/recorded manual subset and managed Streamlit rotation
+  AppTest are bounded evidence, not the remaining M30 gate.
 
 ## Reference ground truth
 

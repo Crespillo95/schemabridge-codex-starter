@@ -2,6 +2,7 @@
 
 - Status: accepted for M32 implementation
 - Date: 2026-07-30
+- Amended: 2026-08-03 by D133 for managed target binding
 
 ## Context
 
@@ -63,6 +64,18 @@ The use-case API is split:
 - confirm the exact preview and generate a copy artifact: reload/revalidate context and
   fingerprints, re-resolve, compile, guard, render, and guard again; never execute.
 
+For staging and production, the same API additionally requires one registry-v2 physical
+connection and current public `GovernedExecutionTarget`. The complete active registry must pass the
+M26 semantic-current gate before target/provider access; selected-plan dependencies are checked
+again after interpretation, at confirmation and before generation. Target resolution follows each
+eligible check. A `qsp3` HMAC token and resolved-plan fingerprint bind connection ID, route
+revision, target fingerprint and PostgreSQL type-contract fingerprint. Compiler, first guard,
+literal renderer metadata and second guard must agree on that target. A stale semantic dependency
+or missing, disabled, rotated, cross-workspace or cross-connection target fails without SQL. A UI
+must also replay provider-free confirmed-request validation on every later artifact rerun rather
+than trust cached SQL. Development/recorded mode may remain unbound only as an explicitly
+non-commercial acceptance lane.
+
 The PostgreSQL compiler remains deterministic. It emits parameterized SQL first, and the
 independent guard reparses and validates that form. Simple shapes use a direct `SELECT`; shapes
 that require aggregate/window evaluation boundaries use at most the compiler-owned `aggregated`
@@ -80,9 +93,9 @@ or literal values.
 PostgreSQL remains the sole supported dialect. Other engines require distinct compiler, guard,
 literal-rendering, and acceptance work.
 
-The artifact names the governed `schema.table` closure but is not bound to an arbitrary destination
-database. It is intended for the same governed PostgreSQL database/context shown in the preview.
-An unrelated database with homonymous schemas is not interchangeable. Approved PostgreSQL
+The managed artifact binds the current governed target fingerprint and names the governed
+`schema.table` closure; it is never portable to an arbitrary destination database. An unrelated
+database with homonymous schemas is not interchangeable. Approved PostgreSQL
 physical identifiers are currently unquoted-canonical lowercase ASCII names within the 63-byte
 server limit; quoted/mixed-case physical identifiers require a future end-to-end contract.
 
@@ -102,8 +115,9 @@ Unsupported families are reported; they are never approximated.
 - Retrieval can use all approved registry context without giving one model or plan unbounded
   authority.
 - Version-1 payloads and fingerprints remain stable.
-- SQL generation can complete without a source connection after approved semantic context is
-  available.
+- Local/recorded SQL generation can complete without a source route but is visibly non-commercial;
+  managed SQL generation requires a current public target identity while still receiving no source
+  credential or execution capability.
 - Natural-language ambiguity, unsupported intent, stale evidence, or unapproved context still
   produces no SQL.
 - The guard must understand CTE output scope and exact version-2 topology.

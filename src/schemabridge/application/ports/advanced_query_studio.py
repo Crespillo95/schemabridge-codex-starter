@@ -115,7 +115,7 @@ class AdvancedSemanticRetrievalPort(Protocol):
 
 
 class AdvancedQueryPreviewTokenPort(Protocol):
-    """Issue and authenticate digest-only qsp2 preview claims."""
+    """Issue and authenticate bounded text-free qsp3 preview claims."""
 
     def issue(
         self,
@@ -129,7 +129,7 @@ class AdvancedQueryPreviewTokenPort(Protocol):
         *,
         at: datetime,
     ) -> AdvancedPreviewTokenClaims:
-        """Authenticate one qsp2 token or fail closed."""
+        """Authenticate one qsp3 token or fail closed."""
 
 
 __all__ = [

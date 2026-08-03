@@ -435,10 +435,24 @@ PostgreSQL standalone, independently reparsed/guarded, contains no placeholders 
 
 Ambiguous, stale, physical-only and unsupported requests show a closed reason and no SQL. The
 current UI asks the user to rewrite; interactive slot resolution and a help/feature-request path
-remain gaps. The artifact does not yet require a non-null `target_fingerprint`, so a commercial UI
-must not expose the artifact to a tenant or imply binding to a particular database until that
-contract is implemented and certified. Manual destination review is local diagnostic evidence only
-and cannot close this commercial hard stop.
+remain gaps. M30 hardening now makes the managed staging/production path resolve one registry-v2
+PostgreSQL target before interpretation, but only after the complete registry passes the M26
+semantic-current gate. It signs connection ID, route revision, target fingerprint and type-contract
+fingerprint in a `qsp3` preview token and resolved-plan fingerprint; selected dependencies pass M26
+again before each later target resolution at confirmation and SQL generation. Any absence,
+revocation, cross-connection substitution or drift removes SQL/download. The UI shows the target
+before the confirmation checkbox and again in artifact integrity.
+
+An artifact cached in Streamlit session state is not display authority. Every later rerun
+provider-free revalidates the retained confirmed typed request and regenerated artifact before
+rendering SQL/download; semantic/target drift or a changed result purges both controls and shows a
+sanitized closed error.
+
+Development and recorded acceptance may still produce `target_fingerprint=None`, but the UI must
+label that path `unbound-local-recorded` and explicitly non-commercial. That lane cannot be exposed
+to a tenant or used as M30 evidence. The implementation addresses the former local P0 contract gap
+and remains under final exact-byte verification; operated target evidence, the remaining browser
+matrix and M30/M31 certification remain open.
 
 ## M33 onboarding acceptance surface
 

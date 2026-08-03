@@ -13,9 +13,13 @@ ni operación en el destino.
 La oferta candidata es exclusivamente PostgreSQL, copy-first, una conexión por petición, hasta
 tres tablas y dos joins aprobados. El usuario confirma una interpretación tipada y copia SQL
 standalone; SchemaBridge no lo ejecuta automáticamente. Otro dialecto, federación, subconsultas
-arbitrarias o una ampliación de límites requieren producto y certificación separados. Mientras el
-artefacto M32 pueda contener `target_fingerprint=None`, exponerlo a un tenant es un **hard stop**:
-una comprobación manual del destino sirve para diagnóstico local, pero no cierra el gate comercial.
+arbitrarias o una ampliación de límites requieren producto y certificación separados. El runtime
+managed ya exige el gate M26 vigente, liga localmente preview `qsp3`, plan, confirmación,
+compilador, ambos guards y artefacto al target gobernado exacto, y revalida cualquier SQL retenido
+antes de volver a mostrarlo o descargarlo. `target_fingerprint=None` queda reservado a
+desarrollo/recorded y debe mostrarse como **no comercial**. Esta implementación aún necesita
+evidencia operada M30/M31 antes de exponerla a un tenant; una comprobación manual no sustituye ese
+gate.
 
 ## Matriz inequívoca de bases y escala
 

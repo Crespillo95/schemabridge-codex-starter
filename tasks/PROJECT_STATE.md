@@ -152,12 +152,14 @@ SQL families return no SQL. Operated M29 controls, M30 blind bilingual quality/s
 large-scale customer evidence, legal/service controls and separate certification for every future
 dialect remain mandatory.
 
-M30 Phase 0 and the fail-closed Phase-1a manifest-authentication vertical are implemented locally
-under D130/D132; M30 itself is not accepted. The exact machine
-contract now fixes the PostgreSQL typed-plan-v2 copy-first SKU, one connection/three tables/two
-joins, request/window/context/preview/timeout/`NULL`/fanout limits, supported and unsupported
-families, five corpus classes totalling 500 Spanish plus 500 English cases, zero-tolerance and
-quantitative thresholds, and the evidence class for all 24 external controls. The offline preflight
+M30 Phase 0, the fail-closed Phase-1a manifest-authentication vertical and the qsp3 target-bound
+copy-SQL hardening are implemented locally under D130/D132/D133; M30 itself is not accepted. The
+exact schema-v2 machine contract now fixes the PostgreSQL typed-plan-v2 copy-first SKU, one
+connection/three tables/two joins, request/window/context/preview/timeout/`NULL`/fanout limits,
+qsp3/M26 checkpoints, the complete target tuple and target-bound consumers, retained-artifact
+revalidation, supported and unsupported families, five corpus classes totalling 500 Spanish plus
+500 English cases, zero-tolerance and quantitative thresholds, and the evidence class for all 24
+external controls. The offline preflight
 binds Git HEAD/tree, lock/build/workflow files, migrations 1–15, schema v15 and contract/source
 digests, and produces deterministic ignored JSON/Markdown.
 
@@ -183,6 +185,14 @@ detached-bundle verifier pins exact GitHub attestation facts and official platfo
 snapshots plus sanitized config. Even success is only workflow-attested bytes:
 `campaign_executable=false`, `release_decision=no_go`, zero controls passed and 24 remaining.
 
+Phase 1b is not implemented or accepted in the publishable candidate. An exploratory local draft
+was independently reviewed and held back because authenticated-looking producers/approvers and a
+direct adjudication model could construct `PASSED` from caller-supplied booleans/digests, attempts
+lacked trusted-clock/ledger replay protection, positive access fields resembled grants and external
+path checks retained a same-UID parent-swap race. No Phase-1b source, CLI, guide, receipt or PASS
+claim is candidate evidence. The next design must derive facts from authenticated raw snapshots
+through an independent verifier and durable CAS ledger.
+
 A pre-final isolated Phase-1a local gate passed Ruff format/lint, strict mypy over 364 source files,
 the isolated performance node and 3,988 functional tests with 248 explicit deselections in
 1,132.41 seconds. It predates the final trust-fact revalidation, injected-clock expiry check and
@@ -192,6 +202,26 @@ current-byte M30/supply-chain selection passes 52 tests with 158 deselections, a
 `bf7d18a` preflight reports only the expected `main`/annotated-tag repository failures plus all 24
 external controls missing. Exact-head hosted CI remains the pending full gate. This is local
 implementation evidence only and does not satisfy any external M30 control.
+
+D133 closes the previous local managed-target ambiguity without broadening SQL scope. Managed
+staging/production first gates the complete registry through M26 before target/provider access and
+rechecks selected-plan dependencies after interpretation, at confirmation and before generation.
+Each eligible boundary resolves the exact current PostgreSQL target. Signed qsp3 claims bind the
+connection, route revision, target fingerprint and target type-contract fingerprint into the
+resolved-plan fingerprint. The same target reaches compiler, both AST guards, renderer metadata and
+the final `executed=false` artifact; every later UI rerun provider-free regenerates/compares before
+display/download and purges drift. Missing/stale semantics or missing, disabled, cross-connection,
+substituted or rotated targets return no SQL. Local/recorded composition may remain unbound only as
+a visible non-commercial development mode.
+
+Current qsp3 evidence passes 16 specific, 74 broad, 96 M26/governed/recipe and four Streamlit tests;
+the consolidated M26/qsp3/M32 selection passes 124. The schema-v2 M30 contract/readiness/campaign
+selection passes 103. Focal formatting/Ruff, mypy over seven qsp3 files plus the contract model and
+`git diff --check` pass. The in-app browser observed the pre-final local/recorded advanced desktop,
+390×844 no-overflow and `date_meaning` ambiguity paths with clean console; post-remediation managed
+rotation is AppTest only, not managed browser evidence. Final exact-current-byte `make check` and a
+managed/operated browser campaign remain pending. These checks do not satisfy any of the 24
+external controls or change the M30/M31, commercial, production and release **NO-GO**.
 
 Phase 0 commit `c7e72cc97e4226b2d953f5c1e8ef55178a1598f5` and warmup commit
 `3f57a2ea89220ff0c68ac58f0f8e668069e93f81` are published on
@@ -1879,7 +1909,9 @@ M29 final-byte remediation status on 2026-07-30:
 - M32's deterministic language cases and compiler/guard matrix are local synthetic evidence, not
   a live-provider holdout or universal natural-language/SQL accuracy claim. Output is PostgreSQL
   for the same governed database/context; physical-only fields stay in M27
-  `needs_mapping_review`, and unsupported SQL families produce no SQL.
+  `needs_mapping_review`, and unsupported SQL families produce no SQL. D133 now binds managed
+  staging/production output to one current registry-v2 target through qsp3; unbound local/recorded
+  mode remains visibly non-commercial and is not destination certification.
 - The M32 automated Streamlit acceptance passes. Its original full manual desktop/mobile matrix
   was not run because the in-app browser list was empty; on 2026-08-03 one advanced desktop path
   was later verified manually with empty browser logs. Mobile, hostile-input, download and the
@@ -1949,8 +1981,10 @@ commercial limitations are recorded in `tasks/M35_HANDOFF.md`. M30 remains block
 M29 prerequisites and live evaluation/security inputs; production/release remain NO-GO.
 M30 Phase 0 plus the Phase-1a local candidate provide the exact offline candidate-readiness
 contract, NO-GO report, canonical manifest validator and workflow-attested byte authenticator under
-D130/D132, and pass the final current-byte local gate. That does not accept M30. The current
-development preflight reports four repository failures, 24 missing external controls and 37 exact
+D130/D132. D133 additionally implements the managed qsp3 current-target binding through compiler,
+guards, renderer and non-executed artifact. Its focused test results are preliminary; final browser
+consolidation and exact-current-byte `make check` remain pending. None of this accepts M30. The
+current development preflight reports four repository failures, 24 missing external controls and 37 exact
 source digests. GitHub `main` remains unprotected with zero environments/rulesets/tags, so the
 attestation workflow must not be dispatched. Campaign remains blocked on an exact clean tagged-main
 candidate, exact-subject hosted artifacts, the blind corpus, operated target controls, independent

@@ -8,6 +8,12 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from tests.m32_target_support import (
+    MutableTargetResolver,
+    current_semantic_gate,
+    execution_target,
+    target_bound_registry,
+)
 
 import schemabridge.adapters.control_plane.postgres_query_studio_ai as ai_control_module
 import schemabridge.adapters.language.openai_advanced_query_studio as openai_advanced_module
@@ -178,10 +184,57 @@ def test_fake_runtime_shares_resolution_limits_and_has_no_executor_capability() 
     assert runtime.prepare.registry is runtime.confirm.registry
     assert runtime.prepare.registry is runtime.generate.registry
     assert runtime.prepare.preview_tokens is runtime.confirm.preview_tokens
+    assert runtime.prepare.target_resolver is runtime.confirm.target_resolver
+    assert runtime.prepare.target_resolver is runtime.generate.target_resolver
+    assert runtime.prepare.require_target_binding is False
+    assert runtime.prepare.semantic_gate is None
+    assert runtime.confirm.semantic_gate is None
+    assert runtime.generate.semantic_gate is None
     assert runtime.prepare.limits is runtime.generate.limits
+    assert runtime.prepare.limits is runtime.confirm.limits
     assert runtime.prepare.limits.max_tables == 2
     assert runtime.prepare.limits.max_preview_rows == 321
     assert runtime.prepare.limits.statement_timeout_ms == 4_321
+
+
+def test_explicit_target_resolver_is_shared_and_makes_binding_mandatory() -> None:
+    registry = target_bound_registry()
+    target = execution_target(workspace_id=registry.load().scope.workspace_id)
+    resolver = MutableTargetResolver(target)
+    semantic_gate = current_semantic_gate()
+
+    runtime = build_natural_sql_runtime(
+        principal=_principal(),
+        repository_root=ROOT,
+        settings=_settings("fake"),
+        registry=registry,
+        target_resolver=resolver,
+        semantic_gate=semantic_gate,
+    )
+
+    assert runtime.prepare.target_resolver is resolver
+    assert runtime.confirm.target_resolver is resolver
+    assert runtime.generate.target_resolver is resolver
+    assert runtime.prepare.semantic_gate is semantic_gate
+    assert runtime.confirm.semantic_gate is semantic_gate
+    assert runtime.generate.semantic_gate is semantic_gate
+    assert runtime.prepare.require_target_binding is True
+    assert runtime.confirm.require_target_binding is True
+    assert runtime.generate.require_target_binding is True
+
+
+def test_explicit_target_resolver_without_m26_gate_is_rejected() -> None:
+    registry = target_bound_registry()
+    target = execution_target(workspace_id=registry.load().scope.workspace_id)
+
+    with pytest.raises(ValueError, match="requires the M26 semantic gate"):
+        build_natural_sql_runtime(
+            principal=_principal(),
+            repository_root=ROOT,
+            settings=_settings("fake"),
+            registry=registry,
+            target_resolver=MutableTargetResolver(target),
+        )
 
 
 def test_live_runtime_wraps_both_raw_stages_in_shared_durable_admission(

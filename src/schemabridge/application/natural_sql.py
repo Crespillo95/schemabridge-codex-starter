@@ -7,12 +7,18 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from itertools import combinations
 
+from schemabridge.application.connectors import ConnectorTargetError
+from schemabridge.application.governed_execution import (
+    semantic_plan_dependencies,
+    semantic_registry_dependencies,
+)
 from schemabridge.application.ports.advanced_query_studio import (
     AdvancedInterpretationPort,
     AdvancedMentionExtractionPort,
     AdvancedQueryPreviewTokenPort,
     AdvancedSemanticRetrievalPort,
 )
+from schemabridge.application.ports.connectors import ExecutionTargetResolverPort
 from schemabridge.application.ports.planning import GovernedSemanticRegistryPort
 from schemabridge.application.ports.query_studio import (
     QueryStudioClockPort,
@@ -22,6 +28,10 @@ from schemabridge.application.query_execution import (
     QueryCompilerPort,
     SqlPolicyGuardPort,
     ValidatedQuery,
+)
+from schemabridge.application.semantic_change import (
+    AssertSemanticContextCurrent,
+    SemanticChangeError,
 )
 from schemabridge.application.sql_export import (
     BuildCopyableSql,
@@ -54,7 +64,9 @@ from schemabridge.domain.advanced_requests import (
     BooleanOperator,
     GroupingMode,
 )
+from schemabridge.domain.catalog_inventory import CatalogConnectionId
 from schemabridge.domain.concepts import LogicalFieldRef
+from schemabridge.domain.connectors import GovernedExecutionTarget
 from schemabridge.domain.fields import PhysicalDatasetRef
 from schemabridge.domain.request_context import (
     ApprovedLogicalJoin,
@@ -80,6 +92,7 @@ from schemabridge.domain.resolution import (
 from schemabridge.domain.semantic_registry import (
     GovernedSemanticRegistrySnapshot,
     ScopedSemanticRegistrySnapshot,
+    SemanticRegistryScope,
     semantic_registry_scope_fingerprint,
 )
 
@@ -93,6 +106,10 @@ class NaturalSqlErrorCode(StrEnum):
     CONFIRMATION_MISMATCH = "natural_sql_confirmation_mismatch"
     STALE_CONTEXT = "natural_sql_stale_context"
     FANOUT_MITIGATION_REQUIRED = "natural_sql_fanout_mitigation_required"
+    TARGET_REQUIRED = "natural_sql_target_required"
+    TARGET_UNAVAILABLE = "natural_sql_target_unavailable"
+    TARGET_MISMATCH = "natural_sql_target_mismatch"
+    CROSS_CONNECTION = "natural_sql_cross_connection"
 
 
 class NaturalSqlError(RuntimeError):
@@ -163,6 +180,13 @@ class GovernedCopyableSqlResult:
 
     artifact: CopyableSqlArtifact
     resolved_plan: ResolvedPlanLike
+    target: GovernedExecutionTarget | None = None
+
+    def __post_init__(self) -> None:
+        if (self.target is None) != (self.artifact.target_fingerprint is None):
+            raise ValueError("copyable SQL target binding is incomplete")
+        if self.target is not None and self.artifact.target_fingerprint != self.target.fingerprint:
+            raise ValueError("copyable SQL artifact differs from its governed target")
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -173,6 +197,14 @@ class GovernedCopyableSqlResult:
             "sha256": self.artifact.sha256,
             "sql": self.artifact.sql,
             "executed": self.artifact.executed,
+            "connection_id": (self.target.connection_id.root if self.target is not None else None),
+            "target_route_revision": (
+                self.target.route_revision if self.target is not None else None
+            ),
+            "target_fingerprint": self.artifact.target_fingerprint,
+            "target_type_contract_fingerprint": (
+                self.target.type_contract_fingerprint if self.target is not None else None
+            ),
             "datasets": [
                 self.resolved_plan.query_plan.root_scan.dataset.root,
                 *(item.right_scan.dataset.root for item in self.resolved_plan.query_plan.joins),
@@ -187,6 +219,13 @@ class OptionalNaturalSqlValidation:
 
     query: ValidatedQuery
     resolved_plan: ResolvedPlanLike
+    target: GovernedExecutionTarget | None = None
+
+    def __post_init__(self) -> None:
+        if (self.target is None) != (self.query.target_fingerprint is None):
+            raise ValueError("optional SQL validation target binding is incomplete")
+        if self.target is not None and self.query.target_fingerprint != self.target.fingerprint:
+            raise ValueError("optional SQL validation differs from its governed target")
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,9 +240,36 @@ class PrepareNaturalSqlPreview:
     clock: QueryStudioClockPort
     nonces: QueryStudioNoncePort
     limits: ResolutionLimits = field(default_factory=ResolutionLimits)
+    target_resolver: ExecutionTargetResolverPort | None = None
+    require_target_binding: bool = False
+    semantic_gate: AssertSemanticContextCurrent | None = None
+    semantic_scope: SemanticRegistryScope | None = None
+
+    def __post_init__(self) -> None:
+        _validate_semantic_target_configuration(
+            target_resolver=self.target_resolver,
+            require_target_binding=self.require_target_binding,
+            semantic_gate=self.semantic_gate,
+            semantic_scope=self.semantic_scope,
+        )
 
     def execute(self, query: AdvancedNaturalLanguageInput) -> NaturalSqlPreparation:
         loaded = self.registry.load()
+        managed = self.require_target_binding or self.target_resolver is not None
+        if managed:
+            _registry_target_identity(loaded, required=True)
+        registry_connection_id = _assess_registry_current(
+            loaded=loaded,
+            semantic_gate=self.semantic_gate,
+            semantic_scope=self.semantic_scope,
+            required=managed,
+        )
+        preflight_target = _resolve_registry_target(
+            loaded=loaded,
+            target_resolver=self.target_resolver,
+            require_target_binding=self.require_target_binding,
+            expected_connection_id=registry_connection_id,
+        )
         extraction_result = self.mentions.extract(AdvancedMentionExtractionInput(query=query))
         if extraction_result.input.query != query:
             raise NaturalSqlError(
@@ -281,6 +347,30 @@ class PrepareNaturalSqlPreview:
                     "operation before confirmation"
                 ),
             )
+        plan_connection_id = _assess_plan_current(
+            resolved=resolved,
+            semantic_gate=self.semantic_gate,
+            semantic_scope=self.semantic_scope,
+            required=(self.require_target_binding or self.target_resolver is not None),
+        )
+        if registry_connection_id != plan_connection_id:
+            raise NaturalSqlError(
+                NaturalSqlErrorCode.STALE_CONTEXT,
+                "governed semantic authority changed during interpretation",
+            )
+        target = _resolve_plan_target(
+            loaded=loaded,
+            resolved=resolved,
+            target_resolver=self.target_resolver,
+            require_target_binding=self.require_target_binding,
+            expected_connection_id=plan_connection_id,
+        )
+        if preflight_target != target:
+            raise NaturalSqlError(
+                NaturalSqlErrorCode.TARGET_MISMATCH,
+                "governed PostgreSQL target changed during interpretation",
+            )
+        resolved = _bind_execution_target(resolved, target)
         preview = AdvancedQueryPreview(
             request_digest=query.digest,
             mention_fingerprint=extraction_result.extraction.fingerprint,
@@ -292,6 +382,12 @@ class PrepareNaturalSqlPreview:
             scope_fingerprint=semantic_registry_scope_fingerprint(loaded.scope),
             activation_generation=loaded.activation_generation,
             active_pointer_fingerprint=loaded.active_pointer_fingerprint,
+            connection_id=(target.connection_id if target is not None else None),
+            target_route_revision=(target.route_revision if target is not None else None),
+            target_fingerprint=(target.fingerprint if target is not None else None),
+            target_type_contract_fingerprint=(
+                target.type_contract_fingerprint if target is not None else None
+            ),
             interpretation_fingerprint=envelope.fingerprint,
             resolved_plan_fingerprint=resolved_semantic_plan_fingerprint(resolved),
             datasets=_resolved_datasets(resolved),
@@ -343,6 +439,19 @@ class ConfirmNaturalSqlPreview:
     registry: GovernedSemanticRegistryPort
     preview_tokens: AdvancedQueryPreviewTokenPort
     clock: QueryStudioClockPort
+    limits: ResolutionLimits = field(default_factory=ResolutionLimits)
+    target_resolver: ExecutionTargetResolverPort | None = None
+    require_target_binding: bool = False
+    semantic_gate: AssertSemanticContextCurrent | None = None
+    semantic_scope: SemanticRegistryScope | None = None
+
+    def __post_init__(self) -> None:
+        _validate_semantic_target_configuration(
+            target_resolver=self.target_resolver,
+            require_target_binding=self.require_target_binding,
+            semantic_gate=self.semantic_gate,
+            semantic_scope=self.semantic_scope,
+        )
 
     def execute(
         self,
@@ -389,6 +498,23 @@ class ConfirmNaturalSqlPreview:
                 NaturalSqlErrorCode.STALE_CONTEXT,
                 "approved semantic context changed after preview",
             )
+        resolved = _resolve_current_request(validated, loaded, self.limits)
+        connection_id = _assess_plan_current(
+            resolved=resolved,
+            semantic_gate=self.semantic_gate,
+            semantic_scope=self.semantic_scope,
+            required=(self.require_target_binding or self.target_resolver is not None),
+        )
+        target = _resolve_plan_target(
+            loaded=loaded,
+            resolved=resolved,
+            target_resolver=self.target_resolver,
+            require_target_binding=self.require_target_binding,
+            expected_connection_id=connection_id,
+        )
+        resolved = _bind_execution_target(resolved, target)
+        _require_target_matches_preview(preview, target)
+        _require_preview_resolution(preview, resolved)
         return ConfirmedNaturalSqlRequest(
             preview=preview,
             validated_request=validated,
@@ -405,6 +531,18 @@ class GenerateGovernedCopyableSql:
     guard: SqlPolicyGuardPort
     renderer: CopyableSqlRendererPort
     limits: ResolutionLimits
+    target_resolver: ExecutionTargetResolverPort | None = None
+    require_target_binding: bool = False
+    semantic_gate: AssertSemanticContextCurrent | None = None
+    semantic_scope: SemanticRegistryScope | None = None
+
+    def __post_init__(self) -> None:
+        _validate_semantic_target_configuration(
+            target_resolver=self.target_resolver,
+            require_target_binding=self.require_target_binding,
+            semantic_gate=self.semantic_gate,
+            semantic_scope=self.semantic_scope,
+        )
 
     def execute(
         self,
@@ -415,6 +553,10 @@ class GenerateGovernedCopyableSql:
             compiler=self.compiler,
             guard=self.guard,
             limits=self.limits,
+            target_resolver=self.target_resolver,
+            require_target_binding=self.require_target_binding,
+            semantic_gate=self.semantic_gate,
+            semantic_scope=self.semantic_scope,
         ).execute(confirmed)
         resolved = validation.resolved_plan
         artifact = BuildCopyableSql(
@@ -427,10 +569,12 @@ class GenerateGovernedCopyableSql:
                 confirmed.validated_request
             ),
             plan_fingerprint=resolved_semantic_plan_fingerprint(resolved),
+            target=validation.target,
         )
         return GovernedCopyableSqlResult(
             artifact=artifact,
             resolved_plan=resolved,
+            target=validation.target,
         )
 
 
@@ -442,6 +586,18 @@ class PrepareOptionalNaturalSqlValidation:
     compiler: QueryCompilerPort
     guard: SqlPolicyGuardPort
     limits: ResolutionLimits
+    target_resolver: ExecutionTargetResolverPort | None = None
+    require_target_binding: bool = False
+    semantic_gate: AssertSemanticContextCurrent | None = None
+    semantic_scope: SemanticRegistryScope | None = None
+
+    def __post_init__(self) -> None:
+        _validate_semantic_target_configuration(
+            target_resolver=self.target_resolver,
+            require_target_binding=self.require_target_binding,
+            semantic_gate=self.semantic_gate,
+            semantic_scope=self.semantic_scope,
+        )
 
     def execute(
         self,
@@ -463,15 +619,32 @@ class PrepareOptionalNaturalSqlValidation:
             loaded,
             self.limits,
         )
+        connection_id = _assess_plan_current(
+            resolved=resolved,
+            semantic_gate=self.semantic_gate,
+            semantic_scope=self.semantic_scope,
+            required=(self.require_target_binding or self.target_resolver is not None),
+        )
+        target = _resolve_plan_target(
+            loaded=loaded,
+            resolved=resolved,
+            target_resolver=self.target_resolver,
+            require_target_binding=self.require_target_binding,
+            expected_connection_id=connection_id,
+        )
+        resolved = _bind_execution_target(resolved, target)
+        _require_target_matches_preview(confirmed.preview, target)
         _require_preview_resolution(confirmed.preview, resolved)
         compiled = self.compiler.compile(
             resolved.query_plan,
             max_preview_rows=resolved.query_policy.max_preview_rows,
+            target=target,
         )
-        guarded = self.guard.validate(compiled, resolved.query_policy)
+        guarded = self.guard.validate(compiled, resolved.query_policy, target=target)
         return OptionalNaturalSqlValidation(
             query=guarded,
             resolved_plan=resolved,
+            target=target,
         )
 
 
@@ -749,6 +922,10 @@ def _preview_claims(
         scope_fingerprint=preview.scope_fingerprint,
         activation_generation=preview.activation_generation,
         active_pointer_fingerprint=preview.active_pointer_fingerprint,
+        connection_id=preview.connection_id,
+        target_route_revision=preview.target_route_revision,
+        target_fingerprint=preview.target_fingerprint,
+        target_type_contract_fingerprint=preview.target_type_contract_fingerprint,
         interpretation_fingerprint=preview.interpretation_fingerprint,
         resolved_plan_fingerprint=preview.resolved_plan_fingerprint,
         routed_request_fingerprint=preview.routed_request_fingerprint,
@@ -797,6 +974,273 @@ def _resolve_current_request(
             "active_scope_fingerprint": semantic_registry_scope_fingerprint(loaded.scope),
         }
     )
+
+
+def _validate_semantic_target_configuration(
+    *,
+    target_resolver: ExecutionTargetResolverPort | None,
+    require_target_binding: bool,
+    semantic_gate: AssertSemanticContextCurrent | None,
+    semantic_scope: SemanticRegistryScope | None,
+) -> None:
+    if (semantic_gate is None) != (semantic_scope is None):
+        raise ValueError("natural SQL semantic gate and scope must be configured together")
+    if (require_target_binding or target_resolver is not None) and semantic_gate is None:
+        raise ValueError("managed natural SQL target binding requires the M26 semantic gate")
+
+
+def _assess_registry_current(
+    *,
+    loaded: ScopedSemanticRegistrySnapshot,
+    semantic_gate: AssertSemanticContextCurrent | None,
+    semantic_scope: SemanticRegistryScope | None,
+    required: bool,
+) -> CatalogConnectionId | None:
+    if semantic_gate is None:
+        if required:
+            raise NaturalSqlError(
+                NaturalSqlErrorCode.STALE_CONTEXT,
+                "managed natural SQL semantic authority is unavailable",
+            )
+        return None
+    if semantic_scope != loaded.scope:
+        raise NaturalSqlError(
+            NaturalSqlErrorCode.STALE_CONTEXT,
+            "managed natural SQL semantic scope changed",
+        )
+    try:
+        assessment = semantic_gate.execute(semantic_registry_dependencies(loaded))
+    except (SemanticChangeError, TypeError, ValueError) as error:
+        raise NaturalSqlError(
+            NaturalSqlErrorCode.STALE_CONTEXT,
+            "managed natural SQL semantic context is unavailable or stale",
+        ) from error
+    return assessment.connection_id
+
+
+def _assess_plan_current(
+    *,
+    resolved: ResolvedPlanLike,
+    semantic_gate: AssertSemanticContextCurrent | None,
+    semantic_scope: SemanticRegistryScope | None,
+    required: bool,
+) -> CatalogConnectionId | None:
+    if semantic_gate is None:
+        if required:
+            raise NaturalSqlError(
+                NaturalSqlErrorCode.STALE_CONTEXT,
+                "managed natural SQL semantic authority is unavailable",
+            )
+        return None
+    assert semantic_scope is not None
+    if resolved.active_scope_fingerprint != semantic_registry_scope_fingerprint(semantic_scope):
+        raise NaturalSqlError(
+            NaturalSqlErrorCode.STALE_CONTEXT,
+            "managed natural SQL semantic scope changed",
+        )
+    try:
+        assessment = semantic_gate.execute(semantic_plan_dependencies(resolved, semantic_scope))
+    except (SemanticChangeError, TypeError, ValueError) as error:
+        raise NaturalSqlError(
+            NaturalSqlErrorCode.STALE_CONTEXT,
+            "managed natural SQL semantic context is unavailable or stale",
+        ) from error
+    return assessment.connection_id
+
+
+def _bind_execution_target(
+    resolved: ResolvedPlanLike,
+    target: GovernedExecutionTarget | None,
+) -> ResolvedPlanLike:
+    if target is None:
+        return resolved
+    return resolved.model_copy(update={"execution_target": target})
+
+
+def _resolve_plan_target(
+    *,
+    loaded: ScopedSemanticRegistrySnapshot,
+    resolved: ResolvedPlanLike,
+    target_resolver: ExecutionTargetResolverPort | None,
+    require_target_binding: bool,
+    expected_connection_id: CatalogConnectionId | None,
+) -> GovernedExecutionTarget | None:
+    """Resolve the one current target selected by exact registry-v2 bindings."""
+
+    required = require_target_binding or target_resolver is not None
+    identity = _registry_target_identity(loaded, required=required)
+    if identity is None:
+        return None
+    workspace_id, connection_id = identity
+    if expected_connection_id is not None and expected_connection_id != connection_id:
+        raise NaturalSqlError(
+            NaturalSqlErrorCode.CROSS_CONNECTION,
+            "semantic evidence and registry select different source connections",
+        )
+    registry = loaded.registry
+    selected_mapping_ids = {
+        (
+            item.mapping.logical_field.root,
+            item.mapping.physical_field.root,
+        )
+        for item in resolved.selected_mappings
+    }
+    bindings = tuple(
+        item for item in registry.physical_bindings if item.mapping_identity in selected_mapping_ids
+    )
+    if {item.mapping_identity for item in bindings} != selected_mapping_ids:
+        raise NaturalSqlError(
+            NaturalSqlErrorCode.TARGET_REQUIRED,
+            "resolved mappings lack exact registry-v2 physical authority",
+        )
+    if {item.workspace_id for item in bindings} != {workspace_id} or {
+        item.connection_id for item in bindings
+    } != {connection_id}:
+        raise NaturalSqlError(
+            NaturalSqlErrorCode.CROSS_CONNECTION,
+            "natural SQL cannot span governed source connections",
+        )
+    return _resolve_identity_target(
+        target_resolver=target_resolver,
+        workspace_id=workspace_id,
+        connection_id=connection_id,
+        required=required,
+    )
+
+
+def _resolve_registry_target(
+    *,
+    loaded: ScopedSemanticRegistrySnapshot,
+    target_resolver: ExecutionTargetResolverPort | None,
+    require_target_binding: bool,
+    expected_connection_id: CatalogConnectionId | None,
+) -> GovernedExecutionTarget | None:
+    """Fail before provider access unless the managed registry target is current."""
+
+    required = require_target_binding or target_resolver is not None
+    identity = _registry_target_identity(loaded, required=required)
+    if identity is None:
+        return None
+    if expected_connection_id is not None and expected_connection_id != identity[1]:
+        raise NaturalSqlError(
+            NaturalSqlErrorCode.CROSS_CONNECTION,
+            "semantic evidence and registry select different source connections",
+        )
+    return _resolve_identity_target(
+        target_resolver=target_resolver,
+        workspace_id=identity[0],
+        connection_id=identity[1],
+        required=required,
+    )
+
+
+def _registry_target_identity(
+    loaded: ScopedSemanticRegistrySnapshot,
+    *,
+    required: bool,
+) -> tuple[str, CatalogConnectionId] | None:
+    registry = loaded.registry
+    if registry.format_version != 2 or not registry.physical_bindings:
+        if required:
+            raise NaturalSqlError(
+                NaturalSqlErrorCode.TARGET_REQUIRED,
+                "managed natural SQL requires registry-v2 physical authority",
+            )
+        return None
+    workspaces = {item.workspace_id for item in registry.physical_bindings}
+    connections = {item.connection_id for item in registry.physical_bindings}
+    if len(workspaces) != 1 or len(connections) != 1:
+        raise NaturalSqlError(
+            NaturalSqlErrorCode.CROSS_CONNECTION,
+            "natural SQL registry cannot span governed source connections",
+        )
+    workspace_id = next(iter(workspaces))
+    connection_id = next(iter(connections))
+    if workspace_id != loaded.scope.workspace_id:
+        raise NaturalSqlError(
+            NaturalSqlErrorCode.TARGET_MISMATCH,
+            "registry physical authority belongs to another workspace",
+        )
+    return workspace_id, connection_id
+
+
+def _resolve_identity_target(
+    *,
+    target_resolver: ExecutionTargetResolverPort | None,
+    workspace_id: str,
+    connection_id: CatalogConnectionId,
+    required: bool,
+) -> GovernedExecutionTarget | None:
+    if target_resolver is None:
+        if required:
+            raise NaturalSqlError(
+                NaturalSqlErrorCode.TARGET_REQUIRED,
+                "managed natural SQL target resolver is unavailable",
+            )
+        return None
+    target = _load_current_target(
+        target_resolver,
+        workspace_id=workspace_id,
+        connection_id=connection_id,
+    )
+    if target.workspace_id != workspace_id or target.connection_id != connection_id:
+        raise NaturalSqlError(
+            NaturalSqlErrorCode.TARGET_MISMATCH,
+            "current target differs from the registry physical authority",
+        )
+    return target
+
+
+def _load_current_target(
+    target_resolver: ExecutionTargetResolverPort,
+    *,
+    workspace_id: str,
+    connection_id: CatalogConnectionId,
+) -> GovernedExecutionTarget:
+    try:
+        target = target_resolver.resolve_current(
+            workspace_id=workspace_id,
+            connection_id=connection_id,
+        )
+    except ConnectorTargetError as error:
+        raise NaturalSqlError(
+            NaturalSqlErrorCode.TARGET_UNAVAILABLE,
+            "current governed PostgreSQL target is unavailable",
+        ) from error
+    except Exception as error:
+        raise NaturalSqlError(
+            NaturalSqlErrorCode.TARGET_UNAVAILABLE,
+            "current governed PostgreSQL target is unavailable",
+        ) from error
+    if type(target) is not GovernedExecutionTarget:
+        raise NaturalSqlError(
+            NaturalSqlErrorCode.TARGET_UNAVAILABLE,
+            "current governed PostgreSQL target is invalid",
+        )
+    return target
+
+
+def _require_target_matches_preview(
+    preview: AdvancedQueryPreview,
+    target: GovernedExecutionTarget | None,
+) -> None:
+    expected = (
+        preview.connection_id,
+        preview.target_route_revision,
+        preview.target_fingerprint,
+        preview.target_type_contract_fingerprint,
+    )
+    observed = (
+        target.connection_id if target is not None else None,
+        target.route_revision if target is not None else None,
+        target.fingerprint if target is not None else None,
+        target.type_contract_fingerprint if target is not None else None,
+    )
+    if expected != observed:
+        raise NaturalSqlError(
+            NaturalSqlErrorCode.TARGET_MISMATCH,
+            "governed PostgreSQL target changed after natural SQL preview",
+        )
 
 
 def _resolved_datasets(

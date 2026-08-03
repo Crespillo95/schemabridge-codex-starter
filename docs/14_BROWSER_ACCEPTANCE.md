@@ -676,7 +676,7 @@ console output, protected-text scan, overflow result, hostile-probe result, and 
 still requires real alert delivery, provider/cluster operations, fresh recovery, M30/M31, and
 external review.
 
-## M32 copy-first Query Studio browser matrix — pending
+## M32 copy-first Query Studio browser matrix — bounded pre-final local subset; managed pending
 
 Run this matrix only after the final M32 UI/use-case bytes. It is product Query Studio evidence,
 not the read-only M26/M29 instrumentation panels.
@@ -782,6 +782,32 @@ The separate automated copy-first Streamlit acceptance was rerun on the same app
 browser evidence. This recheck therefore adds no manual PASS and does not change the status above:
 exactly one earlier advanced desktop happy path is observed, and the rest of the desktop/mobile,
 blocked-state, clipboard/download, focus, overflow and hostile-input matrix remains pending.
+
+### 2026-08-03 qsp3 local/recorded pre-final manual session
+
+Codex's in-app browser subsequently completed a local/recorded Query Studio session on loopback
+port 8512 before the final M26/artifact-rerun P1 remediations. On desktop, the exact advanced
+Spanish request rendered its typed preview with
+no SQL or download before the review checkbox and explicit confirmation. The UI visibly warned
+that the target was `Sin ligar`/local-recorded and therefore non-commercial. After confirmation it
+rendered 106 visible SQL lines beginning with `WITH`, ending under `LIMIT 100`, with no `%s` or `$1`
+placeholder, a visible download control, optional validation/execution still disabled and
+`Ejecutado=No`. Browser warning/error output was empty.
+
+At 390×844 the same artifact heading, warning, download and code remained visible; browser,
+document-element and body scroll widths all equalled 390, so there was no document-level
+horizontal overflow. The ambiguous request `Muestra las ventas por fecha.` returned
+`date_meaning`, with no confirmation control, ready heading, download or SQL block. Browser
+warning/error output again remained empty.
+
+This is a bounded pre-final manual observation for the exercised local/recorded advanced,
+mobile-layout and typed-ambiguity subset. It is not current-final-byte or managed target evidence
+and does not convert the unbound artifact into a commercial one. The separate post-remediation
+Streamlit AppTest covers managed target rotation after an artifact and verifies that SQL/download
+disappear with a safe target-mismatch error (`4 passed`); that is automated UI evidence, not an
+in-app-browser or operated-destination PASS. The final-byte managed/operated target,
+simple/v1-v2, physical-only, unsupported, injection, provider-failure, focus/clipboard and full
+supported-browser/accessibility matrix stays open for M30.
 
 ## M34 governed-publication browser acceptance
 

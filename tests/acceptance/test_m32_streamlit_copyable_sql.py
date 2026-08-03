@@ -20,6 +20,10 @@ def _app_path() -> Path:
     return Path(__file__).parents[2] / "src/schemabridge/entrypoints/streamlit/app.py"
 
 
+def _target_app_path() -> Path:
+    return Path(__file__).parents[1] / "m32_target_streamlit_app.py"
+
+
 def _visible(app: AppTest) -> str:
     return " ".join(
         str(item.value)
@@ -72,6 +76,7 @@ def test_streamlit_advanced_copy_flow_previews_before_generating_standalone_sql(
     visible = _visible(app)
     assert "Interpretación tipada para confirmar" in visible
     assert "No existe SQL todavía" in visible
+    assert "no apto para uso comercial ni producción" in visible
     assert "SaleLine" in visible
     assert "SalesOrder" in visible
     assert "Product" in visible
@@ -107,6 +112,8 @@ def test_streamlit_advanced_copy_flow_previews_before_generating_standalone_sql(
     assert "El artefacto no se ha enviado a ningún ejecutor" in visible
     assert "Validación/ejecución opcional deshabilitada por defecto" in visible
     assert "executed=false" in visible
+    target_metric = next(item for item in app.metric if item.label == "Destino gobernado")
+    assert target_metric.value == "Sin ligar"
 
 
 def test_streamlit_simple_copy_flow_uses_the_same_confirmed_non_execution_path(
@@ -161,3 +168,30 @@ def test_streamlit_ambiguity_produces_no_confirmation_or_sql(
     assert "necesita aclaración" in visible
     assert "date_meaning" in visible
     assert "No se ha generado SQL" in visible
+
+
+def test_managed_streamlit_purges_download_when_target_rotates_after_artifact() -> None:
+    app = AppTest.from_file(str(_target_app_path()), default_timeout=30).run()
+    app.text_area(key="m32-natural-sql-text").set_value(M32_SIMPLE_PRODUCTS_QUESTION_ES)
+    app.button(key="m32-prepare-natural-sql").click().run()
+
+    assert not app.exception
+    assert not app.code
+    assert "Destino gobernado para esta confirmación" in _visible(app)
+    app.checkbox(key="m32-natural-sql-reviewed").set_value(True).run()
+    app.button(key="m32-confirm-generate-natural-sql").click().run()
+
+    assert not app.exception
+    assert len(app.code) == 1
+    assert app.download_button(key="m32-download-copyable-sql")
+    target_metric = next(item for item in app.metric if item.label == "Destino gobernado")
+    assert target_metric.value == "Ligado"
+
+    app.button(key="rotate-synthetic-target").click().run()
+
+    assert not app.exception
+    assert not app.code
+    assert "m32-download-copyable-sql" not in {button.key for button in app.download_button}
+    visible = _visible(app)
+    assert "natural_sql_target_mismatch" in visible
+    assert "No se ha generado ni ejecutado SQL" in visible

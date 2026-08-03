@@ -1,8 +1,10 @@
 # Current task
 
 - Current milestone: M30 — Production evaluation and security verification
-- Status: Phase 0 prepared locally; Phase 1a passes its focused current-byte local gate while the
-  exact-head full hosted gate is pending; campaign, pilot, production and release remain blocked
+- Status: Phase 0, Phase 1a and the qsp3 target-bound copy-SQL vertical are implemented locally;
+  current focused evidence passes while the exact-current-byte `make check` and managed/operated
+  browser campaign remain pending; campaign, pilot, commercial availability, production and
+  release remain blocked
 - Plan: `plans/M30_PRODUCTION_EVALUATION_SECURITY.md`
 - Machine contract: `plans/M30_CAMPAIGN_CONTRACT.yml`
 - Handoff: `tasks/M30_HANDOFF.md`
@@ -10,17 +12,23 @@
 
 ## Objective
 
-Freeze the exact PostgreSQL copy-first commercial boundary, authenticate one canonical external
-campaign-manifest subject without turning it into execution authority, and leave every hosted,
-operated, independent and owner decision explicit. M30 must measure a 1,000-case blind bilingual
-campaign and target controls before it can be accepted; repository evidence alone cannot do that.
+Freeze the exact PostgreSQL copy-first commercial boundary, bind managed output to one current
+registry-v2 target, authenticate one canonical external campaign-manifest subject without turning
+either operation into execution authority, and leave every hosted, operated, independent and owner
+decision explicit. M30 must measure a 1,000-case blind bilingual campaign and target controls before
+it can be accepted; repository evidence alone cannot do that.
 
 ## Prepared locally — not M30 acceptance
 
-- Phase 0: strict typed-plan-v2 contract, exact candidate/source/lock/workflow/migration identities,
-  24 evidence controls and deterministic ignored readiness reports that can return only NO-GO.
+- Phase 0: strict schema-v2 typed-plan-v2 contract, exact candidate/source/lock/workflow/migration
+  identities, 24 evidence controls and deterministic ignored readiness reports that can return
+  only NO-GO. The contract freezes the qsp3/M26/target-bound-plan/artifact-rerun policy.
 - Phase 1a: canonical external manifest, structural JSON Schema plus authoritative validator,
   artifact/provider/target/corpus/owner/control freezes and a maximum 30-day UTC window.
+- Phase 1b is not accepted or included in this candidate. An exploratory local draft was held back
+  after independent review found self-assertable PASS receipts/adjudication, no trusted clock or
+  replay ledger, and a same-UID path race. It must be redesigned around independently authenticated
+  raw evidence before any policy/receipt implementation is published.
 - Exact corpus matrix: every slice has equal Spanish/English counts; simple families are standard;
   every advanced family has standard/high/critical slices; ambiguity, unsupported and adversarial
   families/risk levels are closed. Totals remain exactly 500 ES + 500 EN.
@@ -34,6 +42,19 @@ campaign and target controls before it can be accepted; repository evidence alon
 - Authentication success means only
   `workflow_attested_manifest_authenticated=true`, `campaign_executable=false`,
   `release_decision=no_go`, zero material controls passed and all 24 remaining.
+- Managed staging/production natural-SQL composition first applies M26 to the complete active
+  registry before target/provider access, then to selected-plan dependencies after interpretation,
+  at confirmation and before generation. Only then does it resolve/re-resolve the exact current
+  registry-v2 target. Missing/stale semantics or missing, disabled, cross-connection, substituted or
+  route-rotated targets fail before copyable SQL is returned.
+- Signed qsp3 preview claims bind `connection_id`, target route revision, target fingerprint and
+  target type-contract fingerprint. The target is part of the resolved-plan fingerprint; the
+  deterministic compiler, both AST guards, renderer metadata and final `executed=false` artifact
+  receive it. Streamlit provider-free regenerates and compares any retained artifact on every later
+  rerun and purges SQL/download on drift. This adds no source credential, executor or automatic
+  execution capability.
+- Local/recorded composition may remain unbound for deterministic development evidence only and is
+  labelled explicitly as non-commercial; it is not an alternate tenant-facing operating mode.
 - Commercial operating-model documents cover roles/RACI, setup, tenant onboarding, daily bounded
   M32 use, incidents/DR, offboarding and a pilot scorecard while explicitly remaining non-executable
   end-to-end until OpenAPI/payloads and an integrated commercial surface exist.
@@ -49,6 +70,17 @@ campaign and target controls before it can be accepted; repository evidence alon
   with 248 explicit deselections in 1,132.41 seconds; the exact final-byte local attempt was
   terminated externally at 65% without a recorded test failure. Exact-head hosted CI is therefore
   the pending full gate and must not be reported as passed before completion.
+- Current qsp3 evidence passes 16 specific target/bootstrap/acceptance tests, 74 in the broad qsp3
+  cut, 96 with M26/governed execution/recipes, four Streamlit cases including post-artifact target
+  rotation, and a consolidated 124-test M26/qsp3/M32 selection. The schema-v2 contract/readiness/
+  campaign selection passes 103 tests. Focal Ruff, formatting, mypy over seven qsp3 source files
+  plus the contract model, and `git diff --check` pass. These are bounded implementation checks,
+  not external M30 evidence.
+- Codex in-app-browser evidence is bounded and pre-final: local/recorded desktop advanced, 390×844
+  no-overflow and `date_meaning` ambiguity were observed with clean console; managed rotation is
+  post-remediation AppTest only. A current-final-byte managed/operated browser PASS remains open.
+- Final exact-current-byte `make check`: pending; it must not be reported as passed until the exact
+  publishable snapshot completes.
 - Hosted PR run `30826970514` passed quality, PostgreSQL integration and supply chain for branch
   head `e49e5d7d52f9e4005e4d469b24e7b23797a59aeb`, but its test checkout/evaluation subject is PR merge
   ref `43b4c21676c7bbffaa7b81c2e98d398692e43e8f`; it predates Phase 1a and is not exact M30 candidate
@@ -56,9 +88,8 @@ campaign and target controls before it can be accepted; repository evidence alon
 - GitHub external state was inspected read-only: `main` is unprotected and the repository has zero
   environments, zero rulesets and zero tags. Therefore `m30-manifest-attestation` cannot yet be a
   protected independently reviewed gate and must not be dispatched.
-- Independent adversarial review found no remaining local P0 capable of enabling campaign/release.
-  The residual trust-root limitation is explicit: policy/verifier and external protection must be
-  distributed/proved independently before Phase 1b or any operated claim.
+- Independent qsp3 review reports P0=0/P1=0. Independent Phase-1b draft review reports no composed
+  P0 but multiple P1 findings, so that draft is excluded rather than described as evidence.
 
 ## Commercial product boundary
 
@@ -71,20 +102,24 @@ are. New dialects, larger per-query limits and unsupported families require sepa
 compilers, guards, corpora, scale envelopes and release decisions. Several isolated PostgreSQL
 tenants are a future deployment model, not cross-connection query support; a large paginated
 catalog does not raise the three-table/two-join request limit. `target_fingerprint=None` is a
-commercial hard stop, not a manually waivable risk.
+commercial hard stop in tenant-facing use, not a manually waivable risk. Managed staging/production
+therefore requires the complete qsp3 target binding; only visibly non-commercial local/recorded
+evidence may remain unbound.
 
 ## External work still required
 
 1. Protect `main` and eligible annotated tags; create `m30-manifest-attestation` with independent
    reviewers, self-review/bypass disabled, no secrets and retained configuration evidence.
 2. Freeze one exact clean tagged candidate and independently owned public manifest/corpus digests.
-3. Authenticate control-specific Phase-1b receipts and enforce prerequisite ordering before any
-   provider/source/target/corpus access.
+3. Provision an independently authenticated trust bundle, concrete receipt verifier and durable
+   anti-replay attempt ledger; then authenticate control-specific receipts and enforce prerequisite
+   ordering before any provider/source/target/corpus access.
 4. Operate the 1,000-case blind corpus, execution equivalence, scale/soak, browser/accessibility,
    IAM/network/secrets/SIEM/backup/restore and independent penetration test.
 5. Obtain candidate-specific owner/assessor decisions, then run M31 with real design partners.
-6. Close the commercial OpenAPI/integrated-console, target-fingerprint, offboarding automation,
-   legal/privacy/support/pricing and per-dialect certification gaps.
+6. Certify the implemented target binding against operated destinations and close the commercial
+   OpenAPI/integrated-console, offboarding automation, legal/privacy/support/pricing and per-dialect
+   certification gaps.
 
 ## Previous milestone snapshot — M35
 

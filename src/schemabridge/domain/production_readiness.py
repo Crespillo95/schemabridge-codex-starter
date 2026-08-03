@@ -243,6 +243,75 @@ M30_REPOSITORY_CONTROL_CODES = (
 )
 
 
+class M30ManagedCopySqlPolicy(FrozenDomainModel):
+    """Exact managed copy-SQL authority frozen into the M30 candidate contract."""
+
+    required_registry_format_version: Literal[2]
+    confirmation_token: Literal["qsp3"]
+    target_binding_fields: tuple[
+        Literal["connection_id"],
+        Literal["target_route_revision"],
+        Literal["target_fingerprint"],
+        Literal["target_type_contract_fingerprint"],
+    ]
+    m26_current_checkpoints: tuple[
+        Literal["complete_registry_before_target_or_provider"],
+        Literal["selected_plan_after_interpretation"],
+        Literal["selected_plan_at_confirmation"],
+        Literal["selected_plan_before_generation"],
+    ]
+    target_resolution_checkpoints: tuple[
+        Literal["before_provider"],
+        Literal["after_interpretation"],
+        Literal["at_confirmation"],
+        Literal["before_compilation"],
+    ]
+    target_bound_consumers: tuple[
+        Literal["resolved_plan_fingerprint"],
+        Literal["deterministic_compiler"],
+        Literal["parameterized_ast_guard"],
+        Literal["copy_renderer"],
+        Literal["standalone_ast_guard"],
+        Literal["copy_artifact"],
+    ]
+    artifact_rerun_policy: Literal[
+        "provider_free_revalidate_regenerate_compare_before_display_or_download"
+    ]
+    unbound_output_policy: Literal["local_recorded_noncommercial_only"]
+
+    @model_validator(mode="before")
+    @classmethod
+    def policy_types_are_exact(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        _require_exact_types(
+            value,
+            {
+                "required_registry_format_version": int,
+                "confirmation_token": str,
+                "target_binding_fields": (list, tuple),
+                "m26_current_checkpoints": (list, tuple),
+                "target_resolution_checkpoints": (list, tuple),
+                "target_bound_consumers": (list, tuple),
+                "artifact_rerun_policy": str,
+                "unbound_output_policy": str,
+            },
+            "M30 managed copy SQL policy",
+        )
+        for key in (
+            "target_binding_fields",
+            "m26_current_checkpoints",
+            "target_resolution_checkpoints",
+            "target_bound_consumers",
+        ):
+            sequence = value.get(key)
+            if isinstance(sequence, (list, tuple)) and any(
+                type(item) is not str for item in sequence
+            ):
+                raise ValueError(f"M30 managed copy SQL policy field {key} is not exact text")
+        return value
+
+
 class M30CandidateSku(FrozenDomainModel):
     dialect: Literal["postgresql"]
     typed_query_plan_version: Literal[2]
@@ -266,6 +335,7 @@ class M30CandidateSku(FrozenDomainModel):
     statement_timeout_ms: Literal[5_000]
     null_policy: Literal["preserve_governed_nulls"]
     fanout_policy: Literal["reject_unsafe_require_explicit_mitigation"]
+    managed_copy_sql: M30ManagedCopySqlPolicy
 
 
 class M30CaseMinimum(FrozenDomainModel):
@@ -306,7 +376,7 @@ class M30RequiredControl(FrozenDomainModel):
 class M30CampaignContract(FrozenDomainModel):
     """Machine-readable commercial boundary; changing it creates a new campaign contract."""
 
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     milestone: Literal["M30"]
     candidate_sku: M30CandidateSku
     case_minimums: tuple[M30CaseMinimum, ...] = Field(min_length=5, max_length=5)
@@ -354,6 +424,7 @@ class M30CampaignContract(FrozenDomainModel):
                     "statement_timeout_ms": int,
                     "null_policy": str,
                     "fanout_policy": str,
+                    "managed_copy_sql": dict,
                 },
                 "M30 candidate SKU",
             )
@@ -701,6 +772,7 @@ __all__ = [
     "M30EvidenceClass",
     "M30GateResult",
     "M30GateStatus",
+    "M30ManagedCopySqlPolicy",
     "M30PreflightState",
     "M30ReadinessReport",
     "M30ReleaseDecision",

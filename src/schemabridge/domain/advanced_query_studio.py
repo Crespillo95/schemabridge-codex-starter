@@ -30,11 +30,13 @@ from schemabridge.domain.advanced_requests import (
     AnalyticalRequestLike,
     logical_predicate_filters,
 )
+from schemabridge.domain.catalog_inventory import CatalogConnectionId
 from schemabridge.domain.concepts import (
     CanonicalType,
     LogicalFieldRef,
     LogicalModelRef,
 )
+from schemabridge.domain.connectors import MAX_ROUTE_REVISION
 from schemabridge.domain.fields import PhysicalDatasetRef, PhysicalFieldRef
 from schemabridge.domain.intents import UserLanguage
 from schemabridge.domain.joins import Cardinality, FanoutPolicy
@@ -61,7 +63,7 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _CONTEXT_SOURCE = re.compile(r"^[a-z][a-z0-9_-]*:[A-Za-z0-9._/-]+$")
 _JOIN_ID = re.compile(r"^[a-z][a-z0-9_]*$")
 _CONTROL_EXCEPT_WHITESPACE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
-_ADVANCED_PREVIEW_TOKEN = re.compile(r"^qsp2\.[A-Za-z0-9_-]{16,3900}$")
+_ADVANCED_PREVIEW_TOKEN = re.compile(r"^qsp3\.[A-Za-z0-9_-]{16,3900}$")
 _NONCE = re.compile(r"^[A-Za-z0-9_-]{16,120}$")
 
 
@@ -105,7 +107,7 @@ class AdvancedQueryConfirmationAction(StrEnum):
 
 
 class SignedAdvancedQueryPreviewToken(RootModel[str]):
-    """Opaque authenticated qsp2 token; decoded claims never contain query text."""
+    """Opaque authenticated qsp3 token; decoded claims never contain query text."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -473,6 +475,21 @@ class AdvancedQueryPreview(FrozenDomainModel):
         default=None,
         pattern=r"^[0-9a-f]{64}$",
     )
+    connection_id: CatalogConnectionId | None = None
+    target_route_revision: int | None = Field(
+        default=None,
+        strict=True,
+        ge=1,
+        le=MAX_ROUTE_REVISION,
+    )
+    target_fingerprint: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+    target_type_contract_fingerprint: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
     interpretation_fingerprint: str
     resolved_plan_fingerprint: str
     datasets: tuple[PhysicalDatasetRef, ...] = Field(min_length=1, max_length=3)
@@ -510,6 +527,16 @@ class AdvancedQueryPreview(FrozenDomainModel):
             raise ValueError(
                 "advanced query preview requires generation and active pointer together"
             )
+        target_values = (
+            self.connection_id,
+            self.target_route_revision,
+            self.target_fingerprint,
+            self.target_type_contract_fingerprint,
+        )
+        if any(value is None for value in target_values) != all(
+            value is None for value in target_values
+        ):
+            raise ValueError("advanced query preview target binding must be complete")
         if len(self.datasets) != len(set(self.datasets)):
             raise ValueError("advanced query preview datasets must be unique")
         if len(self.join_contract_ids) != len(set(self.join_contract_ids)):
@@ -570,9 +597,9 @@ class AdvancedQueryConfirmation(FrozenDomainModel):
 
 
 class AdvancedPreviewTokenClaims(FrozenDomainModel):
-    """Digest-only qsp2 claims binding one exact preview to current governed context."""
+    """Text-free qsp3 claims binding one preview and bounded public target identity."""
 
-    version: Literal[2] = 2
+    version: Literal[3] = 3
     request_digest: str
     mention_fingerprint: str
     semantic_context_fingerprint: str
@@ -581,6 +608,21 @@ class AdvancedPreviewTokenClaims(FrozenDomainModel):
     scope_fingerprint: str
     activation_generation: int | None = Field(default=None, ge=1)
     active_pointer_fingerprint: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+    connection_id: CatalogConnectionId | None = None
+    target_route_revision: int | None = Field(
+        default=None,
+        strict=True,
+        ge=1,
+        le=MAX_ROUTE_REVISION,
+    )
+    target_fingerprint: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+    target_type_contract_fingerprint: str | None = Field(
         default=None,
         pattern=r"^[0-9a-f]{64}$",
     )
@@ -614,6 +656,16 @@ class AdvancedPreviewTokenClaims(FrozenDomainModel):
             raise ValueError(
                 "advanced preview claims require generation and active pointer together"
             )
+        target_values = (
+            self.connection_id,
+            self.target_route_revision,
+            self.target_fingerprint,
+            self.target_type_contract_fingerprint,
+        )
+        if any(value is None for value in target_values) != all(
+            value is None for value in target_values
+        ):
+            raise ValueError("advanced preview claims target binding must be complete")
         return self
 
     @field_validator("issued_at", "expires_at")

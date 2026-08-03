@@ -26,8 +26,9 @@ CLI local del candidato sobre contexto sintético o de evaluación autorizado:
 ```
 
 La confirmación por defecto es `No`. Este comando es instrumentación local/acceptance: no es una
-API gestionada, no habilita ejecución automática, no corrige `target_fingerprint=None` y no aporta
-evidencia M30/M31. Un operador comercial no debe exponerlo a un tenant como superficie productiva.
+API gestionada, no habilita ejecución automática y puede mantener
+`target_fingerprint=None`/`unbound-local-recorded`. No aporta evidencia M30/M31. Un operador
+comercial no debe exponerlo a un tenant como superficie productiva.
 
 ## Procedimiento M32
 
@@ -35,8 +36,10 @@ evidencia M30/M31. Un operador comercial no debe exponerlo a un tenant como supe
    incluir SQL, credenciales ni datos sensibles en el prompt.
 2. Revisar la interpretación: modelos/fields, mappings, joins, supuestos, riesgos, fanout, `NULL`,
    route v1/v2 y límites. Antes de confirmar no debe existir SQL ni descarga.
-3. Si es exacta, confirmar la misma huella. Cualquier cambio de catálogo/registro/pointer invalida
-   la preview y obliga a empezar de nuevo.
+3. En managed, comprobar que el registro completo y el plan seleccionado siguen elegibles en M26,
+   y antes del checkbox revisar conexión, revisión de ruta, target fingerprint y contrato de tipos
+   ligados por `qsp3`. Si es exacta, confirmar la misma huella. Cualquier cambio de catálogo,
+   registro, pointer, decisión semántica o target invalida la preview y obliga a empezar de nuevo.
 4. Descargar/copiar el artefacto sólo cuando ambas validaciones AST lo acepten. Debe indicar
    PostgreSQL, hashes y `executed=false`, sin placeholders.
 5. Pegar únicamente en un editor conectado al contexto acordado, usando identidad read-only,
@@ -44,11 +47,16 @@ evidencia M30/M31. Un operador comercial no debe exponerlo a un tenant como supe
 6. Registrar request/plan/artifact fingerprints y resultado de aceptación; no registrar prompt,
    SQL, literales o filas por defecto.
 
-Brecha P0 y **hard stop comercial** vigente: el artefacto M32 aún puede quedar con
-`target_fingerprint=None`; por ello no se debe exponer a un tenant, presentar como ligado a una base
-concreta ni reutilizar entre conexiones. Hasta implementar un binding no nulo, visible, confirmado
-y certificado por M30, una revisión manual del destino es sólo diagnóstico de aceptación local: no
-autoriza piloto, no cierra este gate y no convierte el artefacto en apto para uso comercial.
+El P0 está implementado localmente para staging/production y pendiente de la verificación final de
+bytes exactos: el runtime exige
+registry-v2, gate M26 del registro completo antes de target/proveedor y gate M26 del plan en cada
+transición posterior; vuelve a resolver el target después de interpretar, al confirmar y al
+generar, e incluye la misma identidad en plan/compiler/guard/renderer/guard. La UI revalida de forma
+determinista y sin proveedor cualquier artefacto retenido en cada rerun antes de mostrar SQL o
+descarga. Ausencia, drift semántico, revocación, rotación o sustitución producen cero SQL. El
+**hard stop comercial operado** sigue vigente hasta que M30 certifique ese recorrido en el target
+real. El modo local/recorded sin target es sólo diagnóstico y nunca autoriza piloto ni reutilización
+entre conexiones.
 
 ## Familias
 

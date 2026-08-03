@@ -702,6 +702,15 @@ controls; M30–M31 own production evaluation, independent security verification
   bindings, and deterministically revalidates and re-resolves the already confirmed typed request.
   It does not call retrieval or either language stage again. A changed mapping, contract, closure,
   approval, or semantic head makes the preview stale and produces no SQL.
+- In staging/production, preparation first requires a registry-v2 physical binding set for exactly
+  one tenant connection. It submits every active mapping/join dependency to the M26 semantic-
+  current gate before either target lookup or language-provider access, then rechecks the exact
+  selected-plan dependencies after interpretation, at confirmation and before generation. Only an
+  eligible plan can resolve its current public `GovernedExecutionTarget`; that lookup is repeated
+  at each later trust boundary. The `qsp3` HMAC claims and resolved-plan fingerprint bind connection
+  ID, route revision, target fingerprint and PostgreSQL type-contract fingerprint; a stale
+  dependency or missing/disabled/rotated/cross-tenant target fails with no preview token or SQL.
+  Development/recorded mode may remain unbound only when visibly marked non-commercial.
 - M32 retrieval traverses every current approved logical model and field in scope. Lexical scoring
   uses model/field names, definitions, and governed values, with role compatibility only as a
   bonus after a lexical hit. Canonical types, roles, and value constraints are exposed and
@@ -735,11 +744,21 @@ controls; M30–M31 own production evaluation, independent security verification
   placeholders by quote-aware textual index, never AST traversal order; rejects count mismatch,
   NUL, non-finite numbers, unsupported value types, and remaining parameters; emits typed literal
   AST nodes; and submits the normalized PostgreSQL to the complete guard again with zero bindings.
+- The deterministic compiler, first AST guard, literal renderer metadata and second AST guard all
+  receive the same resolved target. A target-bound query cannot be guarded without that target and
+  `artifact.target_fingerprint` must equal `target.fingerprint`; `artifact.plan_fingerprint` is the
+  fingerprint of the target-bound resolved plan. The standalone text is still never an executor
+  input and target binding does not grant source credentials or execution authority.
 - The copy artifact cannot reach a query executor and returns `executed=false`. Its SQL and
   embedded literal values are transient protected output: they are forbidden from logs, traces,
   metrics, provider requests/responses, workflow/job state, recipe documents, audit payloads, and
   generated evaluation reports. Only bounded fingerprints and non-secret capability metadata may
   persist.
+- Streamlit does not trust an artifact merely because it exists in session state. On every later
+  rerun it provider-free re-executes confirmation/generation revalidation from the retained typed
+  confirmed request before rendering SQL or download. Semantic or target drift, revocation,
+  substitution, changed output, or an unexpected resolver failure purges the artifact and exposes
+  only the sanitized closed error.
 - The advanced guard is CTE-scope aware and retains exactly one read-only outer statement, no
   comments/smuggling, three physical tables/two joins, no repeated asset/Cartesian join, explicit
   projections, one literal outer limit, and exact physical/CTE output allowlists. It additionally
@@ -1353,3 +1372,14 @@ pilot evidence remain mandatory commercial/production gates.
 - A successfully authenticated manifest reports `campaign_executable=false` and
   `release_decision=no_go`; all 24 material controls remain missing until control-specific external
   receipts are authenticated and deterministically adjudicated in a later reviewed phase.
+- Phase 1b freezes a canonical external control policy, the exact 24-node prerequisite DAG, five
+  authorization stages, evidence subjects, producer workflows and five owner roles. Validation
+  binds that policy to the authenticated manifest but explicitly reports
+  `external_policy_trust_authenticated=false`, `receipt_authentication_enabled=false`, zero passed
+  controls and no capabilities.
+- The candidate cannot provision its own production trust root. Before any receipt adjudicator or
+  campaign I/O is composed, an independently provisioned trust bundle must authenticate immutable
+  GitHub identities/workflows and role keys with validity/revocation; a concrete verifier must
+  derive criteria from canonical raw snapshots; and a durable trusted-clock/compare-and-swap
+  attempt ledger must reject replay, gaps and stale predecessors. Signed booleans or caller-built
+  `authenticated=true` models are not commercial evidence.

@@ -41,6 +41,7 @@ from schemabridge.domain.advanced_requests import (
     AdvancedQueryMode,
     LogicalBooleanPredicate,
 )
+from schemabridge.domain.catalog_inventory import CatalogConnectionId
 from schemabridge.domain.concepts import CanonicalType, LogicalFieldRef, LogicalModelRef
 from schemabridge.domain.fields import PhysicalDatasetRef
 from schemabridge.domain.intents import UserLanguage
@@ -451,6 +452,31 @@ def test_preview_is_text_free_and_binds_v2_route_request_and_context() -> None:
         )
 
 
+def test_preview_target_binding_is_all_or_nothing_and_changes_its_fingerprint() -> None:
+    preview = _preview()
+    payload = preview.model_dump(mode="python")
+
+    with pytest.raises(ValidationError, match="target binding must be complete"):
+        AdvancedQueryPreview.model_validate(
+            {
+                **payload,
+                "connection_id": CatalogConnectionId("warehouse-primary"),
+            }
+        )
+
+    bound = AdvancedQueryPreview.model_validate(
+        {
+            **payload,
+            "connection_id": CatalogConnectionId("warehouse-primary"),
+            "target_route_revision": 7,
+            "target_fingerprint": SHA_A,
+            "target_type_contract_fingerprint": SHA_B,
+        }
+    )
+
+    assert bound.fingerprint != preview.fingerprint
+
+
 def test_preview_accepts_a_simple_v1_request_on_the_v1_route() -> None:
     request = AnalyticalRequest(
         primary_entity=LogicalModelRef("SaleLine"),
@@ -476,7 +502,7 @@ def test_confirmation_returns_only_the_exact_validated_request() -> None:
         request_digest=preview.request_digest,
         preview_fingerprint=preview.fingerprint,
         routed_request_fingerprint=preview.routed_request_fingerprint,
-        token=SignedAdvancedQueryPreviewToken("qsp2." + "A" * 32),
+        token=SignedAdvancedQueryPreviewToken("qsp3." + "A" * 32),
     )
 
     assert confirm_advanced_query_preview(preview, confirmation) == preview.validated_request

@@ -55,6 +55,7 @@ def test_reviewed_m30_policy_constants_are_immutable() -> None:
 def test_machine_readable_contract_is_the_exact_reviewed_m30_boundary() -> None:
     contract = FileM30CampaignContract(ROOT).load()
 
+    assert contract.schema_version == 2
     assert contract.minimum_case_total == 1_000
     assert contract.candidate_sku.dialect == "postgresql"
     assert contract.candidate_sku.typed_query_plan_version == 2
@@ -75,6 +76,40 @@ def test_machine_readable_contract_is_the_exact_reviewed_m30_boundary() -> None:
     assert contract.candidate_sku.statement_timeout_ms == 5_000
     assert contract.candidate_sku.null_policy == "preserve_governed_nulls"
     assert contract.candidate_sku.fanout_policy == "reject_unsafe_require_explicit_mitigation"
+    managed = contract.candidate_sku.managed_copy_sql
+    assert managed.required_registry_format_version == 2
+    assert managed.confirmation_token == "qsp3"
+    assert managed.target_binding_fields == (
+        "connection_id",
+        "target_route_revision",
+        "target_fingerprint",
+        "target_type_contract_fingerprint",
+    )
+    assert managed.m26_current_checkpoints == (
+        "complete_registry_before_target_or_provider",
+        "selected_plan_after_interpretation",
+        "selected_plan_at_confirmation",
+        "selected_plan_before_generation",
+    )
+    assert managed.target_resolution_checkpoints == (
+        "before_provider",
+        "after_interpretation",
+        "at_confirmation",
+        "before_compilation",
+    )
+    assert managed.target_bound_consumers == (
+        "resolved_plan_fingerprint",
+        "deterministic_compiler",
+        "parameterized_ast_guard",
+        "copy_renderer",
+        "standalone_ast_guard",
+        "copy_artifact",
+    )
+    assert (
+        managed.artifact_rerun_policy
+        == "provider_free_revalidate_regenerate_compare_before_display_or_download"
+    )
+    assert managed.unbound_output_policy == "local_recorded_noncommercial_only"
     assert sum(item.minimum_spanish_cases for item in contract.case_minimums) == 500
     assert sum(item.minimum_english_cases for item in contract.case_minimums) == 500
     assert contract.thresholds.critical_semantic_failures_max == 0
@@ -99,6 +134,45 @@ def test_machine_readable_contract_is_the_exact_reviewed_m30_boundary() -> None:
         (("thresholds", "critical_regressions_max"), 1),
         (("candidate_sku", "preview_enabled_by_default"), True),
         (("candidate_sku", "maximum_preview_row_limit"), 10_001),
+        (("schema_version",), 1),
+        (("candidate_sku", "managed_copy_sql", "required_registry_format_version"), 1),
+        (("candidate_sku", "managed_copy_sql", "required_registry_format_version"), True),
+        (("candidate_sku", "managed_copy_sql", "confirmation_token"), "qsp2"),
+        (
+            ("candidate_sku", "managed_copy_sql", "target_binding_fields"),
+            (
+                "target_fingerprint",
+                "connection_id",
+                "target_route_revision",
+                "target_type_contract_fingerprint",
+            ),
+        ),
+        (
+            ("candidate_sku", "managed_copy_sql", "m26_current_checkpoints"),
+            ("complete_registry_before_target_or_provider",),
+        ),
+        (
+            ("candidate_sku", "managed_copy_sql", "target_resolution_checkpoints"),
+            ("before_provider", "after_interpretation", "at_confirmation"),
+        ),
+        (
+            ("candidate_sku", "managed_copy_sql", "target_bound_consumers"),
+            (
+                "resolved_plan_fingerprint",
+                "deterministic_compiler",
+                "parameterized_ast_guard",
+                "copy_renderer",
+                "copy_artifact",
+            ),
+        ),
+        (
+            ("candidate_sku", "managed_copy_sql", "artifact_rerun_policy"),
+            "trust_cached_artifact",
+        ),
+        (
+            ("candidate_sku", "managed_copy_sql", "unbound_output_policy"),
+            "tenant_facing_allowed",
+        ),
     ),
 )
 def test_contract_rejects_weakened_case_threshold_or_sku(
@@ -139,7 +213,7 @@ def test_contract_rejects_family_or_evidence_class_substitution() -> None:
 def test_contract_loader_rejects_duplicate_keys_and_extra_fields(tmp_path: Path) -> None:
     path = tmp_path / "plans/M30_CAMPAIGN_CONTRACT.yml"
     path.parent.mkdir(parents=True)
-    path.write_text("schema_version: 1\nschema_version: 1\n", encoding="utf-8")
+    path.write_text("schema_version: 2\nschema_version: 2\n", encoding="utf-8")
 
     with pytest.raises(ProductionEvidenceError) as duplicate:
         FileM30CampaignContract(tmp_path).load()

@@ -36,6 +36,7 @@ from schemabridge.domain.resolution import (
     RejectedSourceReport,
     ResolutionErrorCode,
     ResolutionLimits,
+    ResolvedPlanLike,
     ResolvedSemanticPlan,
     SemanticResolutionError,
     resolve_semantic_request,
@@ -48,6 +49,7 @@ from schemabridge.domain.semantic_change import (
     SemanticPlanDependencies,
 )
 from schemabridge.domain.semantic_registry import (
+    ScopedSemanticRegistrySnapshot,
     SemanticRegistryScope,
     semantic_registry_scope_fingerprint,
 )
@@ -440,7 +442,7 @@ class ExecuteGovernedRequest:
 
 
 def semantic_plan_dependencies(
-    resolved: ResolvedSemanticPlan,
+    resolved: ResolvedPlanLike,
     scope: SemanticRegistryScope,
 ) -> SemanticPlanDependencies:
     """Project one resolved plan into exact governed evidence dependencies."""
@@ -479,6 +481,56 @@ def semantic_plan_dependencies(
             pointer_fingerprint=resolved.active_pointer_fingerprint,
             registry_version=resolved.context_version,
             registry_fingerprint=resolved.context_fingerprint,
+            mappings=mappings,
+            joins=joins,
+        )
+    except (TypeError, ValueError) as error:
+        raise SemanticChangeError(
+            SemanticChangeErrorCode.STALE_CONTEXT,
+            "semantic context is unavailable or stale",
+        ) from error
+
+
+def semantic_registry_dependencies(
+    loaded: ScopedSemanticRegistrySnapshot,
+) -> SemanticPlanDependencies:
+    """Project the complete provider-visible registry into exact M26 dependencies."""
+
+    if loaded.activation_generation is None or loaded.active_pointer_fingerprint is None:
+        raise SemanticChangeError(
+            SemanticChangeErrorCode.STALE_CONTEXT,
+            "semantic context is unavailable or stale",
+        )
+    registry = loaded.registry
+    try:
+        mappings = tuple(
+            GovernedMappingRef(
+                logical_field=item.mapping.logical_field,
+                physical_field=item.mapping.physical_field,
+                version=item.mapping.version,
+                approval_decision_id=_required_semantic_decision(item.approval_decision_id),
+                physical_type=item.physical_type,
+            )
+            for item in registry.mapping_set.mappings
+        )
+        joins = tuple(
+            GovernedJoinRef(
+                contract_id=item.id,
+                version=item.version,
+                approval_decision_id=_required_semantic_decision(item.approval_decision_id),
+                left_field=item.left_key.physical_field,
+                right_field=item.right_key.physical_field,
+                cardinality=item.cardinality,
+                fanout_policy=item.fanout_policy,
+            )
+            for item in registry.join_contracts.contracts
+        )
+        return SemanticPlanDependencies.create(
+            scope=loaded.scope,
+            pointer_generation=loaded.activation_generation,
+            pointer_fingerprint=loaded.active_pointer_fingerprint,
+            registry_version=registry.version,
+            registry_fingerprint=registry.fingerprint,
             mappings=mappings,
             joins=joins,
         )

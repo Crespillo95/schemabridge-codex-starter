@@ -4,6 +4,7 @@ import base64
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from pydantic import ValidationError
 
 from schemabridge.adapters.query_studio.advanced_security import (
     HmacAdvancedQueryPreviewTokens,
@@ -16,6 +17,7 @@ from schemabridge.domain.advanced_query_studio import (
     AdvancedPreviewTokenClaims,
     SignedAdvancedQueryPreviewToken,
 )
+from schemabridge.domain.catalog_inventory import CatalogConnectionId
 
 NOW = datetime(2026, 7, 30, 12, 0, tzinfo=UTC)
 KEY = bytes(range(32))
@@ -39,14 +41,14 @@ def _claims() -> AdvancedPreviewTokenClaims:
     )
 
 
-def test_qsp2_round_trip_contains_only_digest_claims() -> None:
+def test_qsp3_round_trip_contains_only_bounded_public_claims() -> None:
     codec = HmacAdvancedQueryPreviewTokens(KEY)
 
     token = codec.issue(_claims())
 
-    assert token.root.startswith("qsp2.")
+    assert token.root.startswith("qsp3.")
     assert codec.verify(token, at=NOW + timedelta(minutes=5)) == _claims()
-    encoded = token.root.removeprefix("qsp2.")
+    encoded = token.root.removeprefix("qsp3.")
     decoded = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
     payload = decoded[:-32]
     assert b"request_digest" in payload
@@ -57,10 +59,33 @@ def test_qsp2_round_trip_contains_only_digest_claims() -> None:
     assert b"sql" not in payload.lower()
 
 
-def test_qsp2_tampering_future_issue_time_and_expiry_fail_closed() -> None:
+def test_qsp3_authenticates_a_complete_target_binding_and_rejects_partial_claims() -> None:
+    payload = _claims().model_dump(mode="python")
+    with pytest.raises(ValidationError, match="target binding must be complete"):
+        AdvancedPreviewTokenClaims.model_validate(
+            {
+                **payload,
+                "connection_id": CatalogConnectionId("warehouse-primary"),
+            }
+        )
+    claims = AdvancedPreviewTokenClaims.model_validate(
+        {
+            **payload,
+            "connection_id": CatalogConnectionId("warehouse-primary"),
+            "target_route_revision": 3,
+            "target_fingerprint": "b" * 64,
+            "target_type_contract_fingerprint": "c" * 64,
+        }
+    )
+    codec = HmacAdvancedQueryPreviewTokens(KEY)
+
+    assert codec.verify(codec.issue(claims), at=NOW) == claims
+
+
+def test_qsp3_tampering_future_issue_time_and_expiry_fail_closed() -> None:
     codec = HmacAdvancedQueryPreviewTokens(KEY)
     token = codec.issue(_claims())
-    position = len("qsp2.") + 8
+    position = len("qsp3.") + 8
     replacement = "A" if token.root[position] != "A" else "B"
     tampered = SignedAdvancedQueryPreviewToken(
         token.root[:position] + replacement + token.root[position + 1 :]
@@ -79,11 +104,11 @@ def test_qsp2_tampering_future_issue_time_and_expiry_fail_closed() -> None:
     assert expired.value.code is AdvancedQueryStudioPortErrorCode.TOKEN_EXPIRED
 
 
-def test_qsp2_rejects_a_noncanonical_base64url_spelling_of_the_same_bytes() -> None:
+def test_qsp3_rejects_a_noncanonical_base64url_spelling_of_the_same_bytes() -> None:
     codec = HmacAdvancedQueryPreviewTokens(KEY)
-    claims = _claims().model_copy(update={"nonce": "nonce_ABCDEFGHIJKLMNOPx"})
+    claims = _claims().model_copy(update={"nonce": "nonce_ABCDEFGHIJKLMNOPxx"})
     token = codec.issue(claims)
-    encoded = token.root.removeprefix("qsp2.")
+    encoded = token.root.removeprefix("qsp3.")
     alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
     assert len(encoded) % 4 == 2
     replacement = alphabet[alphabet.index(encoded[-1]) + 1]
@@ -92,7 +117,7 @@ def test_qsp2_rejects_a_noncanonical_base64url_spelling_of_the_same_bytes() -> N
     assert base64.urlsafe_b64decode(noncanonical_encoded + padding) == (
         base64.urlsafe_b64decode(encoded + padding)
     )
-    noncanonical = SignedAdvancedQueryPreviewToken(f"qsp2.{noncanonical_encoded}")
+    noncanonical = SignedAdvancedQueryPreviewToken(f"qsp3.{noncanonical_encoded}")
 
     with pytest.raises(AdvancedQueryStudioPortError) as captured:
         codec.verify(noncanonical, at=NOW)
@@ -101,6 +126,6 @@ def test_qsp2_rejects_a_noncanonical_base64url_spelling_of_the_same_bytes() -> N
 
 
 @pytest.mark.parametrize("key", (b"", b"a" * 32, bytes(range(31))))
-def test_qsp2_signing_key_strength_is_enforced(key: bytes) -> None:
+def test_qsp3_signing_key_strength_is_enforced(key: bytes) -> None:
     with pytest.raises(ValueError, match="32 bytes and 8 distinct"):
         HmacAdvancedQueryPreviewTokens(key)

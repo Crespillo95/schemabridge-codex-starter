@@ -4401,6 +4401,11 @@ The primary CLI path is:
   "Para cada mes, en pedidos completados, calcula por categoría de producto..."
 ```
 
+This command is the local/recorded acceptance lane. Unless it is composed with a registry-v2
+target resolver, it must display `target_fingerprint=None`/`unbound-local-recorded` and is not a
+commercial artifact. A managed tenant path must use the target-bound Streamlit/runtime composition
+described below; manual inspection of the destination does not upgrade the local CLI lane.
+
 It prepares once, prints the exact preview, and asks for an explicit confirmation whose default is
 No. The same in-memory preparation and signed token are used after confirmation. The alternative
 `--confirm-fingerprint` two-invocation form re-prepares by design and fails closed if a live
@@ -4419,6 +4424,12 @@ provider returns a different interpretation.
    A live failure must not fall back.
 6. Inspect physical catalog-only results in the separate M27 lane; they remain
    `needs_mapping_review` and are never promoted into the M32 request.
+7. For staging/production, require the complete active registry-v2 dependency set to pass the M26
+   semantic-current gate before any target lookup or live language-provider call. A missing
+   activation/pointer/decision identity or ineligible dependency is stale authority, not a warning.
+8. Require one active registry-v2 connection and a current enabled
+   PostgreSQL connector route for the same workspace. Record only its public connection ID, route
+   revision, target fingerprint and type-contract fingerprint; never expose a DSN or secret.
 
 ### 1. Prepare a natural-SQL preview
 
@@ -4437,6 +4448,10 @@ language. The operation must:
   predicates/order, tie rules, joins, assumptions, risks, limit, route, and fingerprints;
 - show each selected logical-to-physical mapping with confidence, evidence, and risks, and each
   selected join contract with evidence and risks;
+- in managed mode, show the exact connection ID, route revision, target fingerprint and type-
+  contract fingerprint already bound by `qsp3`; the complete registry must have passed M26 before
+  target/provider access, and the selected plan must have passed M26 before the post-interpretation
+  target resolution;
 - perform no compilation and expose no SQL.
 
 Before confirmation, verify there is no SQL text, SQL hash, compiled-query object, renderer output,
@@ -4455,11 +4470,24 @@ typed request using only approved mappings/contracts, select v1/v2 by representa
 parameterized PostgreSQL, run the independent guard, render typed literals, and run the complete
 guard again with zero bindings. It must not call retrieval or a language provider again.
 
+For a managed tenant it must first recheck the exact selected-plan dependencies through M26, then
+re-resolve the signed target at confirmation and again immediately before generation. Pass that
+same target, already included in the resolved-plan fingerprint, to compiler, first guard and second
+guard. Semantic drift or missing, disabled, rotated, cross-workspace or cross-connection target
+state is a hard stop: purge any prior artifact and show neither SQL nor download.
+
+Do not treat Streamlit session state as current authority. On every later page rerun, including an
+unrelated widget interaction, the UI must provider-free replay the deterministic confirmed-request
+revalidation before it renders an existing SQL block or download. If the semantic head, selected
+dependencies, target tuple or regenerated artifact changes, the prior artifact must be removed.
+
 Verify the response contains:
 
 - `dialect=postgresql`;
 - the expected `plan_version`;
 - request, plan, context/target, and SQL fingerprints;
+- non-null connection ID, route revision, target fingerprint and type-contract fingerprint in a
+  managed tenant; `None` is permitted only in the visibly non-commercial local/recorded lane;
 - standalone normalized SQL with no `%s` or `$n` placeholder;
 - `executed=false`;
 - no result rows or source safety facts that would imply execution.
@@ -4483,6 +4511,10 @@ confirmation. Verify the physical-only case separately in M27 discovery:
 | Physical-only unapproved field | M32: no approved match and no SQL; separate M27 discovery: `needs_mapping_review`, never promoted into M32 |
 | Recursive hierarchy or gaps/islands | `unsupported_request` and no SQL |
 | `ROLLUP` subtotal request | unsupported until `GROUPING()` flags are designed |
+| Target disabled before prepare | target unavailable; no provider call, token, SQL or download |
+| Route rotates after preview or confirmation | target mismatch; prior artifact purged and no SQL |
+| Resolver returns another connection/workspace | target mismatch/cross-connection; no SQL |
+| Semantic dependency becomes ineligible before/after an artifact | M26 stale-context failure; prior artifact purged and no SQL/download |
 
 For every case record the route/reason, bounded closure counts, preview fingerprint, whether SQL
 was absent before confirmation, artifact SHA where applicable, `executed` flag, and call-count

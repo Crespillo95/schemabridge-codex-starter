@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 milestone: M30
 candidate_sku:
   dialect: postgresql
@@ -23,6 +23,33 @@ candidate_sku:
   statement_timeout_ms: 5000
   null_policy: preserve_governed_nulls
   fanout_policy: reject_unsafe_require_explicit_mitigation
+  managed_copy_sql:
+    required_registry_format_version: 2
+    confirmation_token: qsp3
+    target_binding_fields:
+      - connection_id
+      - target_route_revision
+      - target_fingerprint
+      - target_type_contract_fingerprint
+    m26_current_checkpoints:
+      - complete_registry_before_target_or_provider
+      - selected_plan_after_interpretation
+      - selected_plan_at_confirmation
+      - selected_plan_before_generation
+    target_resolution_checkpoints:
+      - before_provider
+      - after_interpretation
+      - at_confirmation
+      - before_compilation
+    target_bound_consumers:
+      - resolved_plan_fingerprint
+      - deterministic_compiler
+      - parameterized_ast_guard
+      - copy_renderer
+      - standalone_ast_guard
+      - copy_artifact
+    artifact_rerun_policy: provider_free_revalidate_regenerate_compare_before_display_or_download
+    unbound_output_policy: local_recorded_noncommercial_only
 case_minimums:
   - case_class: supported_simple
     minimum_cases: 200

@@ -11,8 +11,10 @@ import streamlit as st
 from pydantic import ValidationError
 
 from schemabridge.application.natural_sql import (
+    ConfirmedNaturalSqlRequest,
     GovernedCopyableSqlResult,
     NaturalSqlError,
+    NaturalSqlErrorCode,
     NaturalSqlPreparation,
 )
 from schemabridge.application.ports.advanced_query_studio import (
@@ -64,6 +66,7 @@ class _PreparationState:
 class _ArtifactState:
     request_digest: str
     preview_fingerprint: str
+    confirmed: ConfirmedNaturalSqlRequest
     result: GovernedCopyableSqlResult
 
 
@@ -153,6 +156,7 @@ def render_copyable_natural_sql(runtime: NaturalSqlRuntimeServices) -> None:
         "He revisado esta interpretación y confirmo su fingerprint exacto.",
         key=_REVIEW_KEY,
     )
+    generated_now = False
     if st.button(
         "Confirmar y generar SQL standalone",
         type="primary",
@@ -175,9 +179,11 @@ def render_copyable_natural_sql(runtime: NaturalSqlRuntimeServices) -> None:
             artifact_state = _ArtifactState(
                 request_digest=preparation.request_digest,
                 preview_fingerprint=preview.fingerprint,
+                confirmed=confirmed,
                 result=generated,
             )
             st.session_state[_ARTIFACT_KEY] = artifact_state
+            generated_now = True
         except _EXPECTED_ERRORS as error:
             st.session_state.pop(_ARTIFACT_KEY, None)
             _render_safe_error(error, stage="generación")
@@ -191,7 +197,26 @@ def render_copyable_natural_sql(runtime: NaturalSqlRuntimeServices) -> None:
     ):
         st.session_state.pop(_ARTIFACT_KEY, None)
         return
+    if not generated_now:
+        try:
+            _revalidate_copyable_artifact(runtime, artifact_state)
+        except _EXPECTED_ERRORS as error:
+            st.session_state.pop(_ARTIFACT_KEY, None)
+            _render_safe_error(error, stage="revalidación del destino")
+            return
     _render_copy_artifact(artifact_state.result)
+
+
+def _revalidate_copyable_artifact(
+    runtime: NaturalSqlRuntimeServices,
+    state: _ArtifactState,
+) -> None:
+    current = runtime.generate.execute(state.confirmed)
+    if current != state.result:
+        raise NaturalSqlError(
+            NaturalSqlErrorCode.STALE_CONTEXT,
+            "copyable SQL artifact changed after confirmation",
+        )
 
 
 def _render_typed_preview(preparation: NaturalSqlPreparation) -> None:
@@ -210,6 +235,19 @@ def _render_typed_preview(preparation: NaturalSqlPreparation) -> None:
         "No existe SQL todavía. Confirmar este preview es la única acción que "
         "habilita la compilación determinista."
     )
+    if preview.target_fingerprint is None:
+        st.warning(
+            "Modo local/recorded sin destino gobernado: útil para demostración, "
+            "pero no apto para uso comercial ni producción."
+        )
+    else:
+        assert preview.connection_id is not None
+        assert preview.target_route_revision is not None
+        st.info(
+            "Destino gobernado para esta confirmación: "
+            f"`{preview.connection_id.root}` · revisión de ruta "
+            f"`{preview.target_route_revision}`. Cualquier cambio invalida el preview."
+        )
     st.markdown(f"**Entidad principal:** `{request.primary_entity.root}`")
 
     if isinstance(request, AnalyticalRequest):
@@ -289,6 +327,13 @@ def _render_typed_preview(preparation: NaturalSqlPreparation) -> None:
         st.caption(f"Typed request fingerprint: `{preview.routed_request_fingerprint}`")
         st.caption(f"Resolved plan fingerprint: `{preview.resolved_plan_fingerprint}`")
         st.caption(f"Governed registry fingerprint: `{preview.governed_registry_fingerprint}`")
+        if preview.target_fingerprint is not None:
+            st.caption(f"Target fingerprint: `{preview.target_fingerprint}`")
+            st.caption(
+                f"Target type-contract fingerprint: `{preview.target_type_contract_fingerprint}`"
+            )
+        else:
+            st.caption("Target fingerprint: `unbound-local-recorded` (no comercial)")
 
 
 def _render_v1_request(request: AnalyticalRequest) -> None:
@@ -384,10 +429,19 @@ def _render_v2_request(request: AdvancedAnalyticalRequest) -> None:
 def _render_copy_artifact(result: GovernedCopyableSqlResult) -> None:
     artifact = result.artifact
     st.markdown("#### PostgreSQL standalone listo para copiar")
-    dialect, plan, execution = st.columns(3)
+    dialect, plan, execution, target_binding = st.columns(4)
     dialect.metric("Dialecto", artifact.dialect.value)
     plan.metric("Plan", f"v{artifact.plan_version}")
     execution.metric("Ejecutado", "No")
+    target_binding.metric(
+        "Destino gobernado",
+        "Ligado" if result.target is not None else "Sin ligar",
+    )
+    if result.target is None:
+        st.warning(
+            "Artefacto local/recorded sin destino gobernado. No es un artefacto "
+            "comercial ni de producción."
+        )
     st.success(
         "La sentencia pasó dos validaciones AST independientes y contiene sus "
         "valores tipados sin placeholders de driver."
@@ -418,6 +472,15 @@ def _render_copy_artifact(result: GovernedCopyableSqlResult) -> None:
         st.caption(f"SQL SHA-256: `{artifact.sha256}`")
         st.caption(f"Request fingerprint: `{artifact.request_fingerprint}`")
         st.caption(f"Plan fingerprint: `{artifact.plan_fingerprint}`")
+        if result.target is not None:
+            st.caption(f"Connection ID: `{result.target.connection_id.root}`")
+            st.caption(f"Target route revision: `{result.target.route_revision}`")
+            st.caption(f"Target fingerprint: `{result.target.fingerprint}`")
+            st.caption(
+                f"Target type-contract fingerprint: `{result.target.type_contract_fingerprint}`"
+            )
+        else:
+            st.caption("Target fingerprint: `unbound-local-recorded` (no comercial)")
         st.caption("executed=false")
     st.button(
         "Validar/ejecutar por canal de solo lectura (opcional)",

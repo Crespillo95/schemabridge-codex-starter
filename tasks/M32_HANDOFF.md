@@ -131,13 +131,20 @@ only after exact confirmation. Ambiguous, stale, unapproved, and unsupported req
 SQL. No primary-flow query is executed.
 ```
 
-The 2026-07-30 attempt started Streamlit and passed health, but browser discovery returned `[]`.
-The manual viewport/console/interaction matrix therefore remains **not run**, not PASS.
+The 2026-07-30 attempt started Streamlit and passed health, but browser discovery returned `[]`, so
+the original D125 acceptance correctly recorded the manual matrix as not run.
 
-Later, on 2026-08-03, Codex completed exactly the advanced Spanish desktop happy path, recorded in
-`docs/14_BROWSER_ACCEPTANCE.md` and `tasks/M34_HANDOFF.md`. That partial observation does not change
-this milestone's original result and does not close the remaining simple, v1/v2, blocked-state,
-hostile-input, clipboard/download or 390×844 M32 matrix.
+Amendment D133 on 2026-08-03 adds bounded pre-final evidence without rewriting that history.
+Before the final M26/artifact-rerun P1 remediations, Codex's in-app browser observed the
+local/recorded advanced path on desktop and 390×844 plus the typed `date_meaning` ambiguity path:
+no SQL/download before confirmation; 106 visible standalone SQL lines with no
+`%s`/`$1`, download visible, optional execution disabled, `Ejecutado=No`, `Sin ligar` and an explicit
+non-commercial warning after confirmation; no horizontal overflow or console warning/error. The
+canonical record is `docs/14_BROWSER_ACCEPTANCE.md`. Managed target rotation after an artifact is
+covered after those remediations by a separate four-test Streamlit AppTest, not by the manual
+browser. Current-final-byte managed/operated target evidence and the remaining simple/v1-v2,
+physical-only, unsupported, hostile/provider, focus/clipboard and supported-browser/accessibility
+matrix remain open for M30.
 
 ## Architecture and security review
 
@@ -173,19 +180,25 @@ hostile-input, clipboard/download or 390×844 M32 matrix.
   an “error-free expert for every query” claim.
 - M32 consumes approved logical context only; catalog-only physical candidates remain in M27
   `needs_mapping_review`.
-- Manual browser, live-provider quality, independent M30 security/evaluation, operated
-  production/release controls, pilot, and GA are unverified.
+- The D133 amendment now requires the M26 semantic-current gate and a qsp3 target-bound plan in
+  managed composition, but its final exact-byte full gate and operated target campaign remain open.
+- The pre-final local/recorded manual browser subset was observed; the current-final-byte
+  managed/operated browser matrix,
+  live-provider quality, independent M30 security/evaluation, production/release controls, pilot,
+  and GA are unverified.
 
 ## Blockers
 
 - No blocker for the accepted local automated M32 scope.
-- Operator browser evidence is blocked in this environment by the empty in-app browser list.
+- D133 exact-current-byte full-gate consolidation and managed/operated browser/target evidence are
+  still required before this amended path can enter M30.
 
 ## Next milestone readiness
 
 - Dependencies satisfied: M32's bounded product capability is ready for review and later M30
   adversarial/live-quality work.
-- Recommended next prompt: run a frozen live-provider holdout and the complete manual browser
-  matrix without widening the SQL language or production authority.
+- Recommended next prompt: finish the D133 exact-byte gate, then run a frozen live-provider holdout
+  and the remaining managed browser matrix without widening the SQL language or production
+  authority.
 - Required operator prerequisites: connected in-app browser, approved synthetic provider campaign
   and budget/admission policy, same governed PostgreSQL target, and separate M30/M31 acceptance.

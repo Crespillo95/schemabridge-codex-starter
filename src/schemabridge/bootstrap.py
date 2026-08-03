@@ -2376,8 +2376,10 @@ def build_natural_sql_runtime(
     mentions: "AdvancedMentionExtractionPort | None" = None,
     interpreter: "AdvancedInterpretationPort | None" = None,
     retrieval: "AdvancedSemanticRetrievalPort | None" = None,
+    target_resolver: ExecutionTargetResolverPort | None = None,
+    semantic_gate: AssertSemanticContextCurrent | None = None,
 ) -> NaturalSqlRuntimeServices:
-    """Compose text → confirmed standalone SQL without an execution capability."""
+    """Compose text → target-bound standalone SQL without an execution capability."""
 
     from schemabridge.adapters.query_studio.advanced_fake_language import (
         DeterministicAdvancedLanguageAdapter,
@@ -2423,6 +2425,35 @@ def build_natural_sql_runtime(
         workspace_id=principal.workspace_id,
     )
     scoped = semantic_registry.load()
+    target_binding_required = resolved.runtime_profile in {"staging", "production"}
+    resolved_target_resolver = target_resolver
+    resolved_semantic_gate = semantic_gate
+    control_schema_checked = False
+    if target_binding_required:
+        require_current_control_plane_schema(
+            credential_kind="runtime",
+            repository_root=root,
+            settings=resolved,
+        )
+        control_schema_checked = True
+        if resolved_target_resolver is None:
+            from schemabridge.adapters.connectors.postgres_routing import (
+                PostgresExecutionTargetResolver,
+            )
+
+            resolved_target_resolver = PostgresExecutionTargetResolver(
+                _control_plane_dsn(resolved, "runtime"),
+                schema=resolved.control_plane_schema,
+            )
+        if resolved_semantic_gate is None:
+            resolved_semantic_gate = build_semantic_change_gate(
+                settings=resolved,
+                credential_kind="runtime",
+            )
+    bind_target = target_binding_required or resolved_target_resolver is not None
+    if bind_target and resolved_semantic_gate is None:
+        raise ValueError("managed natural SQL target binding requires the M26 semantic gate")
+    semantic_scope = scoped.scope if resolved_semantic_gate is not None else None
     limits = ResolutionLimits(
         max_tables=resolved.max_query_tables,
         max_preview_rows=resolved.max_query_rows,
@@ -2459,11 +2490,12 @@ def build_natural_sql_runtime(
 
             if resolved.pseudonymization_key is None:
                 raise ValueError("live natural SQL pseudonymization key is unavailable")
-            require_current_control_plane_schema(
-                credential_kind="runtime",
-                repository_root=root,
-                settings=resolved,
-            )
+            if not control_schema_checked:
+                require_current_control_plane_schema(
+                    credential_kind="runtime",
+                    repository_root=root,
+                    settings=resolved,
+                )
             pseudonym_key = resolved.pseudonymization_key.get_secret_value().encode("utf-8")
             openai_config = OpenAIResponsesConfig.for_model(
                 resolved.query_studio_ai_model,
@@ -2533,11 +2565,20 @@ def build_natural_sql_runtime(
             clock=clock,
             nonces=nonces,
             limits=limits,
+            target_resolver=resolved_target_resolver,
+            require_target_binding=bind_target,
+            semantic_gate=resolved_semantic_gate,
+            semantic_scope=semantic_scope,
         ),
         confirm=ConfirmNaturalSqlPreview(
             registry=semantic_registry,
             preview_tokens=tokens,
             clock=clock,
+            limits=limits,
+            target_resolver=resolved_target_resolver,
+            require_target_binding=bind_target,
+            semantic_gate=resolved_semantic_gate,
+            semantic_scope=semantic_scope,
         ),
         generate=GenerateGovernedCopyableSql(
             registry=semantic_registry,
@@ -2545,6 +2586,10 @@ def build_natural_sql_runtime(
             guard=build_sql_guard(),
             renderer=PostgresCopyableSqlRenderer(),
             limits=limits,
+            target_resolver=resolved_target_resolver,
+            require_target_binding=bind_target,
+            semantic_gate=resolved_semantic_gate,
+            semantic_scope=semantic_scope,
         ),
     )
 

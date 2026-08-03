@@ -1,4 +1,4 @@
-"""HMAC-authenticated qsp2 tokens for the copy-first natural SQL flow."""
+"""HMAC-authenticated qsp3 tokens for the target-bound natural SQL flow."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ class HmacAdvancedQueryPreviewTokens:
             encoded_payload,
             hashlib.sha256,
         ).digest()
-        return SignedAdvancedQueryPreviewToken(f"qsp2.{_b64encode(encoded_payload + signature)}")
+        return SignedAdvancedQueryPreviewToken(f"qsp3.{_b64encode(encoded_payload + signature)}")
 
     def verify(
         self,
@@ -52,7 +52,7 @@ class HmacAdvancedQueryPreviewTokens:
         if at.tzinfo is None or at.utcoffset() is None:
             raise _token_error(AdvancedQueryStudioPortErrorCode.TOKEN_INVALID)
         try:
-            encoded = _b64decode(token.root.removeprefix("qsp2."))
+            encoded = _b64decode(token.root.removeprefix("qsp3."))
         except (ValueError, UnicodeError) as error:
             raise _token_error(AdvancedQueryStudioPortErrorCode.TOKEN_INVALID) from error
         if len(encoded) <= _SIGNATURE_BYTES:

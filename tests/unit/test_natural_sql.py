@@ -517,10 +517,10 @@ def test_ambiguous_or_unsupported_language_returns_no_sql(
     assert compiler.calls == 0
 
 
-def test_tampered_qsp2_fails_before_compilation() -> None:
+def test_tampered_qsp3_fails_before_compilation() -> None:
     preparation, registry, tokens, clock = _prepare(M32_SIMPLE_PRODUCTS_QUESTION_ES)
     assert preparation.token is not None
-    position = len("qsp2.") + 8
+    position = len("qsp3.") + 8
     replacement = "A" if preparation.token.root[position] != "A" else "B"
     tampered_token = SignedAdvancedQueryPreviewToken(
         preparation.token.root[:position] + replacement + preparation.token.root[position + 1 :]
@@ -540,7 +540,7 @@ def test_tampered_qsp2_fails_before_compilation() -> None:
     assert compiler.calls == 0
 
 
-def test_expired_qsp2_fails_before_compilation() -> None:
+def test_expired_qsp3_fails_before_compilation() -> None:
     preparation, registry, tokens, clock = _prepare(M32_SIMPLE_PRODUCTS_QUESTION_ES)
     confirmation = _confirmation(preparation)
     compiler = CountingCompiler()

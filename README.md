@@ -23,6 +23,10 @@ approved semantic context can be written back to DataHub through its separate ap
 > replacement/remediation over an exact active registry-v2, including PostgreSQL v15 authority,
 > HTTP, publication witness and activation-ready handoff. It still performs no automatic
 > activation and the local DataHub read-back evidence is simulated.
+> M30 candidate hardening now binds managed M32 preparation, `qsp3` confirmation and both SQL
+> guards to one current registry-v2 PostgreSQL target. Local/recorded output may remain visibly
+> unbound and non-commercial. This is implementation evidence only; all 24 M30 controls remain
+> external and release stays NO-GO.
 > Live-provider evaluation, independent security verification, an operated pilot, and every
 > production/release control remain open. No error-free, all-SQL-dialects, or production claim is
 > made. The exact support matrix and adoption gates are in the
@@ -498,6 +502,17 @@ The flow has two operations:
    re-resolves the signed request, compiles deterministically, guards the parameterized AST,
    renders typed literals, and guards the standalone SQL again. It never executes and returns
    `executed=false`.
+
+For staging/production, the active registry must be format v2. Before any target lookup or live
+language-provider call, the runtime requires the complete active registry to pass the M26
+semantic-current gate. It rechecks the selected plan dependencies after interpretation, at
+confirmation and before generation, and only then resolves exactly one current PostgreSQL target
+for the same connection. The `qsp3` token binds connection ID, route revision, target fingerprint
+and PostgreSQL type contract into the resolved-plan fingerprint; the compiler, both guards and copy
+artifact receive that same target. Revocation, semantic drift, rotation, workspace/connection
+substitution or missing authority yields no token/SQL. Every later UI rerun provider-free
+revalidates the confirmed request before retaining SQL/download. Development/recorded output may be
+unbound only when the UI labels it non-commercial.
 
 For a human CLI review, `sql-from-natural --review-and-confirm` prepares once, prints the complete
 preview, and confirms that same in-memory object/token. The older two-invocation fingerprint mode

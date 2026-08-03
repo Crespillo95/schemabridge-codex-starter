@@ -37,7 +37,7 @@ devolver una explicación sin SQL.
 | Inventario físico | Catálogo PostgreSQL multi-tenant, paginado y con capacidad durable por workspace | Inventariar miles de tablas no aumenta la capacidad de una consulta |
 | Contexto semántico | Registro aprobado con modelos, campos, mapeos y contratos de join versionados | La similitud de nombres nunca equivale a aprobación |
 | Lenguaje natural a SQL | Solicitudes simples y un conjunto avanzado tipado de agregaciones, filtros, buckets y ventanas | Sólo PostgreSQL y sólo cuando toda la intención es representable |
-| Salida | SQL standalone validado para copiar o descargar | Destino: otro cliente conectado al mismo contexto PostgreSQL gobernado |
+| Salida | SQL standalone validado para copiar o descargar | Managed liga `qsp3` y artefacto al target PostgreSQL exacto; local/recorded sin target es no comercial |
 | Ejecución | Preview read-only separado, opcional y acotado cuando está habilitado | El flujo principal M32 no ejecuta: `executed=false` |
 | Onboarding M33 | Preflight server-side, borrador tenant-bound, decisiones steward append-only y handoff inmutable | Cero escritura externa; no publicación ni activación |
 | Publicación M34 | Reserva tenant-bound, worker aislado, aprobación del candidato completo, DataHub v2 y read-back exacto | No activa; la evidencia local/sintética no prueba IAM ni operación externa |
@@ -357,7 +357,7 @@ en [`plans/M31_CONTROLLED_PILOT_GA_READINESS.md`](../plans/M31_CONTROLLED_PILOT_
 |---|---|---|
 | P0 | Calidad del lenguaje natural no certificada con proveedor real | M30: corpus ciego representativo, exactitud semántica/ejecutable, rechazo seguro, adversariales, umbrales firmados y regresión por versión |
 | P0 | El despliegue production-shaped mantiene NL/IA deshabilitado | Overlay y composición M32 live tenant-bound, con proveedor/modelo/prompt exactos, secretos operados y pruebas de navegador/API sin habilitar ejecución automática |
-| P0 | El artefacto copiable no queda ligado hoy a una base concreta | `target_fingerprint`, conexión/base/schema y contrato de tipo visibles y confirmados; equivalencia exacta entre SQL parametrizado y standalone sobre dos schemas físicos distintos |
+| P0 | Target binding implementado localmente pero no certificado en un destino operado | M30: `qsp3`, conexión/revisión/target/tipos visibles y revalidados en target real; equivalencia exacta entre SQL parametrizado y standalone, rotación/revocación y dos schemas físicos distintos |
 | P0 | No hay recorrido comercial integrado ni offboarding ejecutable | Consola/API versionada para M33→M34→M23→M35→M32, runbooks operados por otra persona y retirada con exportación, revocación, retención/borrado y certificado |
 | P0 | Seguridad y operación sólo demostradas localmente | Pentest independiente, IAM exclusivo DataHub, secret manager/rotación, cluster admission/NetworkPolicy, SIEM/paging, backup/restore y simulacro de incidente operados |
 | P0 | No existe piloto real aceptado | M31 con un tenant autorizado, SLO/coste/capacidad observados, runbooks y salida/rollback firmados |
@@ -500,21 +500,27 @@ PostgreSQL/HTTP y aceptación; el criterio manual M35 exige sólo el recorrido d
 
 ## Prueba manual del nivel SQL solicitado
 
-El 3 de agosto de 2026, Query Studio pasó **exactamente un happy path manual avanzado en escritorio**
-con el runtime local y adaptadores recorded/fake, sin ejecución de fuente. La petición en español
+El 3 de agosto de 2026, Query Studio produjo una observación manual **pre-final** en el navegador
+interno de Codex para el subset local/recorded avanzado, layout móvil y ambigüedad, sin ejecución de
+fuente. La petición en español
 pidió, por mes y categoría, ingresos netos, unidades y pedidos distintos, mínimo cuatro pedidos,
 ranking determinista top-3, porcentaje sobre el total elegible e ingreso acumulado. Antes de
 confirmar no había bloque SQL ni descarga. Tras confirmar se obtuvo PostgreSQL standalone de 106
-líneas y 2.975 caracteres con dos CTE, `COUNT(DISTINCT ...)`, `HAVING`, `ROW_NUMBER`, porcentaje y
-ventana acumulada, terminando en `LIMIT 100`; no contenía placeholders y `executed=false`.
+líneas visibles, empezando por `WITH`, con dos CTE, `COUNT(DISTINCT ...)`, `HAVING`, `ROW_NUMBER`,
+porcentaje, ventana acumulada y `LIMIT 100`; no contenía `%s`/`$1`, la descarga era visible, la
+validación opcional seguía deshabilitada y `Ejecutado=No`. La UI mostró `Sin ligar` y la advertencia
+no comercial; la consola no tuvo warnings/errors.
 
-Los recorridos simple y ambiguo están cubiertos por aceptación automatizada, no por esa sesión
-manual. La matriz M32 restante —simple, v1/v2, stale, physical-only, unsupported, inyección,
-provider failure, clipboard/download, foco, overflow y viewport 390×844— sigue pendiente. La
-fuente canónica es [`docs/14_BROWSER_ACCEPTANCE.md`](14_BROWSER_ACCEPTANCE.md), que conserva el
-estado parcial y prohíbe convertir este único happy path en un PASS desktop/mobile completo. Esta
-evidencia parcial no convierte en soportadas las subconsultas arbitrarias, self/CROSS joins,
-`INTERSECT`, recursión o `ROLLUP` del benchmark externo.
+En 390×844 los anchos visibles/scroll fueron 390, sin overflow horizontal. La petición ambigua
+`Muestra las ventas por fecha.` devolvió `date_meaning` sin confirmación, SQL ni descarga. La
+rotación managed después de crear un artefacto está cubierta aparte, ya sobre las remediaciones
+posteriores, por AppTest automatizado (`4 passed`), que elimina SQL/descarga y muestra error seguro;
+no es una prueba manual ni un target operado. La matriz restante sobre bytes finales —managed/
+operated target, simple/v1-v2, physical-only, unsupported,
+inyección, provider failure, foco/clipboard y navegadores/accessibility soportados— sigue abierta.
+La fuente canónica es [`docs/14_BROWSER_ACCEPTANCE.md`](14_BROWSER_ACCEPTANCE.md). Esta evidencia
+parcial no convierte en soportadas las subconsultas arbitrarias, self/CROSS joins, `INTERSECT`,
+recursión o `ROLLUP` del benchmark externo.
 
 ## Cómo interpretar una consulta solicitada
 
