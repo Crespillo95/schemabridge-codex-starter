@@ -148,7 +148,7 @@ def test_load_harness_records_latency_concurrency_pool_wait_and_zero_errors() ->
     )
 
     assert result["read_count"] == 64
-    assert result["warmup_read_count"] == 1
+    assert result["warmup_read_count"] == 4
     assert result["warmup_included_in_latency"] is False
     assert result["concurrency"] == 4
     assert result["error_count"] == 0
@@ -178,12 +178,52 @@ def test_load_harness_records_latency_concurrency_pool_wait_and_zero_errors() ->
 
 
 @pytest.mark.scale
-def test_load_harness_performs_one_real_warmup_before_timed_reads(
+def test_load_harness_warms_each_executor_worker_before_timed_reads(
     correctness_report: dict[str, object],
 ) -> None:
     class _CountingReader:
         def __init__(self) -> None:
             self.delegate = LazySyntheticScaleReader()
+            self.call_count = 0
+            self.thread_ids: list[int] = []
+            self.warmup_threads: set[int] = set()
+            self.lock = threading.Lock()
+
+        def read_page(
+            self,
+            case: str,
+            *,
+            page_size: int,
+            cursor: str | None,
+        ) -> ScalePage:
+            thread_id = threading.get_ident()
+            with self.lock:
+                self.call_count += 1
+                self.thread_ids.append(thread_id)
+                if self.call_count <= 2:
+                    self.warmup_threads.add(thread_id)
+                elif thread_id not in self.warmup_threads:
+                    raise AssertionError(
+                        "timed read reached an executor worker that was not warmed"
+                    )
+            return self.delegate.read_page(case, page_size=page_size, cursor=cursor)
+
+    reader = _CountingReader()
+    result = run_load(cast(ScaleReader, reader), read_count=8, concurrency=2, page_size=17)
+
+    assert reader.call_count == 10
+    assert result["warmup_read_count"] == 2
+    assert result["warmup_included_in_latency"] is False
+    assert result["error_count"] == 0
+    assert len(set(reader.thread_ids[:2])) == 2
+    assert set(reader.thread_ids[:2]) == set(reader.thread_ids[2:])
+    markdown = render_markdown(correctness_report | {"load": result})
+    assert "Unmeasured warmup reads: `2`; included in reported latency: `False`." in markdown
+
+
+def test_load_harness_rejects_an_invalid_warmup_before_starting_workers() -> None:
+    class _InvalidWarmupReader:
+        def __init__(self) -> None:
             self.call_count = 0
             self.lock = threading.Lock()
 
@@ -194,23 +234,22 @@ def test_load_harness_performs_one_real_warmup_before_timed_reads(
             page_size: int,
             cursor: str | None,
         ) -> ScalePage:
+            del case, page_size, cursor
             with self.lock:
                 self.call_count += 1
-            return self.delegate.read_page(case, page_size=page_size, cursor=cursor)
+            return ScalePage(item_keys=(), next_cursor=None, rows_read=0)
 
-    reader = _CountingReader()
-    result = run_load(cast(ScaleReader, reader), read_count=8, concurrency=2, page_size=17)
+    reader = _InvalidWarmupReader()
 
-    assert reader.call_count == 9
-    assert result["warmup_read_count"] == 1
-    assert result["warmup_included_in_latency"] is False
-    markdown = render_markdown(correctness_report | {"load": result})
-    assert "Unmeasured warmup reads: `1`; included in reported latency: `False`." in markdown
+    with pytest.raises(ScaleHarnessError, match="warmup page contract"):
+        run_load(cast(ScaleReader, reader), read_count=8, concurrency=2, page_size=17)
 
+    assert reader.call_count == 2
 
-def test_load_harness_rejects_an_invalid_warmup_before_starting_workers() -> None:
-    class _InvalidWarmupReader:
-        call_count = 0
+    class _ExplodingWarmupReader:
+        def __init__(self) -> None:
+            self.call_count = 0
+            self.lock = threading.Lock()
 
         def read_page(
             self,
@@ -220,15 +259,16 @@ def test_load_harness_rejects_an_invalid_warmup_before_starting_workers() -> Non
             cursor: str | None,
         ) -> ScalePage:
             del case, page_size, cursor
-            self.call_count += 1
-            return ScalePage(item_keys=(), next_cursor=None, rows_read=0)
+            with self.lock:
+                self.call_count += 1
+            raise RuntimeError("private backend failure")
 
-    reader = _InvalidWarmupReader()
+    exploding_reader = _ExplodingWarmupReader()
 
-    with pytest.raises(ScaleHarnessError, match="warmup page contract"):
-        run_load(cast(ScaleReader, reader), read_count=8, concurrency=2, page_size=17)
+    with pytest.raises(ScaleHarnessError, match="warmup read failed"):
+        run_load(cast(ScaleReader, exploding_reader), read_count=8, concurrency=2, page_size=17)
 
-    assert reader.call_count == 1
+    assert exploding_reader.call_count == 2
 
 
 @pytest.mark.parametrize(

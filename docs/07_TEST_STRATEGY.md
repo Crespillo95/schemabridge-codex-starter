@@ -645,9 +645,9 @@ not production availability or capacity claims.
 
 The short wall-clock smoke remains mandatory in the hosted service-free quality job with those
 limits unchanged; release clean-room likewise runs `make check` before starting project services.
-It performs and discloses one explicit unmeasured page warmup before starting the 64 timed reads,
-so the test matches its declared warm-cache profile instead of charging first-use model
-construction to p95.
+It performs and discloses one explicit unmeasured page warmup per worker in the same executor pool
+before starting the 64 timed reads, so the test matches its declared warm-cache/concurrency profile
+instead of charging each worker's first-use model construction to p95.
 It carries the `performance` marker and coverage runs deselect that marker so the measurement does
 not inherit pytest-cov or active DataHub/PostgreSQL service-job contention. The pure deterministic
 regression gate remains selected by coverage and proves the exact error, percentile, row, and

@@ -170,6 +170,19 @@ The local implementation gate passes 3,931 tests with 246 explicit deselections;
 validates migrations 1–15 and all entrypoints. Independent post-remediation review reports P0=0,
 P1=0 and P2=0. None of those local facts satisfies an external M30 control.
 
+Phase 0 commit `c7e72cc97e4226b2d953f5c1e8ef55178a1598f5` is published on
+`agent/ignore-node-modules` and draft PR #1; GitGuardian and the supply-chain job pass. Hosted run
+`30811612188` is associated with that branch head but checked out PR merge ref
+`01933509e22759886349451dc1e3a66751453ef2`, so it is not exact tagged-main candidate evidence. Its
+quality job passed 3,930 tests before the unchanged 250 ms p95 warm-cache gate failed at
+393.774 ms; p99 was 417.752 ms, maximum latency was 417.752 ms and no load errors occurred. The
+four-latency outlier pattern is consistent with a cold first read on each of four executor workers
+after only one main-thread warmup. The corrective bytes warm each worker in the same executor pool
+before timing, retain the 250/500 ms limits, and pass a second full local `make check`: 3,931 passed,
+246 deselected in 1,235.97 seconds. At this pre-commit evidence snapshot, the corrective commit and
+hosted rerun had not yet been created; `postgres-integration` from run `30811612188` remained in
+progress. Their later GitHub status must be inspected separately rather than self-asserted here.
+
 Initial commit `09c3a2e0f47a7fbadb5297fa6bc4f9aca0d21950` and its 12-commit history pass
 the exact secret scan and are published on draft PR #1. Hosted run `30765372081` passed quality,
 supply chain and GitGuardian, then failed closed on the backup-evidence ceiling and stale legacy

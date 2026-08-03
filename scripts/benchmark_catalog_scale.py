@@ -452,23 +452,29 @@ def run_load(
     if not 1 <= page_size <= 50:
         raise ScaleHarnessError("scale load page size is invalid")
 
-    barrier = threading.Barrier(concurrency)
     quotient, remainder = divmod(read_count, concurrency)
     worker_counts = tuple(
         quotient + (1 if worker_index < remainder else 0) for worker_index in range(concurrency)
     )
-    warmup = reader.read_page("large", page_size=page_size, cursor=None)
-    if (
-        not warmup.item_keys
-        or len(warmup.item_keys) > page_size
-        or warmup.rows_read > page_size + 1
-    ):
-        raise ScaleHarnessError("scale load warmup page contract failed")
-    started = time.perf_counter_ns()
     with ThreadPoolExecutor(
         max_workers=concurrency,
         thread_name_prefix="catalog-scale",
     ) as executor:
+        warmup_barrier = threading.Barrier(concurrency)
+        warmup_futures = tuple(
+            executor.submit(
+                _load_warmup_worker,
+                reader,
+                page_size=page_size,
+                barrier=warmup_barrier,
+            )
+            for _worker_index in range(concurrency)
+        )
+        for future in warmup_futures:
+            future.result()
+
+        barrier = threading.Barrier(concurrency)
+        started = time.perf_counter_ns()
         futures = tuple(
             executor.submit(
                 _load_worker,
@@ -480,7 +486,7 @@ def run_load(
             for iterations in worker_counts
         )
         worker_results = tuple(future.result() for future in futures)
-    elapsed_seconds = (time.perf_counter_ns() - started) / 1_000_000_000
+        elapsed_seconds = (time.perf_counter_ns() - started) / 1_000_000_000
 
     latencies = [
         latency
@@ -512,7 +518,7 @@ def run_load(
     passed = all(regression_checks.values())
     return {
         "read_count": read_count,
-        "warmup_read_count": 1,
+        "warmup_read_count": concurrency,
         "warmup_included_in_latency": False,
         "concurrency": concurrency,
         "page_size": page_size,
@@ -596,12 +602,7 @@ def _load_worker(
                 maximum_materialized_items,
                 len(page.item_keys),
             )
-            if (
-                not page.item_keys
-                or len(page.item_keys) > page_size
-                or page.rows_read > page_size + 1
-                or page.next_cursor == cursor
-            ):
+            if not _valid_load_page(page, page_size=page_size, cursor=cursor):
                 raise ScaleHarnessError("scale load page contract failed")
             if page.pool_wait_milliseconds is not None:
                 pool_waits.append(page.pool_wait_milliseconds)
@@ -617,6 +618,32 @@ def _load_worker(
         "maximum_rows_read": maximum_rows_read,
         "maximum_materialized_items": maximum_materialized_items,
     }
+
+
+def _load_warmup_worker(
+    reader: ScaleReader,
+    *,
+    page_size: int,
+    barrier: threading.Barrier,
+) -> None:
+    """Warm one real read on each executor worker without measuring it."""
+
+    barrier.wait(timeout=30)
+    try:
+        page = reader.read_page("large", page_size=page_size, cursor=None)
+    except Exception as error:
+        raise ScaleHarnessError("scale load warmup read failed") from error
+    if not _valid_load_page(page, page_size=page_size, cursor=None):
+        raise ScaleHarnessError("scale load warmup page contract failed")
+
+
+def _valid_load_page(page: ScalePage, *, page_size: int, cursor: str | None) -> bool:
+    return bool(
+        page.item_keys
+        and len(page.item_keys) <= page_size
+        and page.rows_read <= page_size + 1
+        and page.next_cursor != cursor
+    )
 
 
 def percentile(values: Sequence[float], quantile: float) -> float:

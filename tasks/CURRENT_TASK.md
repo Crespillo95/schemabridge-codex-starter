@@ -36,15 +36,21 @@ facts, then keeps every hosted, operated, independent and owner gate explicitly 
 The M35 commit `11c2f8527d3e935cb44292fb58f8c23b9611b8eb` is present on draft PR #1. Hosted
 run `30804919220` passed supply-chain, GitGuardian and PostgreSQL integration. Its quality job
 passed 3,880 tests and then failed one warm-cache synthetic p95 check because the isolated test
-timed first-use construction; the current M30 bytes add an explicit unmeasured warmup without
-changing the 250/500 ms limits. The hosted artifact is bound to PR merge ref
-`792e1e7f1ec0c2eed75dfba08302304f17d9c9ff`, so it is useful PR evidence but not an exact M30
-candidate subject.
+timed first-use construction; its checkout/artifact subject was PR merge ref
+`792e1e7f1ec0c2eed75dfba08302304f17d9c9ff`. Follow-up run `30811612188`, whose branch head is
+`c7e72cc97e4226b2d953f5c1e8ef55178a1598f5` but whose checkout subject is PR merge ref
+`01933509e22759886349451dc1e3a66751453ef2`, proved that one main-thread warmup was
+insufficient: its four-latency outlier pattern left p95 at 393.774 ms while p99 remained within
+budget at 417.752 ms and 3,930 other tests passed, consistent with one cold first read per worker.
+The current bytes therefore warm every executor worker, in the same pool, before measurement
+without changing the 250/500 ms limits. Both hosted runs are useful PR evidence, but neither merge
+subject is an exact clean tagged-main M30 candidate.
 
-Local final implementation gates pass: `make check` completed 3,931 tests with 246 explicit
-deselections, the runtime wheel validated migrations 1–15 and all entrypoints, and independent
-post-remediation review reported P0=0, P1=0 and P2=0. These remain local preparation facts, not
-hosted or operated M30 acceptance.
+Local final implementation gates pass: the post-hosted correction's `make check` completed 3,931
+tests with 246 explicit deselections in 1,235.97 seconds, the runtime wheel validated migrations
+1–15 and all entrypoints, and independent post-remediation review reported P0=0, P1=0 and P2=0.
+The correction requires its own commit-bound hosted run, whose result must be read from draft PR
+#1. These remain preparation facts, not operated M30 acceptance.
 
 Phase 0 is not M30 acceptance. There is no clean tagged `main` candidate, 1,000-case blind corpus,
 target-environment evidence, independent pentest, operated browser/accessibility matrix, scale/

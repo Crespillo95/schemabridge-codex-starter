@@ -6,7 +6,8 @@
 - Status: partial; candidate-readiness prepared locally, campaign blocked
 - Recommended operator decision: accept the fail-closed preparation vertical; retain M30,
   commercial, production and release NO-GO
-- Proposed commit message: `feat: add fail-closed M30 candidate readiness`
+- Published implementation commit: `c7e72cc97e4226b2d953f5c1e8ef55178a1598f5`
+- Corrective commit message: `fix: warm every scale benchmark worker`
 
 ## Implemented
 
@@ -35,8 +36,8 @@
 - `scripts/m30_readiness.py` and `Makefile`: operator command.
 - `src/schemabridge/bootstrap.py`: composition-root builders used by the operator command.
 - `scripts/benchmark_catalog_scale.py` and `tests/unit/test_scale_harness.py`: explicit unmeasured
-  warmup for the warm-cache latency contract exposed by hosted CI, without relaxing its 250/500 ms
-  budgets.
+  warmup per executor worker for the warm-cache/concurrency latency contract exposed by hosted CI,
+  without relaxing its 250/500 ms budgets.
 - `tests/unit/test_m30_readiness.py`, `tests/acceptance/test_m30_readiness_acceptance.py` and
   `tests/m30_readiness_support.py`: focused and observable regressions.
 - M30/commercial/runbook/test/state/decision documentation: accurate Phase 0/no-GO boundary.
@@ -54,8 +55,25 @@
 | `make m30-readiness` | pass with explicit NO-GO | Pre-commit run: four repository failures and 24 external controls missing; zero network/database/DataHub/source actions |
 | `make check` (initial attempt) | intentionally interrupted | 2,513 passed and 246 deselected before stopping to fix the independent-review P1 |
 | `make check` | pass | 3,931 passed, 246 deselected in 1,096.17 s; supply-chain, release audit, Ruff and mypy passed |
+| `make check` (post-hosted per-worker remediation) | pass | 3,931 passed, 246 deselected in 1,235.97 s; unchanged 250/500 ms scale budgets passed |
 | `make runtime-wheel-smoke` | pass | Installed wheel validated migrations 1–15 and every runtime entrypoint |
 | `git diff --check` | pass | Repeated on the final documentation bytes before commit |
+
+## Hosted publication evidence
+
+- Commit `c7e72cc97e4226b2d953f5c1e8ef55178a1598f5` is published on
+  `agent/ignore-node-modules` and draft PR #1. GitGuardian passed.
+- GitHub Actions run `30811612188` is branch-associated with that commit, but its checkout and
+  artifact subject is PR merge ref `01933509e22759886349451dc1e3a66751453ef2`; it is not an exact
+  tagged-main candidate result.
+- `supply-chain` passed. `quality` passed 3,930 tests and then failed the unchanged warm-cache
+  performance gate: p95 393.774 ms exceeded 250 ms; p99 417.752 ms remained below 500 ms; maximum
+  latency was 417.752 ms and the load recorded zero errors. The four-latency outlier pattern is
+  consistent with one cold first read on each executor worker after a single main-thread warmup.
+- The current correction warms every executor worker inside the same pool before timing. Its full
+  local `make check` passes. At this pre-commit evidence snapshot, its commit-bound hosted run had
+  not yet been created; the existing `postgres-integration` job was still running coverage. The
+  later corrective run must be judged from GitHub rather than inferred from these local bytes.
 
 ## Automated test results
 
@@ -96,7 +114,7 @@ network/database/DataHub/source actions=0
   frozen; the preflight cannot expand it.
 - Independent final re-review after remediation: P0=0, P1=0 and P2=0. It specifically reproduced
   fail-closed deep YAML, exact 15-source identity, descendant-safe Git timeout, real unmeasured
-  warmup, gitlink rejection and the JSON bundle commit-marker boundary.
+  per-worker warmup, gitlink rejection and the JSON bundle commit-marker boundary.
 
 ## Decisions made
 
@@ -109,7 +127,8 @@ network/database/DataHub/source actions=0
 
 - No exact clean tagged `main` candidate has been frozen.
 - Hosted quality/PostgreSQL/supply-chain evidence must be regenerated for the final candidate
-  subject; the current supply-chain artifact is bound to a PR merge ref.
+  subject. The current supply-chain artifact is bound to a PR merge ref, and the quality result
+  predates the per-worker warmup correction.
 - The 1,000-case blind corpus, target environment, independent pentest, browser/accessibility,
   scale/soak, legal/service review and owner signatures do not exist as accepted evidence.
 - Phase 0 does not yet ingest or cryptographically verify external receipts; it deliberately keeps
