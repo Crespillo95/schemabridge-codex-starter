@@ -6,11 +6,13 @@ import hashlib
 import json
 import os
 import platform
+import secrets
 import shutil
 import signal
 import stat
 import subprocess
 import tempfile
+from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from types import MappingProxyType
@@ -206,8 +208,11 @@ class GitHubCliM30ManifestAuthenticator:
                 raise _TrustProviderUnavailable("GitHub CLI version output is invalid") from error
             if version.returncode != 0 or not observed_version.startswith(expected_version):
                 raise _TrustProviderUnavailable("GitHub CLI version differs")
-            with tempfile.TemporaryDirectory(prefix="schemabridge-m30-auth-") as snapshot_name:
-                snapshot = Path(snapshot_name)
+            with tempfile.TemporaryDirectory(
+                prefix="schemabridge-m30-auth-",
+                dir=_trusted_temporary_parent(),
+            ) as snapshot_name:
+                snapshot = Path(snapshot_name).resolve(strict=True)
                 manifest_snapshot = snapshot / "manifest.json"
                 bundle_snapshot = snapshot / "attestation.jsonl"
                 _write_private_snapshot(manifest_snapshot, manifest_before)
@@ -307,7 +312,7 @@ class FileM30ManifestAuthenticationReportWriter:
 
     def __init__(self, repository_root: Path) -> None:
         self._root = repository_root.resolve()
-        self._canonical_destination = (self._root / ".local/m30/manifest-authentication").resolve()
+        self._canonical_destination = self._root / ".local/m30/manifest-authentication"
 
     def write(
         self,
@@ -315,54 +320,43 @@ class FileM30ManifestAuthenticationReportWriter:
         output_directory: Path,
     ) -> tuple[Path, Path]:
         try:
-            if ".." in output_directory.parts:
-                raise OSError("M30 report destination cannot contain parent traversal")
-            _reject_existing_symlink_ancestors(output_directory)
-            destination = output_directory.resolve()
-            candidate_local = destination.is_relative_to(self._root)
-            if candidate_local and destination != self._canonical_destination:
-                raise OSError("M30 authentication reports cannot enter the candidate source tree")
-            if candidate_local:
-                ignored = _run_safe_git(
-                    self._root,
-                    "check-ignore",
-                    "--verbose",
-                    "--no-index",
-                    "--",
+            destination, directory_descriptor, candidate_local = _open_report_destination(
+                output_directory,
+                repository_root=self._root,
+                canonical_destination=self._canonical_destination,
+                ignored_report_paths=(
+                    ".local/m30/manifest-authentication/authentication.md",
                     ".local/m30/manifest-authentication/authentication.json",
+                ),
+            )
+            try:
+                markdown = _render_markdown(report)
+                payload = {
+                    "bundle_schema_version": 1,
+                    "markdown_sha256": hashlib.sha256(markdown.encode()).hexdigest(),
+                    "report": report.model_dump(mode="json"),
+                    "report_sha256": report.fingerprint(),
+                }
+                document = json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=True) + "\n"
+                _write_report_bundle_at(
+                    directory_descriptor,
+                    markdown_name="authentication.md",
+                    markdown=markdown,
+                    json_name="authentication.json",
+                    document=document,
+                    allow_replace=candidate_local,
                 )
-                if ignored.returncode != 0 or not ignored.stdout.startswith(b".gitignore:"):
-                    raise OSError("canonical M30 authentication report is not Git-ignored")
-            destination.mkdir(parents=True, exist_ok=True)
-            _reject_existing_symlink_ancestors(destination)
-            if not destination.is_dir() or destination.is_symlink():
-                raise OSError("M30 authentication report destination is invalid")
-            json_path = destination / "authentication.json"
-            markdown_path = destination / "authentication.md"
-            markdown = _render_markdown(report)
-            payload = {
-                "bundle_schema_version": 1,
-                "markdown_sha256": hashlib.sha256(markdown.encode()).hexdigest(),
-                "report": report.model_dump(mode="json"),
-                "report_sha256": report.fingerprint(),
-            }
-            document = json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=True) + "\n"
-            write_markdown = _validate_atomic_target(
-                markdown_path,
-                markdown,
-                allow_replace=candidate_local,
-            )
-            write_json = _validate_atomic_target(
-                json_path,
-                document,
-                allow_replace=candidate_local,
-            )
-            if write_markdown:
-                _atomic_write(markdown_path, markdown)
-            if write_json:
-                _atomic_write(json_path, document)
-            _fsync_directory(destination)
-            return json_path, markdown_path
+                _validate_report_bundle_and_path_at(
+                    destination,
+                    directory_descriptor,
+                    files=(
+                        ("authentication.md", markdown.encode("utf-8")),
+                        ("authentication.json", document.encode("utf-8")),
+                    ),
+                )
+                return destination / "authentication.json", destination / "authentication.md"
+            finally:
+                os.close(directory_descriptor)
         except (OSError, subprocess.SubprocessError) as error:
             raise ProductionEvidenceError(
                 ProductionEvidenceErrorCode.REPORT_WRITE_FAILED,
@@ -375,7 +369,7 @@ class FileM30ControlPolicyReportWriter:
 
     def __init__(self, repository_root: Path) -> None:
         self._root = repository_root.resolve()
-        self._canonical_destination = (self._root / ".local/m30/control-policy").resolve()
+        self._canonical_destination = self._root / ".local/m30/control-policy"
 
     def write(
         self,
@@ -383,54 +377,43 @@ class FileM30ControlPolicyReportWriter:
         output_directory: Path,
     ) -> tuple[Path, Path]:
         try:
-            if ".." in output_directory.parts:
-                raise OSError("M30 policy report destination cannot contain parent traversal")
-            _reject_existing_symlink_ancestors(output_directory)
-            destination = output_directory.resolve()
-            candidate_local = destination.is_relative_to(self._root)
-            if candidate_local and destination != self._canonical_destination:
-                raise OSError("M30 policy reports cannot enter the candidate source tree")
-            if candidate_local:
-                ignored = _run_safe_git(
-                    self._root,
-                    "check-ignore",
-                    "--verbose",
-                    "--no-index",
-                    "--",
+            destination, directory_descriptor, candidate_local = _open_report_destination(
+                output_directory,
+                repository_root=self._root,
+                canonical_destination=self._canonical_destination,
+                ignored_report_paths=(
+                    ".local/m30/control-policy/policy-validation.md",
                     ".local/m30/control-policy/policy-validation.json",
+                ),
+            )
+            try:
+                markdown = _render_control_policy_markdown(report)
+                payload = {
+                    "bundle_schema_version": 1,
+                    "markdown_sha256": hashlib.sha256(markdown.encode()).hexdigest(),
+                    "report": report.model_dump(mode="json"),
+                    "report_sha256": report.fingerprint(),
+                }
+                document = json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=True) + "\n"
+                _write_report_bundle_at(
+                    directory_descriptor,
+                    markdown_name="policy-validation.md",
+                    markdown=markdown,
+                    json_name="policy-validation.json",
+                    document=document,
+                    allow_replace=candidate_local,
                 )
-                if ignored.returncode != 0 or not ignored.stdout.startswith(b".gitignore:"):
-                    raise OSError("canonical M30 policy report is not Git-ignored")
-            destination.mkdir(parents=True, exist_ok=True)
-            _reject_existing_symlink_ancestors(destination)
-            if not destination.is_dir() or destination.is_symlink():
-                raise OSError("M30 policy report destination is invalid")
-            json_path = destination / "policy-validation.json"
-            markdown_path = destination / "policy-validation.md"
-            markdown = _render_control_policy_markdown(report)
-            payload = {
-                "bundle_schema_version": 1,
-                "markdown_sha256": hashlib.sha256(markdown.encode()).hexdigest(),
-                "report": report.model_dump(mode="json"),
-                "report_sha256": report.fingerprint(),
-            }
-            document = json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=True) + "\n"
-            write_markdown = _validate_atomic_target(
-                markdown_path,
-                markdown,
-                allow_replace=candidate_local,
-            )
-            write_json = _validate_atomic_target(
-                json_path,
-                document,
-                allow_replace=candidate_local,
-            )
-            if write_markdown:
-                _atomic_write(markdown_path, markdown)
-            if write_json:
-                _atomic_write(json_path, document)
-            _fsync_directory(destination)
-            return json_path, markdown_path
+                _validate_report_bundle_and_path_at(
+                    destination,
+                    directory_descriptor,
+                    files=(
+                        ("policy-validation.md", markdown.encode("utf-8")),
+                        ("policy-validation.json", document.encode("utf-8")),
+                    ),
+                )
+                return destination / "policy-validation.json", destination / "policy-validation.md"
+            finally:
+                os.close(directory_descriptor)
         except (OSError, subprocess.SubprocessError) as error:
             raise ProductionEvidenceError(
                 ProductionEvidenceErrorCode.CONTROL_POLICY_REPORT_WRITE_FAILED,
@@ -444,8 +427,11 @@ class _TrustProviderUnavailable(RuntimeError):
 
 def _run_safe_gh(root: Path, *arguments: str) -> subprocess.CompletedProcess[bytes]:
     _source, executable_bytes = _load_trusted_gh_executable()
-    with tempfile.TemporaryDirectory(prefix="schemabridge-m30-gh-") as private_name:
-        private = Path(private_name)
+    with tempfile.TemporaryDirectory(
+        prefix="schemabridge-m30-gh-",
+        dir=_trusted_temporary_parent(),
+    ) as private_name:
+        private = Path(private_name).resolve(strict=True)
         private.chmod(0o700)
         executable = private / "gh"
         config = private / "config"
@@ -523,45 +509,101 @@ def _validate_trusted_gh_executable(path: Path) -> None:
 
 def _read_trusted_gh_executable(path: Path) -> bytes:
     _platform_label, expected = _reviewed_gh_identity()
-    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    parent, directory_descriptor = _open_anchored_directory(
+        path.parent,
+        create=False,
+        allow_owner_group_writable=True,
+    )
     try:
-        descriptor = os.open(path, flags)
+        directory_before = os.fstat(directory_descriptor)
+        _validate_trusted_directory(directory_before, allow_owner_group_writable=True)
+        flags = (
+            os.O_RDONLY
+            | _required_os_flag("O_CLOEXEC")
+            | _required_os_flag("O_NOFOLLOW")
+            | _required_os_flag("O_NONBLOCK")
+        )
+        descriptor = os.open(path.name, flags, dir_fd=directory_descriptor)
         try:
             before = os.fstat(descriptor)
+            named_before = os.stat(
+                path.name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
             if (
                 not stat.S_ISREG(before.st_mode)
+                or before.st_uid not in {0, _effective_uid()}
                 or before.st_mode & 0o022
+                or before.st_nlink != 1
                 or before.st_size < 1
                 or before.st_size > 128 * 1024 * 1024
+                or _stable_file_identity(before) != _stable_file_identity(named_before)
             ):
                 raise _TrustProviderUnavailable(
                     "GitHub CLI executable is not a protected bounded regular file"
                 )
-            digest = hashlib.sha256()
-            chunks: list[bytes] = []
-            while chunk := os.read(descriptor, 1024 * 1024):
-                digest.update(chunk)
-                chunks.append(chunk)
-            payload = b"".join(chunks)
+            payload = _read_exact_descriptor(descriptor, before.st_size)
             after = os.fstat(descriptor)
+            named_after = os.stat(
+                path.name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
             if (
-                before.st_dev != after.st_dev
-                or before.st_ino != after.st_ino
-                or before.st_size != after.st_size
-                or before.st_mtime_ns != after.st_mtime_ns
-                or len(payload) != after.st_size
-                or digest.hexdigest() != expected
+                _stable_file_identity(before) != _stable_file_identity(after)
+                or _stable_file_identity(before) != _stable_file_identity(named_after)
+                or hashlib.sha256(payload).hexdigest() != expected
             ):
                 raise _TrustProviderUnavailable(
                     "GitHub CLI executable differs from the reviewed official release"
                 )
+            directory_after = os.fstat(directory_descriptor)
+            if _stable_directory_identity(directory_before) != _stable_directory_identity(
+                directory_after
+            ):
+                raise _TrustProviderUnavailable("GitHub CLI directory changed during verification")
+            _validate_anchored_directory_path(
+                parent,
+                directory_descriptor,
+                require_private=False,
+                allow_root_owner=True,
+                allow_owner_group_writable=True,
+                expected_identity=_stable_directory_identity(directory_before),
+            )
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            confirmed_payload = _read_exact_descriptor(descriptor, before.st_size)
+            final = os.fstat(descriptor)
+            named_final = os.stat(
+                path.name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+            if (
+                confirmed_payload != payload
+                or _stable_file_identity(before) != _stable_file_identity(final)
+                or _stable_file_identity(before) != _stable_file_identity(named_final)
+            ):
+                raise _TrustProviderUnavailable(
+                    "GitHub CLI executable changed during final anchored read-back"
+                )
+            _validate_anchored_directory_path(
+                parent,
+                directory_descriptor,
+                require_private=False,
+                allow_root_owner=True,
+                allow_owner_group_writable=True,
+                expected_identity=_stable_directory_identity(directory_before),
+            )
         finally:
             os.close(descriptor)
+        return payload
     except _TrustProviderUnavailable:
         raise
     except OSError as error:
         raise _TrustProviderUnavailable("GitHub CLI executable could not be verified") from error
-    return payload
+    finally:
+        os.close(directory_descriptor)
 
 
 def _verified_summary(raw: bytes) -> _VerificationSummary:
@@ -606,37 +648,108 @@ def _read_external_regular_file(
     repository_root: Path,
     maximum_bytes: int,
 ) -> bytes:
-    resolved = _external_path(path, repository_root)
-    _reject_existing_symlink_ancestors(path)
-    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
-    descriptor = os.open(resolved, flags)
+    candidate = _absolute_lexical_path(path)
+    root = _absolute_lexical_path(repository_root)
+    if candidate == root or candidate.is_relative_to(root):
+        raise OSError("external M30 evidence cannot come from the candidate repository")
+    if not candidate.name:
+        raise OSError("external M30 evidence must name one file")
+
+    _root_path, root_descriptor = _open_anchored_directory(root, create=False)
     try:
-        before = os.fstat(descriptor)
-        if not stat.S_ISREG(before.st_mode) or before.st_size < 1 or before.st_size > maximum_bytes:
-            raise OSError("external M30 evidence file is not a bounded regular file")
-        chunks: list[bytes] = []
-        remaining = maximum_bytes + 1
-        while remaining > 0:
-            chunk = os.read(descriptor, min(64 * 1024, remaining))
-            if not chunk:
-                break
-            chunks.append(chunk)
-            remaining -= len(chunk)
-        raw = b"".join(chunks)
-        after = os.fstat(descriptor)
-        if (
-            len(raw) < 1
-            or len(raw) > maximum_bytes
-            or before.st_dev != after.st_dev
-            or before.st_ino != after.st_ino
-            or before.st_size != after.st_size
-            or before.st_mtime_ns != after.st_mtime_ns
-            or len(raw) != after.st_size
-        ):
-            raise OSError("external M30 evidence file changed while being read")
-        return raw
+        repository_identity = _location_identity(os.fstat(root_descriptor))
     finally:
-        os.close(descriptor)
+        os.close(root_descriptor)
+
+    parent, directory_descriptor = _open_anchored_directory(
+        candidate.parent,
+        create=False,
+        forbidden_identities=frozenset((repository_identity,)),
+    )
+    try:
+        directory_before = os.fstat(directory_descriptor)
+        _validate_protected_directory(directory_before)
+        flags = (
+            os.O_RDONLY
+            | _required_os_flag("O_CLOEXEC")
+            | _required_os_flag("O_NOFOLLOW")
+            | _required_os_flag("O_NONBLOCK")
+        )
+        descriptor = os.open(candidate.name, flags, dir_fd=directory_descriptor)
+        try:
+            before = os.fstat(descriptor)
+            named_before = os.stat(
+                candidate.name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+            _validate_external_file(before, maximum_bytes=maximum_bytes)
+            if _stable_file_identity(named_before) != _stable_file_identity(before):
+                raise OSError("external M30 evidence name changed before reading")
+            raw = _read_exact_descriptor(descriptor, before.st_size)
+            after = os.fstat(descriptor)
+            named_after = os.stat(
+                candidate.name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+            if _stable_file_identity(before) != _stable_file_identity(
+                after
+            ) or _stable_file_identity(before) != _stable_file_identity(named_after):
+                raise OSError("external M30 evidence file changed while being read")
+            directory_after = os.fstat(directory_descriptor)
+            if _stable_directory_identity(directory_before) != _stable_directory_identity(
+                directory_after
+            ):
+                raise OSError("external M30 evidence directory changed while being read")
+            _validate_anchored_directory_path(
+                parent,
+                directory_descriptor,
+                require_private=False,
+                expected_identity=_stable_directory_identity(directory_before),
+            )
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            confirmed_raw = _read_exact_descriptor(descriptor, before.st_size)
+            final = os.fstat(descriptor)
+            named_final = os.stat(
+                candidate.name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+            directory_final = os.fstat(directory_descriptor)
+            if (
+                confirmed_raw != raw
+                or _stable_file_identity(before) != _stable_file_identity(final)
+                or _stable_file_identity(before) != _stable_file_identity(named_final)
+                or _stable_directory_identity(directory_before)
+                != _stable_directory_identity(directory_final)
+            ):
+                raise OSError("external M30 evidence changed during final anchored read-back")
+            _validate_anchored_directory_path(
+                parent,
+                directory_descriptor,
+                require_private=False,
+                expected_identity=_stable_directory_identity(directory_before),
+            )
+            return raw
+        finally:
+            os.close(descriptor)
+    finally:
+        os.close(directory_descriptor)
+
+
+def _read_exact_descriptor(descriptor: int, size: int) -> bytes:
+    chunks: list[bytes] = []
+    remaining = size
+    while remaining:
+        chunk = os.read(descriptor, min(64 * 1024, remaining))
+        if not chunk:
+            raise OSError("anchored M30 evidence ended before its declared size")
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    if os.read(descriptor, 1):
+        raise OSError("anchored M30 evidence grew while being read")
+    return b"".join(chunks)
 
 
 def _write_private_snapshot(path: Path, payload: bytes) -> None:
@@ -644,8 +757,8 @@ def _write_private_snapshot(path: Path, payload: bytes) -> None:
         os.O_WRONLY
         | os.O_CREAT
         | os.O_EXCL
-        | getattr(os, "O_CLOEXEC", 0)
-        | getattr(os, "O_NOFOLLOW", 0)
+        | _required_os_flag("O_CLOEXEC")
+        | _required_os_flag("O_NOFOLLOW")
     )
     descriptor = os.open(path, flags, 0o600)
     try:
@@ -668,8 +781,8 @@ def _write_private_executable_snapshot(path: Path, payload: bytes) -> None:
         os.O_WRONLY
         | os.O_CREAT
         | os.O_EXCL
-        | getattr(os, "O_CLOEXEC", 0)
-        | getattr(os, "O_NOFOLLOW", 0)
+        | _required_os_flag("O_CLOEXEC")
+        | _required_os_flag("O_NOFOLLOW")
     )
     descriptor = os.open(path, flags, 0o500)
     try:
@@ -689,16 +802,6 @@ def _write_private_executable_snapshot(path: Path, payload: bytes) -> None:
             raise OSError("private GitHub CLI snapshot is invalid")
     finally:
         os.close(descriptor)
-
-
-def _external_path(path: Path, repository_root: Path) -> Path:
-    if ".." in path.parts:
-        raise OSError("external M30 evidence path cannot contain parent traversal")
-    candidate = path if path.is_absolute() else Path.cwd() / path
-    resolved = candidate.resolve(strict=True)
-    if resolved.is_relative_to(repository_root.resolve()):
-        raise OSError("external M30 evidence cannot come from the candidate repository")
-    return resolved
 
 
 def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -726,48 +829,707 @@ def _validate_json_shape(value: object) -> None:
             raise ValueError("M30 manifest JSON string exceeds its bound")
 
 
-def _reject_existing_symlink_ancestors(path: Path) -> None:
+def _absolute_lexical_path(path: Path) -> Path:
+    if ".." in path.parts:
+        raise OSError("anchored M30 path cannot contain parent traversal")
     candidate = path if path.is_absolute() else Path.cwd() / path
-    current = Path(candidate.anchor)
-    for part in candidate.parts[1:]:
-        current /= part
-        if current.is_symlink():
-            raise OSError("M30 evidence path has a symlinked component")
+    if candidate.anchor != "/" or any("\x00" in part for part in candidate.parts):
+        raise OSError("anchored M30 path must be one absolute POSIX path")
+    return candidate
 
 
-def _validate_atomic_target(path: Path, value: str, *, allow_replace: bool) -> bool:
+def _required_os_flag(name: str) -> int:
+    try:
+        value = getattr(os, name)
+    except AttributeError as error:
+        raise OSError(f"required anchored-filesystem flag {name} is unavailable") from error
+    if not isinstance(value, int) or value == 0:
+        raise OSError(f"required anchored-filesystem flag {name} is unusable")
+    return value
+
+
+def _effective_uid() -> int:
+    try:
+        get_effective_uid = os.geteuid
+    except AttributeError as error:
+        raise OSError("effective UID inspection is unavailable") from error
+    return get_effective_uid()
+
+
+def _trusted_temporary_parent() -> Path:
+    try:
+        resolved = Path(tempfile.gettempdir()).resolve(strict=True)
+    except OSError as error:
+        raise OSError("authentication temporary parent is unavailable") from error
+    candidate = _absolute_lexical_path(resolved)
+    parent, descriptor = _open_anchored_directory(candidate, create=False)
+    try:
+        before = os.fstat(descriptor)
+        _validate_trusted_directory(before)
+        _validate_anchored_directory_path(
+            parent,
+            descriptor,
+            require_private=False,
+            allow_root_owner=True,
+            expected_identity=_stable_directory_identity(before),
+        )
+        return parent
+    finally:
+        os.close(descriptor)
+
+
+def _require_anchored_filesystem() -> None:
+    if os.name != "posix":
+        raise OSError("anchored M30 filesystem operations require POSIX")
+    for name in ("O_CLOEXEC", "O_DIRECTORY", "O_NOFOLLOW", "O_NONBLOCK"):
+        _required_os_flag(name)
+    required_dir_fd_operations = (
+        os.link,
+        os.mkdir,
+        os.open,
+        os.rename,
+        os.stat,
+        os.unlink,
+    )
+    if any(operation not in os.supports_dir_fd for operation in required_dir_fd_operations):
+        raise OSError("required anchored-filesystem dirfd operation is unavailable")
+    if os.link not in os.supports_follow_symlinks or os.stat not in os.supports_follow_symlinks:
+        raise OSError("required no-follow anchored-filesystem operation is unavailable")
+    if not hasattr(os, "fchmod") or not hasattr(os, "fsync") or not hasattr(os, "lseek"):
+        raise OSError("required descriptor metadata operations are unavailable")
+    _effective_uid()
+
+
+def _open_anchored_directory(
+    path: Path,
+    *,
+    create: bool,
+    forbidden_identities: frozenset[tuple[int, int]] = frozenset(),
+    required_identity: tuple[int, int] | None = None,
+    allow_owner_group_writable: bool = False,
+) -> tuple[Path, int]:
+    _require_anchored_filesystem()
+    candidate = _absolute_lexical_path(path)
+    flags = (
+        os.O_RDONLY
+        | _required_os_flag("O_CLOEXEC")
+        | _required_os_flag("O_DIRECTORY")
+        | _required_os_flag("O_NOFOLLOW")
+    )
+    current_descriptor = os.open(candidate.anchor, flags)
+    try:
+        root_metadata = os.fstat(current_descriptor)
+        _validate_trusted_directory(
+            root_metadata,
+            allow_owner_group_writable=allow_owner_group_writable,
+        )
+        if _location_identity(root_metadata) in forbidden_identities:
+            raise OSError("anchored M30 path enters a forbidden directory")
+        required_identity_found = _location_identity(root_metadata) == required_identity
+        for component in candidate.parts[1:]:
+            created = False
+            try:
+                child_descriptor = os.open(component, flags, dir_fd=current_descriptor)
+            except FileNotFoundError:
+                if not create:
+                    raise
+                try:
+                    os.mkdir(component, mode=0o700, dir_fd=current_descriptor)
+                except FileExistsError:
+                    pass
+                else:
+                    created = True
+                    os.fsync(current_descriptor)
+                child_descriptor = os.open(component, flags, dir_fd=current_descriptor)
+            try:
+                child_metadata = os.fstat(child_descriptor)
+                named_metadata = os.stat(
+                    component,
+                    dir_fd=current_descriptor,
+                    follow_symlinks=False,
+                )
+                if not stat.S_ISDIR(child_metadata.st_mode) or _location_identity(
+                    child_metadata
+                ) != _location_identity(named_metadata):
+                    raise OSError("anchored M30 directory component changed during traversal")
+                if created:
+                    os.fchmod(child_descriptor, 0o700)
+                    os.fsync(child_descriptor)
+                    child_metadata = os.fstat(child_descriptor)
+                    if (
+                        stat.S_IMODE(child_metadata.st_mode) != 0o700
+                        or child_metadata.st_uid != _effective_uid()
+                    ):
+                        raise OSError("new anchored M30 directory is not owner-private")
+                _validate_trusted_directory(
+                    child_metadata,
+                    allow_owner_group_writable=allow_owner_group_writable,
+                )
+                if _location_identity(child_metadata) in forbidden_identities:
+                    raise OSError("anchored M30 path enters a forbidden directory")
+                required_identity_found = (
+                    required_identity_found
+                    or _location_identity(child_metadata) == required_identity
+                )
+            except BaseException:
+                os.close(child_descriptor)
+                raise
+            os.close(current_descriptor)
+            current_descriptor = child_descriptor
+        if required_identity is not None and not required_identity_found:
+            raise OSError("anchored M30 path does not enter its required directory")
+        return candidate, current_descriptor
+    except BaseException:
+        os.close(current_descriptor)
+        raise
+
+
+def _location_identity(metadata: os.stat_result) -> tuple[int, int]:
+    return metadata.st_dev, metadata.st_ino
+
+
+def _stable_file_identity(
+    metadata: os.stat_result,
+) -> tuple[int, int, int, int, int, int, int, int, int]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_uid,
+        metadata.st_gid,
+        metadata.st_nlink,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+def _stable_directory_identity(
+    metadata: os.stat_result,
+) -> tuple[int, int, int, int, int, int, int, int, int]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_uid,
+        metadata.st_gid,
+        metadata.st_nlink,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+def _validate_protected_directory(metadata: os.stat_result) -> None:
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or metadata.st_uid != _effective_uid()
+        or metadata.st_mode & 0o022
+    ):
+        raise OSError("anchored M30 directory is not protected for the current owner")
+
+
+def _validate_trusted_directory(
+    metadata: os.stat_result,
+    *,
+    allow_owner_group_writable: bool = False,
+) -> None:
+    effective_uid = _effective_uid()
+    unsafe_write_mode = bool(metadata.st_mode & 0o022)
+    trusted_sticky_root = (
+        metadata.st_uid == 0
+        and bool(metadata.st_mode & stat.S_ISVTX)
+        and bool(metadata.st_mode & 0o002)
+    )
+    trusted_owner_group_write = (
+        allow_owner_group_writable
+        and metadata.st_uid == effective_uid
+        and not bool(metadata.st_mode & 0o002)
+    )
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or metadata.st_uid not in {0, effective_uid}
+        or (unsafe_write_mode and not trusted_sticky_root and not trusted_owner_group_write)
+    ):
+        raise OSError("anchored M30 path has an untrusted directory component")
+
+
+def _validate_private_directory(metadata: os.stat_result) -> None:
+    _validate_protected_directory(metadata)
+    if stat.S_IMODE(metadata.st_mode) != 0o700:
+        raise OSError("anchored M30 report directory must have mode 0700")
+
+
+def _validate_external_file(metadata: os.stat_result, *, maximum_bytes: int) -> None:
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_uid != _effective_uid()
+        or metadata.st_mode & 0o022
+        or metadata.st_nlink != 1
+        or metadata.st_size < 1
+        or metadata.st_size > maximum_bytes
+    ):
+        raise OSError("external M30 evidence is not a protected single-link bounded file")
+
+
+def _validate_report_file(metadata: os.stat_result) -> None:
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_uid != _effective_uid()
+        or stat.S_IMODE(metadata.st_mode) != 0o600
+        or metadata.st_nlink != 1
+        or metadata.st_size < 1
+        or metadata.st_size > _MAX_REPORT_BYTES
+    ):
+        raise OSError("anchored M30 report is not an owner-private single-link bounded file")
+
+
+def _validate_anchored_directory_path(
+    path: Path,
+    descriptor: int,
+    *,
+    require_private: bool,
+    allow_root_owner: bool = False,
+    allow_owner_group_writable: bool = False,
+    expected_identity: tuple[int, int, int, int, int, int, int, int, int] | None = None,
+) -> None:
+    held_before = os.fstat(descriptor)
+    if require_private and (allow_root_owner or allow_owner_group_writable):
+        raise OSError("anchored M30 directory policy is contradictory")
+
+    def validator(metadata: os.stat_result) -> None:
+        if require_private:
+            _validate_private_directory(metadata)
+        elif allow_root_owner:
+            _validate_trusted_directory(
+                metadata,
+                allow_owner_group_writable=allow_owner_group_writable,
+            )
+        else:
+            _validate_protected_directory(metadata)
+
+    validator(held_before)
+    if (
+        expected_identity is not None
+        and _stable_directory_identity(held_before) != expected_identity
+    ):
+        raise OSError("anchored M30 directory changed before its path recheck")
+    _candidate, reopened_descriptor = _open_anchored_directory(
+        path,
+        create=False,
+        allow_owner_group_writable=allow_owner_group_writable,
+    )
+    try:
+        reopened = os.fstat(reopened_descriptor)
+        validator(reopened)
+        held_after = os.fstat(descriptor)
+        if not (
+            _stable_directory_identity(held_before)
+            == _stable_directory_identity(held_after)
+            == _stable_directory_identity(reopened)
+        ):
+            raise OSError("anchored M30 directory path was rebound during the operation")
+    finally:
+        os.close(reopened_descriptor)
+
+
+def _open_report_destination(
+    output_directory: Path,
+    *,
+    repository_root: Path,
+    canonical_destination: Path,
+    ignored_report_paths: tuple[str, ...],
+) -> tuple[Path, int, bool]:
+    destination = _absolute_lexical_path(output_directory)
+    root = _absolute_lexical_path(repository_root)
+    canonical = _absolute_lexical_path(canonical_destination)
+    candidate_local = destination == root or destination.is_relative_to(root)
+    if candidate_local and destination != canonical:
+        raise OSError("M30 reports cannot enter a non-canonical candidate path")
+    _root_path, root_descriptor = _open_anchored_directory(root, create=False)
+    try:
+        _validate_protected_directory(os.fstat(root_descriptor))
+        repository_identity = _location_identity(os.fstat(root_descriptor))
+        if candidate_local:
+            for ignored_report_path in ignored_report_paths:
+                tracked = _run_safe_git(
+                    root,
+                    "ls-files",
+                    "--error-unmatch",
+                    "--",
+                    ignored_report_path,
+                )
+                if tracked.returncode == 0:
+                    raise OSError("canonical M30 report cannot already be tracked")
+                ignored = _run_safe_git(
+                    root,
+                    "check-ignore",
+                    "--verbose",
+                    "--",
+                    ignored_report_path,
+                )
+                if ignored.returncode != 0 or not ignored.stdout.startswith(b".gitignore:"):
+                    raise OSError("canonical M30 report is not Git-ignored")
+        opened_destination, descriptor = _open_anchored_directory(
+            destination,
+            create=True,
+            forbidden_identities=(
+                frozenset() if candidate_local else frozenset((repository_identity,))
+            ),
+            required_identity=repository_identity if candidate_local else None,
+        )
+        try:
+            _validate_private_directory(os.fstat(descriptor))
+            os.fsync(descriptor)
+            _validate_anchored_directory_path(
+                root,
+                root_descriptor,
+                require_private=False,
+            )
+        except BaseException:
+            os.close(descriptor)
+            raise
+        return opened_destination, descriptor, candidate_local
+    finally:
+        os.close(root_descriptor)
+
+
+def _validate_report_filename(filename: str) -> None:
+    if not filename or filename in {".", ".."} or "/" in filename or "\x00" in filename:
+        raise OSError("anchored M30 report filename is invalid")
+
+
+def _read_report_file_at(directory_descriptor: int, filename: str) -> bytes | None:
+    _validate_report_filename(filename)
+    flags = (
+        os.O_RDONLY
+        | _required_os_flag("O_CLOEXEC")
+        | _required_os_flag("O_NOFOLLOW")
+        | _required_os_flag("O_NONBLOCK")
+    )
+    try:
+        descriptor = os.open(filename, flags, dir_fd=directory_descriptor)
+    except FileNotFoundError:
+        return None
+    try:
+        before = os.fstat(descriptor)
+        named_before = os.stat(
+            filename,
+            dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+        _validate_report_file(before)
+        if _stable_file_identity(before) != _stable_file_identity(named_before):
+            raise OSError("anchored M30 report name changed before reading")
+        value = _read_exact_descriptor(descriptor, before.st_size)
+        after = os.fstat(descriptor)
+        named_after = os.stat(
+            filename,
+            dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+        if not (
+            _stable_file_identity(before)
+            == _stable_file_identity(after)
+            == _stable_file_identity(named_after)
+        ):
+            raise OSError("anchored M30 report changed while being read")
+        return value
+    finally:
+        os.close(descriptor)
+
+
+def _validate_atomic_target_at(
+    directory_descriptor: int,
+    filename: str,
+    value: str,
+    *,
+    allow_replace: bool,
+) -> bool:
     encoded = value.encode("utf-8")
-    if len(encoded) > _MAX_REPORT_BYTES or path.is_symlink():
-        raise OSError("M30 authentication report target is unsafe")
-    if path.exists():
-        if not path.is_file() or path.stat().st_size > _MAX_REPORT_BYTES:
-            raise OSError("existing M30 authentication report target is unsafe")
-        if path.read_bytes() == encoded:
-            return False
-        if not allow_replace:
-            raise OSError("refusing to overwrite a different external M30 report")
+    if not encoded or len(encoded) > _MAX_REPORT_BYTES:
+        raise OSError("anchored M30 report exceeds its byte bound")
+    current = _read_report_file_at(directory_descriptor, filename)
+    if current is None:
+        return True
+    if current == encoded:
+        return False
+    if not allow_replace:
+        raise OSError("refusing to overwrite a different external M30 report")
     return True
 
 
-def _atomic_write(path: Path, value: str) -> None:
-    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    temporary = Path(temporary_name)
+def _write_report_bundle_at(
+    directory_descriptor: int,
+    *,
+    markdown_name: str,
+    markdown: str,
+    json_name: str,
+    document: str,
+    allow_replace: bool,
+) -> None:
+    write_markdown = _validate_atomic_target_at(
+        directory_descriptor,
+        markdown_name,
+        markdown,
+        allow_replace=allow_replace,
+    )
+    write_json = _validate_atomic_target_at(
+        directory_descriptor,
+        json_name,
+        document,
+        allow_replace=allow_replace,
+    )
+    if not allow_replace and write_markdown and not write_json:
+        raise OSError("external M30 JSON marker exists without its exact Markdown companion")
+    if write_markdown:
+        _publish_report_file_at(
+            directory_descriptor,
+            markdown_name,
+            markdown,
+            allow_replace=allow_replace,
+        )
+    if write_json or (allow_replace and write_markdown):
+        _publish_report_file_at(
+            directory_descriptor,
+            json_name,
+            document,
+            allow_replace=allow_replace,
+        )
+    os.fsync(directory_descriptor)
+    if _read_report_file_at(directory_descriptor, markdown_name) != markdown.encode("utf-8"):
+        raise OSError("anchored M30 Markdown report failed final read-back")
+    if _read_report_file_at(directory_descriptor, json_name) != document.encode("utf-8"):
+        raise OSError("anchored M30 JSON report failed final read-back")
+
+
+def _validate_report_bundle_and_path_at(
+    directory_path: Path,
+    directory_descriptor: int,
+    *,
+    files: tuple[tuple[str, bytes], ...],
+) -> None:
+    directory_before = os.fstat(directory_descriptor)
+    _validate_private_directory(directory_before)
+    flags = (
+        os.O_RDONLY
+        | _required_os_flag("O_CLOEXEC")
+        | _required_os_flag("O_NOFOLLOW")
+        | _required_os_flag("O_NONBLOCK")
+    )
+    opened_descriptors: list[int] = []
+    records: list[tuple[int, str, bytes, os.stat_result]] = []
     try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            handle.write(value)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
+        for filename, expected in files:
+            _validate_report_filename(filename)
+            descriptor = os.open(filename, flags, dir_fd=directory_descriptor)
+            opened_descriptors.append(descriptor)
+            before = os.fstat(descriptor)
+            named_before = os.stat(
+                filename,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+            _validate_report_file(before)
+            if _stable_file_identity(before) != _stable_file_identity(named_before):
+                raise OSError("anchored M30 report name changed before bundle validation")
+            if _read_exact_descriptor(descriptor, before.st_size) != expected:
+                raise OSError("anchored M30 report bundle content differs")
+            after = os.fstat(descriptor)
+            named_after = os.stat(
+                filename,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+            if not (
+                _stable_file_identity(before)
+                == _stable_file_identity(after)
+                == _stable_file_identity(named_after)
+            ):
+                raise OSError("anchored M30 report changed during bundle validation")
+            records.append((descriptor, filename, expected, before))
+        directory_after = os.fstat(directory_descriptor)
+        if _stable_directory_identity(directory_before) != _stable_directory_identity(
+            directory_after
+        ):
+            raise OSError("anchored M30 report directory changed during bundle validation")
+        _validate_anchored_directory_path(
+            directory_path,
+            directory_descriptor,
+            require_private=True,
+            expected_identity=_stable_directory_identity(directory_before),
+        )
+        for descriptor, filename, expected, before in records:
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            confirmed = _read_exact_descriptor(descriptor, before.st_size)
+            final = os.fstat(descriptor)
+            named_final = os.stat(
+                filename,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+            if (
+                confirmed != expected
+                or _stable_file_identity(before) != _stable_file_identity(final)
+                or _stable_file_identity(before) != _stable_file_identity(named_final)
+            ):
+                raise OSError("anchored M30 report changed during final bundle read-back")
+        directory_final = os.fstat(directory_descriptor)
+        if _stable_directory_identity(directory_before) != _stable_directory_identity(
+            directory_final
+        ):
+            raise OSError("anchored M30 report directory changed during final read-back")
+        _validate_anchored_directory_path(
+            directory_path,
+            directory_descriptor,
+            require_private=True,
+            expected_identity=_stable_directory_identity(directory_before),
+        )
     finally:
-        temporary.unlink(missing_ok=True)
+        for descriptor in opened_descriptors:
+            os.close(descriptor)
 
 
-def _fsync_directory(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_CLOEXEC", 0))
+def _publish_report_file_at(
+    directory_descriptor: int,
+    filename: str,
+    value: str,
+    *,
+    allow_replace: bool,
+) -> None:
+    if allow_replace:
+        _atomic_replace_at(directory_descriptor, filename, value)
+        return
     try:
-        os.fsync(descriptor)
+        _atomic_write_at(directory_descriptor, filename, value)
+    except FileExistsError:
+        if _read_report_file_at(directory_descriptor, filename) != value.encode("utf-8"):
+            raise
+
+
+def _create_temporary_report_at(
+    directory_descriptor: int,
+    filename: str,
+    value: str,
+) -> tuple[int, str, bytes]:
+    _validate_report_filename(filename)
+    encoded = value.encode("utf-8")
+    if not encoded or len(encoded) > _MAX_REPORT_BYTES:
+        raise OSError("anchored M30 report exceeds its byte bound")
+    flags = (
+        os.O_WRONLY
+        | os.O_CREAT
+        | os.O_EXCL
+        | _required_os_flag("O_CLOEXEC")
+        | _required_os_flag("O_NOFOLLOW")
+    )
+    for _attempt in range(8):
+        temporary_name = f".{filename}.{secrets.token_hex(16)}.tmp"
+        try:
+            descriptor = os.open(
+                temporary_name,
+                flags,
+                0o600,
+                dir_fd=directory_descriptor,
+            )
+        except FileExistsError:
+            continue
+        try:
+            os.fchmod(descriptor, 0o600)
+            consumed = 0
+            while consumed < len(encoded):
+                written = os.write(descriptor, encoded[consumed:])
+                if written < 1:
+                    raise OSError("anchored M30 report write made no progress")
+                consumed += written
+            os.fsync(descriptor)
+            metadata = os.fstat(descriptor)
+            _validate_report_file(metadata)
+            if metadata.st_size != len(encoded):
+                raise OSError("anchored M30 temporary report has the wrong size")
+            named = os.stat(
+                temporary_name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+            if _stable_file_identity(metadata) != _stable_file_identity(named):
+                raise OSError("anchored M30 temporary report name was replaced")
+            return descriptor, temporary_name, encoded
+        except BaseException:
+            os.close(descriptor)
+            with suppress(FileNotFoundError):
+                os.unlink(temporary_name, dir_fd=directory_descriptor)
+            raise
+    raise OSError("anchored M30 temporary report name allocation failed")
+
+
+def _atomic_write_at(directory_descriptor: int, filename: str, value: str) -> None:
+    _publish_temporary_report_at(
+        directory_descriptor,
+        filename,
+        value,
+        replace=False,
+    )
+
+
+def _atomic_replace_at(directory_descriptor: int, filename: str, value: str) -> None:
+    _publish_temporary_report_at(
+        directory_descriptor,
+        filename,
+        value,
+        replace=True,
+    )
+
+
+def _publish_temporary_report_at(
+    directory_descriptor: int,
+    filename: str,
+    value: str,
+    *,
+    replace: bool,
+) -> None:
+    descriptor, temporary_name, encoded = _create_temporary_report_at(
+        directory_descriptor,
+        filename,
+        value,
+    )
+    temporary_exists = True
+    try:
+        if replace:
+            os.rename(
+                temporary_name,
+                filename,
+                src_dir_fd=directory_descriptor,
+                dst_dir_fd=directory_descriptor,
+            )
+            temporary_exists = False
+        else:
+            os.link(
+                temporary_name,
+                filename,
+                src_dir_fd=directory_descriptor,
+                dst_dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+            os.unlink(temporary_name, dir_fd=directory_descriptor)
+            temporary_exists = False
+        os.fsync(directory_descriptor)
+        descriptor_metadata = os.fstat(descriptor)
+        named_metadata = os.stat(
+            filename,
+            dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+        _validate_report_file(descriptor_metadata)
+        if _stable_file_identity(descriptor_metadata) != _stable_file_identity(named_metadata):
+            raise OSError("published anchored M30 report differs from its open descriptor")
+        if _read_report_file_at(directory_descriptor, filename) != encoded:
+            raise OSError("published anchored M30 report failed read-back")
     finally:
         os.close(descriptor)
+        if temporary_exists:
+            with suppress(FileNotFoundError):
+                os.unlink(temporary_name, dir_fd=directory_descriptor)
 
 
 def _kill_process_group(process: subprocess.Popen[bytes]) -> None:

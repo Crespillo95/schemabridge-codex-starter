@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -12,6 +14,7 @@ from tests.m30_campaign_support import VERIFICATION_TIME, build_manifest, write_
 from tests.m30_control_policy_support import build_control_policy, write_control_policy
 from tests.m30_readiness_support import build_candidate_repository
 
+from schemabridge.adapters.evaluation import m30_campaign as campaign_adapter
 from schemabridge.adapters.evaluation.m30_campaign import (
     FileM30CampaignManifest,
     FileM30ControlPolicy,
@@ -243,6 +246,186 @@ def test_policy_loader_rejects_candidate_contained_file(tmp_path: Path) -> None:
     assert rejected.value.code.value == "m30_control_policy_invalid"
 
 
+def test_policy_loader_rejects_symlinked_parent_component(tmp_path: Path) -> None:
+    repository = build_candidate_repository(tmp_path / "candidate")
+    provisional = build_manifest(repository)
+    actual = tmp_path / "actual-external"
+    write_control_policy(actual / "policy.json", build_control_policy(provisional))
+    alias = tmp_path / "external-alias"
+    alias.symlink_to(actual, target_is_directory=True)
+
+    with pytest.raises(ProductionEvidenceError) as rejected:
+        FileM30ControlPolicy(repository, alias / "policy.json").load()
+
+    assert rejected.value.code.value == "m30_control_policy_invalid"
+
+
+def test_policy_loader_rejects_group_writable_ancestor(tmp_path: Path) -> None:
+    repository = build_candidate_repository(tmp_path / "candidate")
+    provisional = build_manifest(repository)
+    shared = tmp_path / "shared"
+    path = write_control_policy(
+        shared / "private/policy.json",
+        build_control_policy(provisional),
+    )
+    shared.chmod(0o770)
+    path.parent.chmod(0o700)
+
+    with pytest.raises(ProductionEvidenceError) as rejected:
+        FileM30ControlPolicy(repository, path).load()
+
+    assert rejected.value.code.value == "m30_control_policy_invalid"
+
+
+def test_policy_loader_fails_closed_without_required_dirfd_support(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = build_candidate_repository(tmp_path / "candidate")
+    provisional = build_manifest(repository)
+    path = write_control_policy(
+        tmp_path / "external/policy.json",
+        build_control_policy(provisional),
+    )
+    monkeypatch.setattr(campaign_adapter.os, "supports_dir_fd", set())
+
+    with pytest.raises(ProductionEvidenceError) as rejected:
+        FileM30ControlPolicy(repository, path).load()
+
+    assert rejected.value.code.value == "m30_control_policy_invalid"
+
+
+@pytest.mark.parametrize("mutation", ("group_writable", "hard_linked"))
+def test_policy_loader_requires_protected_single_link_external_bytes(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    repository = build_candidate_repository(tmp_path / "candidate")
+    provisional = build_manifest(repository)
+    policy = build_control_policy(provisional)
+    path = write_control_policy(tmp_path / "external/policy.json", policy)
+    if mutation == "group_writable":
+        path.chmod(0o620)
+    else:
+        os.link(path, path.with_name("policy-alias.json"))
+
+    with pytest.raises(ProductionEvidenceError) as rejected:
+        FileM30ControlPolicy(repository, path).load()
+
+    assert rejected.value.code.value == "m30_control_policy_invalid"
+
+
+def test_policy_loader_opens_nonregular_leaf_nonblocking(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = build_candidate_repository(tmp_path / "candidate")
+    external = tmp_path / "external"
+    external.mkdir()
+    path = external / "policy.json"
+    os.mkfifo(path, mode=0o600)
+    real_open = campaign_adapter.os.open
+    nonblocking_open_observed = False
+
+    def guarded_open(
+        requested: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        nonlocal nonblocking_open_observed
+        if requested == path.name and dir_fd is not None:
+            if not flags & campaign_adapter.os.O_NONBLOCK:
+                raise AssertionError("M30 FIFO leaf was opened without O_NONBLOCK")
+            nonblocking_open_observed = True
+        return real_open(requested, flags, mode, dir_fd=dir_fd)
+
+    supported = set(campaign_adapter.os.supports_dir_fd)
+    supported.add(guarded_open)
+    monkeypatch.setattr(campaign_adapter.os, "open", guarded_open)
+    monkeypatch.setattr(campaign_adapter.os, "supports_dir_fd", supported)
+
+    with pytest.raises(ProductionEvidenceError) as rejected:
+        FileM30ControlPolicy(repository, path).load()
+
+    assert nonblocking_open_observed is True
+    assert rejected.value.code.value == "m30_control_policy_invalid"
+
+
+def test_policy_loader_fails_closed_when_parent_path_is_rebound_during_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = build_candidate_repository(tmp_path / "candidate")
+    provisional = build_manifest(repository)
+    external = tmp_path / "external"
+    path = write_control_policy(external / "policy.json", build_control_policy(provisional))
+    held = tmp_path / "external-held"
+    attacker = tmp_path / "attacker"
+    attacker.mkdir(mode=0o700)
+    real_read = campaign_adapter._read_exact_descriptor
+    rebound = False
+
+    def rebind_after_read(descriptor: int, size: int) -> bytes:
+        nonlocal rebound
+        raw = real_read(descriptor, size)
+        if not rebound:
+            external.rename(held)
+            external.symlink_to(attacker, target_is_directory=True)
+            rebound = True
+        return raw
+
+    monkeypatch.setattr(campaign_adapter, "_read_exact_descriptor", rebind_after_read)
+
+    with pytest.raises(ProductionEvidenceError) as rejected:
+        FileM30ControlPolicy(repository, path).load()
+
+    assert rebound is True
+    assert rejected.value.code.value == "m30_control_policy_invalid"
+    assert not list(attacker.iterdir())
+
+
+def test_policy_loader_rechecks_outer_ancestor_after_final_descriptor_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = build_candidate_repository(tmp_path / "candidate")
+    provisional = build_manifest(repository)
+    outer = tmp_path / "external-owner"
+    path = write_control_policy(
+        outer / "nested/policy.json",
+        build_control_policy(provisional),
+    )
+    held = tmp_path / "external-owner-held"
+    attacker = tmp_path / "attacker-outer"
+    attacker.mkdir(mode=0o700)
+    real_read = campaign_adapter._read_exact_descriptor
+    reads = 0
+
+    def rebind_outer_after_final_read(descriptor: int, size: int) -> bytes:
+        nonlocal reads
+        raw = real_read(descriptor, size)
+        reads += 1
+        if reads == 2:
+            outer.rename(held)
+            outer.symlink_to(attacker, target_is_directory=True)
+        return raw
+
+    monkeypatch.setattr(
+        campaign_adapter,
+        "_read_exact_descriptor",
+        rebind_outer_after_final_read,
+    )
+
+    with pytest.raises(ProductionEvidenceError) as rejected:
+        FileM30ControlPolicy(repository, path).load()
+
+    assert reads == 2
+    assert rejected.value.code.value == "m30_control_policy_invalid"
+    assert not list(attacker.iterdir())
+
+
 def test_policy_report_is_deterministic_and_refuses_different_external_overwrite(
     tmp_path: Path,
 ) -> None:
@@ -258,10 +441,226 @@ def test_policy_report_is_deterministic_and_refuses_different_external_overwrite
     payload = json.loads(first[0].read_text(encoding="utf-8"))
     assert payload["report_sha256"] == report.fingerprint()
     assert payload["report"]["external_controls_passed"] == 0
+    assert stat.S_IMODE(output.stat().st_mode) == 0o700
+    assert stat.S_IMODE(first[0].stat().st_mode) == 0o600
+    assert stat.S_IMODE(first[1].stat().st_mode) == 0o600
     first[1].write_text("different\n", encoding="utf-8")
     with pytest.raises(ProductionEvidenceError) as rejected:
         writer.write(report, output)
     assert rejected.value.code.value == "m30_control_policy_report_write_failed"
+
+
+def test_policy_report_atomically_replaces_changed_canonical_ignored_copy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, repository, _manifest_path, _policy_path = _policy_service(tmp_path)
+    report = service.execute()
+    writer = FileM30ControlPolicyReportWriter(repository)
+    output = repository / ".local/m30/control-policy"
+
+    first = writer.write(report, output)
+    expected_markdown = first[1].read_text(encoding="utf-8")
+    first[1].write_text("changed local copy\n", encoding="utf-8")
+    first[1].chmod(0o600)
+    real_replace = campaign_adapter._atomic_replace_at
+    replacements: list[str] = []
+
+    def record_replace(
+        directory_descriptor: int,
+        filename: str,
+        value: str,
+    ) -> None:
+        replacements.append(filename)
+        real_replace(directory_descriptor, filename, value)
+
+    monkeypatch.setattr(campaign_adapter, "_atomic_replace_at", record_replace)
+    second = writer.write(report, output)
+
+    assert first == second
+    assert replacements == ["policy-validation.md", "policy-validation.json"]
+    assert second[1].read_text(encoding="utf-8") == expected_markdown
+    assert stat.S_IMODE(second[1].stat().st_mode) == 0o600
+
+
+def test_policy_report_requires_both_canonical_files_to_be_ignored(tmp_path: Path) -> None:
+    service, repository, _manifest_path, _policy_path = _policy_service(tmp_path)
+    report = service.execute()
+    (repository / ".gitignore").write_text(
+        ".local/m30/control-policy/policy-validation.json\n",
+        encoding="utf-8",
+    )
+    writer = FileM30ControlPolicyReportWriter(repository)
+    output = repository / ".local/m30/control-policy"
+
+    with pytest.raises(ProductionEvidenceError) as rejected:
+        writer.write(report, output)
+
+    assert rejected.value.code.value == "m30_control_policy_report_write_failed"
+    assert not output.exists()
+
+
+def test_policy_report_rejects_canonical_files_already_in_git_index(tmp_path: Path) -> None:
+    service, repository, _manifest_path, _policy_path = _policy_service(tmp_path)
+    report = service.execute()
+    writer = FileM30ControlPolicyReportWriter(repository)
+    output = repository / ".local/m30/control-policy"
+    paths = writer.write(report, output)
+    tracked = campaign_adapter._run_safe_git(
+        repository,
+        "add",
+        "-f",
+        "--",
+        *(str(path.relative_to(repository)) for path in paths),
+    )
+    assert tracked.returncode == 0
+
+    with pytest.raises(ProductionEvidenceError) as rejected:
+        writer.write(report, output)
+
+    assert rejected.value.code.value == "m30_control_policy_report_write_failed"
+
+
+def test_policy_report_rejects_external_json_marker_without_markdown_companion(
+    tmp_path: Path,
+) -> None:
+    service, repository, _manifest_path, _policy_path = _policy_service(tmp_path)
+    report = service.execute()
+    writer = FileM30ControlPolicyReportWriter(repository)
+    complete = tmp_path / "complete-report"
+    complete_paths = writer.write(report, complete)
+    output = tmp_path / "incomplete-report"
+    output.mkdir(mode=0o700)
+    marker = output / "policy-validation.json"
+    marker.write_bytes(complete_paths[0].read_bytes())
+    marker.chmod(0o600)
+
+    with pytest.raises(ProductionEvidenceError) as rejected:
+        writer.write(report, output)
+
+    assert rejected.value.code.value == "m30_control_policy_report_write_failed"
+    assert not (output / "policy-validation.md").exists()
+
+
+def test_policy_report_fails_closed_when_destination_path_is_rebound(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, repository, _manifest_path, _policy_path = _policy_service(tmp_path)
+    report = service.execute()
+    writer = FileM30ControlPolicyReportWriter(repository)
+    output = tmp_path / "policy-report"
+    output.mkdir(mode=0o700)
+    held = tmp_path / "policy-report-held"
+    attacker = tmp_path / "attacker-report"
+    attacker.mkdir(mode=0o700)
+    real_write = campaign_adapter._atomic_write_at
+    rebound = False
+
+    def rebind_before_write(directory_descriptor: int, filename: str, value: str) -> None:
+        nonlocal rebound
+        if not rebound:
+            output.rename(held)
+            output.symlink_to(attacker, target_is_directory=True)
+            rebound = True
+        real_write(directory_descriptor, filename, value)
+
+    monkeypatch.setattr(campaign_adapter, "_atomic_write_at", rebind_before_write)
+
+    with pytest.raises(ProductionEvidenceError) as rejected:
+        writer.write(report, output)
+
+    assert rebound is True
+    assert rejected.value.code.value == "m30_control_policy_report_write_failed"
+    assert not list(attacker.iterdir())
+
+
+def test_policy_report_fails_closed_when_published_target_changes_before_return(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, repository, _manifest_path, _policy_path = _policy_service(tmp_path)
+    report = service.execute()
+    writer = FileM30ControlPolicyReportWriter(repository)
+    output = tmp_path / "policy-report"
+    real_validate = campaign_adapter._validate_anchored_directory_path
+    mutated = False
+
+    def mutate_before_path_recheck(
+        path: Path,
+        descriptor: int,
+        *,
+        require_private: bool,
+        expected_identity: tuple[int, int, int, int, int, int, int, int, int] | None = None,
+    ) -> None:
+        nonlocal mutated
+        if path == output and require_private and not mutated:
+            target = output / "policy-validation.md"
+            target.write_text("changed after publication\n", encoding="utf-8")
+            target.chmod(0o600)
+            mutated = True
+        real_validate(
+            path,
+            descriptor,
+            require_private=require_private,
+            expected_identity=expected_identity,
+        )
+
+    monkeypatch.setattr(
+        campaign_adapter,
+        "_validate_anchored_directory_path",
+        mutate_before_path_recheck,
+    )
+
+    with pytest.raises(ProductionEvidenceError) as rejected:
+        writer.write(report, output)
+
+    assert mutated is True
+    assert rejected.value.code.value == "m30_control_policy_report_write_failed"
+
+
+@pytest.mark.parametrize("mutation", ("symlink", "hard_link", "group_writable"))
+def test_policy_report_rejects_unsafe_preexisting_target(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    service, repository, _manifest_path, _policy_path = _policy_service(tmp_path)
+    report = service.execute()
+    writer = FileM30ControlPolicyReportWriter(repository)
+    output = tmp_path / "policy-report"
+    output.mkdir(mode=0o700)
+    target = output / "policy-validation.md"
+    original = tmp_path / "original-report"
+    original.write_text("original\n", encoding="utf-8")
+    original.chmod(0o600)
+    if mutation == "symlink":
+        target.symlink_to(original)
+    elif mutation == "hard_link":
+        os.link(original, target)
+    else:
+        target.write_text("different\n", encoding="utf-8")
+        target.chmod(0o620)
+
+    with pytest.raises(ProductionEvidenceError) as rejected:
+        writer.write(report, output)
+
+    assert rejected.value.code.value == "m30_control_policy_report_write_failed"
+    assert original.read_text(encoding="utf-8") == "original\n"
+
+
+def test_policy_report_requires_owner_private_destination(tmp_path: Path) -> None:
+    service, repository, _manifest_path, _policy_path = _policy_service(tmp_path)
+    report = service.execute()
+    writer = FileM30ControlPolicyReportWriter(repository)
+    output = tmp_path / "policy-report"
+    output.mkdir()
+    output.chmod(0o755)
+
+    with pytest.raises(ProductionEvidenceError) as rejected:
+        writer.write(report, output)
+
+    assert rejected.value.code.value == "m30_control_policy_report_write_failed"
+    assert not list(output.iterdir())
 
 
 def _policy_service(

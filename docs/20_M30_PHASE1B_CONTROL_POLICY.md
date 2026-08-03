@@ -27,6 +27,9 @@ Only `signed_campaign_manifest` has a pure contract-level adjudicator in this sl
 
 1. Complete Phase 1a and obtain the canonical campaign manifest plus its downloaded GitHub attestation bundle outside the repository.
 2. Obtain the canonical control-policy JSON from the future independent policy authority. Do not author or amend it in the candidate repository.
+   Place the manifest, bundle and policy in owner-owned directories that are not writable by group
+   or others. Each file must be a single-link regular file owned by the validating UID and must not
+   be writable by group or others. Symlinks and hardlinks are rejected.
 3. Inspect the structural schema if needed:
 
    ```bash
@@ -45,7 +48,27 @@ Only `signed_campaign_manifest` has a pure contract-level adjudicator in this sl
 
 5. Inspect both deterministic artifacts written to the output directory. A successful command proves only the policy binding described above. It is not evidence that any of the 24 controls passed.
 
-Input files must be regular, canonical JSON files outside the repository. Symlinks, non-canonical bytes, repository-contained evidence, unknown fields, altered hashes, missing assignments, policy/campaign mismatch, an invalid DAG, unapproved authority, or an expired validity window fail closed.
+The validator requires reviewed local POSIX filesystem semantics with `openat`/dirfd,
+`O_NOFOLLOW`, `O_DIRECTORY`, `O_CLOEXEC` and `O_NONBLOCK`; missing support fails closed. It opens
+every path component once, reads each leaf through the held parent descriptor and rejects a changed
+file, name, directory or original path binding. A missing output directory is created mode `0700`;
+an existing one must already be owned by the validating UID at exactly that mode. Report files are
+mode `0600`. External destinations are create-only and a different pre-existing report is never
+overwritten. Markdown is installed first and JSON last as the commit marker, followed by
+descriptor-relative read-back and `fsync`.
+
+An output directory created by a pre-D136 build may be mode `0755`; the hardened writer will reject
+it instead of changing permissions implicitly. After verifying ownership, link count and contents,
+the operator may migrate only the exact ignored canonical directory to `0700` and its two report
+files to `0600`. For external evidence, prefer a new empty `0700` run directory. If a process is
+killed between create-only link installation and temporary-name cleanup, quarantine that run
+directory and use a new one; do not delete the extra hardlink before preserving incident evidence.
+
+Input files must be canonical bounded JSON files outside the repository. Symlinks, hardlinks,
+non-regular leaves including FIFOs, group/other-writable bytes or parent directories,
+non-canonical bytes, repository-contained evidence, unknown fields, altered hashes, missing
+assignments, policy/campaign mismatch, an invalid DAG, unapproved authority, or an expired
+validity window fail closed.
 
 ## Fixed control order and dependencies
 
@@ -88,7 +111,13 @@ Before receipts or any campaign capability can be connected, M30 still requires:
 - concrete cryptographic verification of producer and approver signatures plus trusted timestamps;
 - canonical raw GitHub governance/run snapshots from which criteria are derived locally instead of trusting signed booleans;
 - a durable compare-and-swap attempt ledger with exact predecessor chaining, replay protection, revocation checks, and trusted adjudication time;
-- per-component `openat`/dirfd reads and same-dirfd atomic report writes with `O_NOFOLLOW`, owner/mode checks and race regressions, replacing the remaining checked-pathname P2;
+- dedicated non-co-tenant evaluator identity, reviewed local-mount/ACL policy and independently
+  owned read-only evidence inputs; local POSIX permissions alone cannot protect post-return bytes
+  from another compromised process with the same UID;
+- authenticated append-only/CAS evidence retention and a reviewed consumer that accepts only a
+  complete JSON-last bundle; local reports remain provisional and never become release authority;
+- elimination or independent sandboxing of the remaining same-UID verifier-subprocess pathname
+  window, plus a mount boundary that prevents bind-mount aliases into candidate subdirectories;
 - one reviewed deterministic adjudicator per remaining control, including frozen thresholds;
 - real external workflows and receipts, independent owner approvals, operated target/provider/corpus evidence, and an exact candidate-head hosted campaign;
 - M31 pilot, legal/service readiness, incident operations, and per-dialect certification beyond PostgreSQL.

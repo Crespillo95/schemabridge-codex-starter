@@ -1351,9 +1351,14 @@ pilot evidence remain mandatory commercial/production gates.
 
 - Phase 0 repository models never accept an external gate as passed. Phase 1a uses separate types
   and authenticates only frozen campaign inputs; it cannot adjudicate a control receipt or release.
-- Manifest and attestation bundle are bounded regular non-symlink files outside the candidate
-  checkout. Canonical JSON rejects duplicate/extra/deep/oversized input; verification consumes
-  owner-only private snapshots and all external bytes are reread afterward to detect replacement.
+- Manifest, attestation bundle and control policy are bounded single-link regular files outside the
+  candidate checkout. Their owner and non-writable group/other modes are checked. Every path
+  component is opened from a held directory descriptor with `O_DIRECTORY`, `O_NOFOLLOW` and
+  `O_CLOEXEC`; leaves also use `O_NONBLOCK` before type inspection. Canonical JSON rejects
+  duplicate/extra/deep/oversized input. Descriptor/name/parent identity, including mode, owner,
+  link count, size, mtime and ctime, must remain stable through the exact read and final path
+  rebind check. Verification consumes owner-only private snapshots and all external bytes are
+  reread afterward.
 - Byte authentication requires exact GitHub repository, tag ref, signer workflow/source digests,
   GitHub OIDC issuer, hosted runner, SLSA predicate and at least one cryptographically verified
   log/TSA timestamp. Operational trust additionally requires separate evidence that the tag/ref is
@@ -1383,7 +1388,19 @@ pilot evidence remain mandatory commercial/production gates.
   derive criteria from canonical raw snapshots; and a durable trusted-clock/compare-and-swap
   attempt ledger must reject replay, gaps and stale predecessors. Signed booleans or caller-built
   `authenticated=true` models are not commercial evidence.
-- External Phase-1b files and reports still use checked pathnames. Their hashes and 0/24-only CLI
-  prevent a current authority bypass, but a same-UID parent swap remains a P2. Any future authority
-  use requires per-component dirfd/`openat` with `O_NOFOLLOW`, owner/mode checks and atomic rename/
-  fsync on the same directory descriptor.
+- Phase-1a/1b report destinations are acquired once through the same per-component descriptor
+  walk. They must be owner-owned mode `0700`; files are mode `0600`, single-link and bounded.
+  External publication is create-only through same-dirfd hard-link installation, while the exact
+  ignored candidate destination may use same-dirfd atomic replacement. Markdown is published
+  before the JSON commit marker; file/directory `fsync`, final descriptor-relative read-back and a
+  path-binding recheck are mandatory. Different external bytes, symlinks, hardlinks, FIFOs,
+  unsafe modes and unsupported filesystem primitives fail closed.
+- This closes D135's in-operation external checked-pathname redirection family; it does not make
+  local files durable commercial authority. Same-UID substitution of the private paths consumed by
+  the verifier subprocess, a bind mount directly onto a checkout subdirectory and any `Path`
+  mutation after return remain residual P2/deployment limits. The portable adapter is limited to
+  reviewed local POSIX filesystems and cannot uniformly prove ACL or hostile mount integrity.
+  Before receipts or release decisions consume filesystem evidence, operation still requires a
+  dedicated non-co-tenant UID/mount policy, independently owned read-only inputs and authenticated
+  append-only/CAS retention. Linux deployments with hostile mount authority additionally require
+  a reviewed `openat2`/mount-namespace boundary. All controls remain 0/24 and `no_go`.

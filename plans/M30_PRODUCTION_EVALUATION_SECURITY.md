@@ -205,8 +205,11 @@ executable (archive and binary checksums are in the runbook), repository and sig
 revision as source/signer digest, exact tag ref, GitHub OIDC issuer, SLSA predicate, hosted runner,
 detached bundle and at least one cryptographically verified log/TSA timestamp. `--bundle` avoids an attestation API lookup,
 but GitHub CLI can still bootstrap/update its trusted root; this is not an air-gapped verification
-claim. Inputs are bounded regular non-symlink files outside the repository, copied into private
-owner-only snapshots for verification and reread before/after to reject TOCTOU. There is no
+claim. Inputs are owner-owned, bounded, single-link regular files outside the repository whose
+group/other write bits are clear. Every component and leaf is opened relative to held directory
+descriptors with no-follow/nonblocking fail-closed primitives; identity and the original path
+binding are rechecked after the exact read. Bytes are copied into private owner-only snapshots for
+verification and reread before/after. There is no
 key/issuer, unattested, `status`, `report-only` or bypass argument. The report binds hashes of the
 official verifier executable plus its platform, bundle, certificate evidence, verification summary
 and trusted timestamps; it does not call a TSA timestamp “transparency” or count owner fingerprints
@@ -230,7 +233,11 @@ The candidate repository is rejected as a producer even through case variation.
 `make m30-control-policy-schema` prints the structural schema. After a real Phase-1a manifest and
 bundle exist, an operator can run `make m30-control-policy-validate` with
 `M30_MANIFEST`, `M30_ATTESTATION_BUNDLE` and `M30_CONTROL_POLICY` pointing to canonical external
-regular files. The deterministic report always retains zero of 24 controls, no campaign
+regular files. Phase-1a/1b readers reject symlinked components, hardlinks, unsafe ownership/mode,
+FIFOs, mutation and rebinding. Reports use one owner-private mode-`0700` directory descriptor,
+mode-`0600` files, create-only external publication, same-dirfd replacement only for the exact
+ignored local destination, JSON-last commit, `fsync` and final read-back. Unsupported POSIX/dirfd
+semantics fail closed. The deterministic report always retains zero of 24 controls, no campaign
 capability, `campaign_executable=false` and `release_decision=no_go`. It also records
 `external_policy_trust_authenticated=false` and `receipt_authentication_enabled=false`.
 
@@ -239,7 +246,12 @@ the CLI or an application port. It cannot become an operated adjudicator until a
 authenticated trust bundle, concrete signature/timestamp verifier, canonical raw-governance
 snapshot derivation and durable anti-replay attempt ledger exist. The remaining 23 controls cannot
 represent a passed or failed adjudication in this slice. The exact operator procedure and open
-commercial blockers are in `docs/20_M30_PHASE1B_CONTROL_POLICY.md`.
+commercial blockers are in `docs/20_M30_PHASE1B_CONTROL_POLICY.md`. Local reports remain
+provisional: future authority additionally requires a dedicated non-co-tenant evaluator identity,
+reviewed mount/ACL policy, read-only independently owned inputs and authenticated append-only/CAS
+retention because portable POSIX permissions cannot guarantee post-return same-UID integrity. The
+same-UID pathname window for private files consumed by the `gh` subprocess and bind-mount aliases
+directly into checkout subdirectories remain explicit P2 limits until that isolation exists.
 
 ## Blind bilingual evaluation
 

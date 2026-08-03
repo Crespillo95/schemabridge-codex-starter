@@ -1,10 +1,11 @@
 # Current task
 
 - Current milestone: M30 — Production evaluation and security verification
-- Status: Phase 0, Phase 1a, fail-closed Phase 1b policy preparation and the qsp3 target-bound
-  copy-SQL vertical are implemented locally; the final implementation gate passes while the
-  managed/operated browser campaign remains pending; campaign, pilot, commercial availability,
-  production and release remain blocked
+- Status: Phase 0, Phase 1a, fail-closed Phase 1b policy preparation, local descriptor-anchored
+  filesystem hardening and the qsp3 target-bound copy-SQL vertical are implemented locally; the
+  prior implementation gate passes and the current filesystem delta is under final verification;
+  managed/operated browser, campaign, pilot, commercial availability, production and release
+  remain blocked
 - Plan: `plans/M30_PRODUCTION_EVALUATION_SECURITY.md`
 - Machine contract: `plans/M30_CAMPAIGN_CONTRACT.yml`
 - Handoff: `tasks/M30_HANDOFF.md`
@@ -25,11 +26,13 @@ it can be accepted; repository evidence alone cannot do that.
   only NO-GO. The contract freezes the qsp3/M26/target-bound-plan/artifact-rerun policy.
 - Phase 1a: canonical external manifest, structural JSON Schema plus authoritative validator,
   artifact/provider/target/corpus/owner/control freezes and a maximum 30-day UTC window.
-- Phase 1b policy preparation is included under D135: manifest schema v2 binds one canonical
+- Phase 1b policy preparation is included under D135/D136: manifest schema v2 binds one canonical
   external policy; the policy freezes the exact 24-control DAG, receipt kinds, evidence subjects,
   producer workflows, authorization stages and five-role quorum. Its only composed use case
   validates policy binding and always keeps external trust/receipt authentication disabled, 0/24,
-  no capabilities and `no_go`; the receipt adjudicator remains deliberately uncomposed.
+  no capabilities and `no_go`; the receipt adjudicator remains deliberately uncomposed. External
+  reads and report publication now use fail-closed per-component dirfds, stable owner/mode/link/time
+  identities, nonblocking leaves, same-dirfd publication, fsync and final read-back.
 - Exact corpus matrix: every slice has equal Spanish/English counts; simple families are standard;
   every advanced family has standard/high/critical slices; ambiguity, unsupported and adversarial
   families/risk levels are closed. Totals remain exactly 500 ES + 500 EN.
@@ -77,10 +80,11 @@ it can be accepted; repository evidence alone cannot do that.
   campaign selection passes 103 tests. Focal Ruff, formatting, mypy over seven qsp3 source files
   plus the contract model, and `git diff --check` pass. These are bounded implementation checks,
   not external M30 evidence.
-- The exact current-byte M30 cut passes 145 tests with 4,149 deselections; Phase-1b focal Ruff,
-  Mypy and 32 policy tests pass. Independent review reports P0=0/P1=0 on the composed surface and
-  one known P2 filesystem pathname race. This validates policy preparation only, not a receipt or
-  external control.
+- The exact current M30 cut passes 159 tests with 4,149 deselections in 279.25 seconds. The D136
+  filesystem delta also passes focal formatting/Ruff, strict adapter Mypy, 24 policy tests and 45
+  authentication/CLI tests, including deterministic ancestor/leaf/target/destination races.
+  Full-gate and independent closing review are pending. This validates policy preparation only,
+  not a receipt or external control.
 - Codex in-app-browser evidence is bounded and pre-final: local/recorded desktop advanced, 390×844
   no-overflow and `date_meaning` ambiguity were observed with clean console; managed rotation is
   post-remediation AppTest only. On 2026-08-03 the requested final retry connected to the browser
@@ -98,8 +102,10 @@ it can be accepted; repository evidence alone cannot do that.
   environments, zero rulesets and zero tags. Therefore `m30-manifest-attestation` cannot yet be a
   protected independently reviewed gate and must not be dispatched.
 - Independent qsp3 review reports P0=0/P1=0. Phase-1b remediation closes the earlier direct
-  PASS/hash/case/attempt/DAG/clock findings while keeping the unsafe trust/measurement/ledger and
-  filesystem boundaries outside the composed authority path.
+  PASS/hash/case/attempt/DAG/clock findings. D136 closes the checked-pathname race locally while
+  keeping trust, measurement, ledger, dedicated evaluator isolation and append-only retention
+  outside the composed authority path. Same-UID private verifier paths and hostile bind-mount
+  aliases remain explicit P2/deployment limits and cannot be promoted into commercial authority.
 
 ## Commercial product boundary
 
@@ -121,9 +127,10 @@ evidence may remain unbound.
 1. Protect `main` and eligible annotated tags; create `m30-manifest-attestation` with independent
    reviewers, self-review/bypass disabled, no secrets and retained configuration evidence.
 2. Freeze one exact clean tagged candidate and independently owned public manifest/corpus digests.
-3. Provision an independently authenticated trust bundle, concrete receipt verifier and durable
-   anti-replay attempt ledger; then authenticate control-specific receipts and enforce prerequisite
-   ordering before any provider/source/target/corpus access.
+3. Provision an independently authenticated trust bundle, concrete receipt verifier, dedicated
+   non-co-tenant evaluator/mount boundary and durable CAS anti-replay attempt ledger; then
+   authenticate control-specific receipts and enforce prerequisite ordering before any
+   provider/source/target/corpus access.
 4. Operate the 1,000-case blind corpus, execution equivalence, scale/soak, browser/accessibility,
    IAM/network/secrets/SIEM/backup/restore and independent penetration test.
 5. Obtain candidate-specific owner/assessor decisions, then run M31 with real design partners.

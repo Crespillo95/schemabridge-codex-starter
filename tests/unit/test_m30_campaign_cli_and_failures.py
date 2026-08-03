@@ -287,6 +287,68 @@ def test_fixed_gh_accepts_only_a_matching_platform_digest(
     assert campaign_adapter._trusted_gh_executable() == str(fake_gh.resolve())
 
 
+def test_fixed_gh_rechecks_outer_ancestor_after_final_descriptor_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trusted_bytes = b"reviewed-test-gh-binary"
+    outer = tmp_path / "trusted-owner"
+    fake_gh = outer / "bin/gh"
+    fake_gh.parent.mkdir(parents=True)
+    fake_gh.write_bytes(trusted_bytes)
+    fake_gh.chmod(0o755)
+    held = tmp_path / "trusted-owner-held"
+    attacker = tmp_path / "attacker-owner"
+    attacker.mkdir(mode=0o700)
+    machine = platform.machine()
+    if machine in {"aarch64", "arm64"}:
+        machine = "arm64"
+    elif machine in {"amd64", "x86_64"}:
+        machine = "x86_64"
+    platform_label = campaign_adapter._GH_PLATFORM_LABELS[(platform.system(), machine)]
+    monkeypatch.setattr(
+        campaign_adapter,
+        "_GH_OFFICIAL_EXECUTABLE_SHA256",
+        {platform_label: hashlib.sha256(trusted_bytes).hexdigest()},
+    )
+    real_read = campaign_adapter._read_exact_descriptor
+    reads = 0
+
+    def rebind_outer_after_final_read(descriptor: int, size: int) -> bytes:
+        nonlocal reads
+        raw = real_read(descriptor, size)
+        reads += 1
+        if reads == 2:
+            outer.rename(held)
+            outer.symlink_to(attacker, target_is_directory=True)
+        return raw
+
+    monkeypatch.setattr(
+        campaign_adapter,
+        "_read_exact_descriptor",
+        rebind_outer_after_final_read,
+    )
+
+    with pytest.raises(campaign_adapter._TrustProviderUnavailable):
+        campaign_adapter._read_trusted_gh_executable(fake_gh)
+
+    assert reads == 2
+    assert not list(attacker.iterdir())
+
+
+def test_authentication_temporary_parent_rejects_nonsticky_shared_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    unsafe = tmp_path / "shared-temp"
+    unsafe.mkdir(mode=0o777)
+    unsafe.chmod(0o777)
+    monkeypatch.setattr(campaign_adapter.tempfile, "gettempdir", lambda: str(unsafe))
+
+    with pytest.raises(OSError, match="untrusted directory component"):
+        campaign_adapter._trusted_temporary_parent()
+
+
 def test_safe_gh_executes_verified_snapshot_when_original_path_is_replaced(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

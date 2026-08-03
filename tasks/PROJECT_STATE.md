@@ -185,18 +185,24 @@ detached-bundle verifier pins exact GitHub attestation facts and official platfo
 snapshots plus sanitized config. Even success is only workflow-attested bytes:
 `campaign_executable=false`, `release_decision=no_go`, zero controls passed and 24 remaining.
 
-Under D135, Phase 1b includes only a fail-closed policy-preparation boundary. Manifest schema v2
+Under D135/D136, Phase 1b includes only a fail-closed policy-preparation boundary. Manifest schema v2
 binds a canonical external policy that freezes the exact 24-node DAG, receipt kinds, evidence
 subjects, immutable producer workflows, authorization stages and five-role quorum. The composed
 CLI validates that binding and always reports `external_policy_trust_authenticated=false`,
 `receipt_authentication_enabled=false`, 0/24 and `no_go`; it has no provider/source/target/corpus/
 DataHub capability. Hashes are computed internally, workflow aliases are casefolded, retries are
 limited to attempt 1 until a ledger exists, prerequisite references are campaign/policy bound and
-Phase-1a/1b completion times reject rollback. The exact M30 cut passes 145 tests with 4,149
-deselections; focal policy tests pass 32. Review reports P0=0/P1=0 on the composed surface and one
-known P2 pathname-race hardening item. The receipt adjudicator remains uncomposed: independent
-trust, cryptographic verification, raw-snapshot derivation, CAS anti-replay and dirfd/openat I/O
-remain mandatory before any control or capability can be accepted.
+Phase-1a/1b completion times reject rollback. D136 replaces all external checked-pathname reads and
+report writes in the shared adapter with a fail-closed per-component POSIX descriptor walk,
+nonblocking no-follow leaves, exact owner/mode/link/size/time stability, same-dirfd no-clobber or
+local replacement, fsync, JSON-last publication and held-descriptor read-back. Its focal
+policy and authentication/CLI cuts pass 24 and 45 tests respectively; the exact M30 selection
+passes 159 with 4,149 deselections in 279.25 seconds. Full-gate and independent closing review are
+pending. The receipt adjudicator remains uncomposed: independent trust, cryptographic
+verification, raw-snapshot derivation, a dedicated evaluator/mount policy and authenticated CAS
+anti-replay retention remain mandatory before any control or capability can be accepted. A
+same-UID verifier-subprocess pathname window and hostile bind mounts into checkout subdirectories
+remain explicit P2/deployment limits, not accepted commercial risks.
 
 A pre-final isolated Phase-1a local gate passed Ruff format/lint, strict mypy over 364 source files,
 the isolated performance node and 3,988 functional tests with 248 explicit deselections in
