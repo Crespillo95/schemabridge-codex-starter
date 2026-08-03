@@ -2,9 +2,10 @@
 
 ## Status
 
-- State: Phase 0 and Phase 1a pass their prior local gate; M30 target-binding hardening is under
-  final verification. No externally authenticated manifest or operated receipt exists, so M30,
-  campaign and release remain blocked
+- State: Phase 0, Phase 1a, fail-closed Phase 1b policy preparation and qsp3 target binding are
+  published on draft PR #1. Exact commit `23dea0f` passes its local clean-room gate; D137
+  descriptor hardening is integrated locally and its current full gate is pending. No externally
+  authenticated manifest or operated receipt exists, so M30, campaign and release remain blocked
 - Release decision: **NO-GO**
 - Candidate SKU: PostgreSQL copy-first private beta, isolated per customer
 - Depends on: accepted M29 contracts in the target environment and accepted M35 registry lifecycle
@@ -209,7 +210,10 @@ claim. Inputs are owner-owned, bounded, single-link regular files outside the re
 group/other write bits are clear. Every component and leaf is opened relative to held directory
 descriptors with no-follow/nonblocking fail-closed primitives; identity and the original path
 binding are rechecked after the exact read. Bytes are copied into private owner-only snapshots for
-verification and reread before/after. There is no
+verification and reread before/after. This closes redirection through the external input path, but
+does not remove the documented same-UID ABA window for private paths consumed by the `gh`
+subprocess; that boundary remains non-authoritative until the dedicated evaluator isolation below
+is operated. There is no
 key/issuer, unattested, `status`, `report-only` or bypass argument. The report binds hashes of the
 official verifier executable plus its platform, bundle, certificate evidence, verification summary
 and trusted timestamps; it does not call a TSA timestamp “transparency” or count owner fingerprints
@@ -250,8 +254,9 @@ commercial blockers are in `docs/20_M30_PHASE1B_CONTROL_POLICY.md`. Local report
 provisional: future authority additionally requires a dedicated non-co-tenant evaluator identity,
 reviewed mount/ACL policy, read-only independently owned inputs and authenticated append-only/CAS
 retention because portable POSIX permissions cannot guarantee post-return same-UID integrity. The
-same-UID pathname window for private files consumed by the `gh` subprocess and bind-mount aliases
-directly into checkout subdirectories remain explicit P2 limits until that isolation exists.
+same-UID pathname window for private files consumed by the `gh` subprocess is a conditional P1
+before commercial authority; bind-mount aliases directly into checkout subdirectories remain a
+deployment limit until that isolation exists.
 
 ## Blind bilingual evaluation
 
@@ -311,7 +316,10 @@ For each accepted tier record p50/p95/p99 and error rate for catalog lookup, int
 candidate preview, compilation, queue transitions and optional read-only oracle execution. Record
 CPU, memory, PostgreSQL connections, queue depth/age, model tokens/cost and DataHub calls. Test
 cold start, noisy tenant, burst, retry, stale generation, dependency-index growth and one-hour
-soak. A tier is unpublished until it has a capacity envelope, alert thresholds and a documented
+soak. Before campaign dispatch, product and operations must freeze one minimum private-beta tier
+and exact pass/fail budgets for p95, p99, error rate, memory, connections, queue age and model cost
+in the authenticated policy; the current repository deliberately does not invent those business
+budgets. A tier is unpublished until it has a capacity envelope, alert thresholds and a documented
 degradation policy.
 
 ## Security and operated-control verification
@@ -339,6 +347,8 @@ artifacts.
 ## Required artifacts
 
 - workflow-attested campaign manifest and immutable raw-result bundle;
+- independently authenticated policy/receipt bundle with CAS attempt chain and deterministic 24/24
+  adjudication; a local JSON report is not this artifact;
 - separate candidate-specific approvals from product, semantic, security, operations and release
   owners; the independent evaluator signs/adjudicates its corpus and equivalence evidence but cannot
   replace an owner approval;
@@ -348,6 +358,9 @@ artifacts.
 - independent penetration-test attestation and remediation evidence;
 - IAM, secrets, network, SIEM, backup/restore and incident-drill evidence;
 - browser/accessibility compatibility report;
+- copy/download fidelity and destination-identity report covering the supported pgAdmin, DBeaver
+  and `psql` matrix, with human-visible environment/database/schema/read-only identity bound to
+  the same governed target fingerprint;
 - release risk register and product/semantic/security/operations/release go/no-go signatures.
 
 ## Acceptance criteria

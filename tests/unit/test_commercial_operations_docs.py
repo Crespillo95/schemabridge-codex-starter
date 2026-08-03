@@ -36,6 +36,10 @@ def test_commercial_manual_is_complete_linked_and_explicitly_no_go() -> None:
     assert "no existe una consola comercial única" in index
     assert "m30-manifest-attestation" in index
     assert "24 controles materiales sin adjudicar" in " ".join(index.split())
+    assert "ledger CAS antirreplay" in index
+    assert "evaluador sin co-tenancy" in index
+    assert "pgAdmin" in index
+    assert "OpenAPI" in index
 
 
 def test_operator_procedures_retain_owner_evidence_stop_rollback_and_escalation() -> None:

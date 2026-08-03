@@ -4722,3 +4722,56 @@ and the SHA-256 of the extracted executable:
 
 Any other OS/architecture or executable digest fails as
 `m30_trust_provider_unavailable`; review and byte-pin a new matrix rather than bypassing it.
+
+### M30 Phase 1b policy preparation — no receipt authority
+
+Do not run this step until Phase 1a has produced the exact downloaded manifest, detached bundle and
+authentication report above. The policy comes from the future independent policy authority, never
+from the candidate checkout. This command validates only the frozen DAG and bindings; it cannot
+pass a control or authorize campaign I/O.
+
+The validating process requires reviewed local POSIX dirfd semantics. Every input ancestor must be
+root/current-UID owned under the documented sticky-root exception and must not be writable by an
+untrusted group/other principal. Leaves must be current-UID-owned, single-link regular files with
+group/other write disabled. Use a new owner-private output directory:
+
+```bash
+M30_CONTROL_POLICY="$M30_EVIDENCE_DIR/m30-control-policy.json"
+M30_POLICY_OUTPUT="$M30_RUN_DIR/control-policy"
+mkdir -m 0700 "$M30_POLICY_OUTPUT"
+
+make m30-control-policy-schema > "$M30_EVIDENCE_DIR/m30-control-policy.schema.json"
+make m30-control-policy-validate \
+  M30_MANIFEST="$M30_DOWNLOADED_MANIFEST" \
+  M30_ATTESTATION_BUNDLE="$M30_BUNDLE" \
+  M30_CONTROL_POLICY="$M30_CONTROL_POLICY" \
+  M30_CONTROL_POLICY_OUTPUT="$M30_POLICY_OUTPUT"
+```
+
+Expected bounded result:
+
+```text
+policy_bound_to_authenticated_manifest=true
+external_policy_trust_authenticated=false
+receipt_authentication_enabled=false
+external_controls_passed=0
+external_controls_remaining=24
+campaign_executable=false
+release_decision=no_go
+```
+
+The writer requires the destination to be exactly mode `0700` and writes mode-`0600` Markdown
+before publishing JSON last. External files are create-only: a JSON marker without its exact
+Markdown companion, different pre-existing bytes, a symlink/hardlink/FIFO, an unsafe temporary
+parent or a changed path fails closed. Quarantine an interrupted external directory and use a new
+one; do not “repair” evidence manually. The ignored local destination is development-only, both
+filenames must be Git-ignored/untracked, and repairing Markdown republishes JSON last.
+
+Even a successful command remains provisional. Before any receipt adjudicator is composed, the
+operator must provide a dedicated non-co-tenant evaluator UID and reviewed mount/ACL boundary (or
+a separately reviewed fd-input/fd-exec verifier), independently owned read-only inputs, trusted
+time, cryptographic receipt verification, raw governance snapshots, a CAS predecessor/anti-replay
+ledger and authenticated append-only retention. The current pathname consumed by `Popen`/`gh` has
+a same-UID ABA limitation and is a conditional P1 before commercial authority. Until all 24
+controls are independently adjudicated, do not enable provider/source/target/corpus access and do
+not merge, tag or release from this report.

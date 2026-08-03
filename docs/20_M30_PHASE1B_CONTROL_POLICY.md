@@ -51,13 +51,16 @@ Only `signed_campaign_manifest` has a pure contract-level adjudicator in this sl
 The validator requires reviewed local POSIX filesystem semantics with `openat`/dirfd,
 `O_NOFOLLOW`, `O_DIRECTORY`, `O_CLOEXEC` and `O_NONBLOCK`; missing support fails closed. It opens
 every path component once, reads each leaf through the held parent descriptor and rejects a changed
-file, name, directory or original path binding. A missing output directory is created mode `0700`;
+file, name, directory or original path binding after the final descriptor read. Authentication
+temporary roots with non-sticky group/world write fail closed. A missing output directory is created mode `0700`;
 an existing one must already be owned by the validating UID at exactly that mode. Report files are
 mode `0600`. External destinations are create-only and a different pre-existing report is never
-overwritten. Markdown is installed first and JSON last as the commit marker, followed by
-descriptor-relative read-back and `fsync`.
+overwritten. An external JSON marker without its exact Markdown companion fails closed. Markdown
+is installed first and JSON is published or republished last as the commit marker, followed by
+descriptor-relative read-back and `fsync`. Both canonical-local filenames must be ignored by the
+candidate `.gitignore` and absent from its Git index.
 
-An output directory created by a pre-D136 build may be mode `0755`; the hardened writer will reject
+An output directory created by a pre-D137 build may be mode `0755`; the hardened writer will reject
 it instead of changing permissions implicitly. After verifying ownership, link count and contents,
 the operator may migrate only the exact ignored canonical directory to `0700` and its two report
 files to `0600`. For external evidence, prefer a new empty `0700` run directory. If a process is
@@ -116,8 +119,10 @@ Before receipts or any campaign capability can be connected, M30 still requires:
   from another compromised process with the same UID;
 - authenticated append-only/CAS evidence retention and a reviewed consumer that accepts only a
   complete JSON-last bundle; local reports remain provisional and never become release authority;
-- elimination or independent sandboxing of the remaining same-UID verifier-subprocess pathname
-  window, plus a mount boundary that prevents bind-mount aliases into candidate subdirectories;
+- elimination through a reviewed fd-input/fd-exec verifier or independent sandboxing of the
+  remaining same-UID verifier-subprocess pathname window, plus a mount boundary that prevents
+  bind-mount aliases into candidate subdirectories; this is a conditional P1 before any local
+  report may become commercial authority;
 - one reviewed deterministic adjudicator per remaining control, including frozen thresholds;
 - real external workflows and receipts, independent owner approvals, operated target/provider/corpus evidence, and an exact candidate-head hosted campaign;
 - M31 pilot, legal/service readiness, incident operations, and per-dialect certification beyond PostgreSQL.

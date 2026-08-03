@@ -306,6 +306,12 @@ el cluster destino, alertas/SIEM, recuperación y carga con el perfil del client
 - threat model actualizado, pentest independiente, revisión de aislamiento y resolución de todo
   hallazgo crítico/alto;
 - evidencia reproducible en un checkout limpio y artefactos firmados.
+- protección operada de `main`, tags y environment, seguida de trust bundle, receipts/snapshots
+  crudos, reloj confiable, ledger CAS antirreplay, evaluador aislado y retención append-only;
+- adjudicación determinista de los 24 controles antes de habilitar provider/source/target/corpus;
+- identidad visible de environment/base/schema/reader y fidelidad exacta de copy/download en la
+  matriz soportada de pgAdmin, DBeaver y `psql`;
+- tier beta y límites p95/p99/error/memoria/conexiones/colas/coste congelados antes de campaña.
 
 La Phase 0 ya dispone de un contrato validable por máquina y una preflight explícitamente
 fail-closed:
@@ -327,6 +333,12 @@ Markdown. El código y el contrato pertenecen al mismo candidato, por lo que la 
 la Phase 1a autentica un manifiesto atestado por el workflow con casos por familia/riesgo e
 identidades exactas de artefactos, proveedor y entorno. Eso no demuestra las firmas separadas de
 owners ni habilita ejecutar la campaña.
+
+La Phase 1b local sólo valida el DAG/policy y conserva trust/auth false, 0/24 y `no_go`. No será
+autoridad hasta que un evaluador aislado autentique receipts y snapshots crudos, encadene intentos
+en un ledger CAS y publique retención append-only. El riesgo ABA de paths privados consumidos por
+el subprocess es un P1 condicionado antes de autoridad; el hardening D137 no lo convierte en una
+aceptación comercial.
 
 El plan completo, corpus mínimo, métricas y umbrales están en
 [`plans/M30_PRODUCTION_EVALUATION_SECURITY.md`](../plans/M30_PRODUCTION_EVALUATION_SECURITY.md).
@@ -358,6 +370,8 @@ en [`plans/M31_CONTROLLED_PILOT_GA_READINESS.md`](../plans/M31_CONTROLLED_PILOT_
 | P0 | Calidad del lenguaje natural no certificada con proveedor real | M30: corpus ciego representativo, exactitud semántica/ejecutable, rechazo seguro, adversariales, umbrales firmados y regresión por versión |
 | P0 | El despliegue production-shaped mantiene NL/IA deshabilitado | Overlay y composición M32 live tenant-bound, con proveedor/modelo/prompt exactos, secretos operados y pruebas de navegador/API sin habilitar ejecución automática |
 | P0 | Target binding implementado localmente pero no certificado en un destino operado | M30: `qsp3`, conexión/revisión/target/tipos visibles y revalidados en target real; equivalencia exacta entre SQL parametrizado y standalone, rotación/revocación y dos schemas físicos distintos |
+| P0 | El destino externo no es verificable por una persona | Mostrar y ligar environment/base/schema/reader no secretos; probar bytes clipboard/download y ejecución read-only en pgAdmin, DBeaver y `psql` contra el mismo fingerprint |
+| P0 | Phase 1b no tiene autoridad operada | Trust bundle, receipts/snapshots crudos, reloj, ledger CAS, evaluador aislado/fd-exec, retención append-only y adjudicación determinista 24/24 |
 | P0 | No hay recorrido comercial integrado ni offboarding ejecutable | Consola/API versionada para M33→M34→M23→M35→M32, runbooks operados por otra persona y retirada con exportación, revocación, retención/borrado y certificado |
 | P0 | Seguridad y operación sólo demostradas localmente | Pentest independiente, IAM exclusivo DataHub, secret manager/rotación, cluster admission/NetworkPolicy, SIEM/paging, backup/restore y simulacro de incidente operados |
 | P0 | No existe piloto real aceptado | M31 con un tenant autorizado, SLO/coste/capacidad observados, runbooks y salida/rollback firmados |
@@ -365,6 +379,7 @@ en [`plans/M31_CONTROLLED_PILOT_GA_READINESS.md`](../plans/M31_CONTROLLED_PILOT_
 | P1 | Sólo PostgreSQL | Un compilador, guard AST, tipos, funciones, quoting, límites y corpus separados por cada dialecto; no basta traducir sintaxis |
 | P1 | Alta grande no es incremental | Importación/batch tenant-bound, reanudable, idempotente y con CAS para acercarse con seguridad a 2.000 mapeos |
 | P1 | Escala de inventario no equivale a escala de consulta/servicio | Pruebas del perfil cliente con miles de tablas/campos, concurrencia, latencia p95/p99, memoria, colas, coste, drift y cuotas por tenant |
+| P1 | El tier beta no tiene presupuestos de aprobación congelados | Antes de M30: fijar dataset/skew, concurrencia, soak, p95/p99, error, memoria, conexiones, queue age y coste; derivarlos de snapshots crudos, no de un status firmado |
 | P1 | Gestión comercial multi-cliente incompleta | Onboarding/offboarding, RBAC/SCIM según segmento, cuotas, auditoría exportable/paginada, soporte y aislamiento operado |
 | P2 | Álgebra SQL deliberadamente acotada | Contratos tipados y pruebas separadas para self join, subconsultas/sets, recursión, gaps/islands, `ROLLUP/GROUPING`, federación y más de 3 tablas si el mercado lo exige |
 
@@ -392,6 +407,10 @@ No iniciar tráfico hasta que todos los elementos aplicables tengan evidencia en
 - [ ] M34 publica/read-back y M23 activa/rollbacka el registro exacto en el entorno real sin
       credencial writer en web/API.
 - [ ] Corpus M30 del alcance contractual supera umbrales acordados y pruebas adversariales.
+- [ ] Trust bundle, receipts/snapshots, reloj, ledger CAS, evaluador aislado y retención append-only
+      producen adjudicación 24/24; ningún informe local se acepta como autoridad.
+- [ ] Environment/base/schema/reader visibles coinciden con el target; clipboard y descarga pasan
+      la matriz pgAdmin/DBeaver/`psql` con bytes exactos e identidad read-only.
 - [ ] Matriz M32 completa en desktop y 390×844, más versiones soportadas de
       Chrome/Safari/Firefox/Edge y objetivo de accesibilidad, sin convertir el único happy path
       avanzado observado en un PASS general.

@@ -15,6 +15,9 @@ referencia con placeholders: aplicarlo localmente o hacer `dry-run` no prueba el
 - OIDC, secret manager, TLS, DNS, ingress/CNI, DataHub y dos PostgreSQL distintos: source read-only
   y control plane;
 - rutas de backup/restore, observabilidad y contactos; nunca secretos en tickets o repositorio.
+- identidad de evaluador M30 no compartida, mount namespace/ACL revisados, inputs read-only de una
+  autoridad distinta y almacenamiento CAS/append-only autenticado; un directorio local 0700 no
+  demuestra aislamiento comercial.
 
 ## Procedimiento
 
@@ -42,6 +45,10 @@ referencia con placeholders: aplicarlo localmente o hacer `dry-run` no prueba el
 7. Conectar métricas/alertas/SIEM/paging reales y ejecutar entrega/pérdida/recuperación. Los
    artefactos bajo `deploy/observability/inactive/` siguen inactivos hasta tener productor y sink.
 8. Crear backup remoto, restaurar en un destino fresco y medir RPO/RTO antes de habilitar tráfico.
+9. Probar que el evaluador no comparte UID, volumen escribible ni namespace de montaje con el
+   candidato; registrar el trust bundle, reloj, política de revocación y ledger CAS antirreplay.
+10. Configurar retención append-only y verificar que el adjudicador deriva los 24 resultados de
+    receipts/snapshots crudos. Ningún `status=passed` o informe local cierra esta puerta.
 
 ## Salida y evidencia
 
@@ -50,6 +57,8 @@ referencia con placeholders: aplicarlo localmente o hacer `dry-run` no prueba el
 - pruebas NetworkPolicy/TLS/egress, secret version/rotation y SIEM/page;
 - backup/restore firmado, target distinto, tiempos y decisión de rollback;
 - matriz de versiones PostgreSQL/DataHub/IdP/browser realmente probadas.
+- identidad visible de environment/base/schema/reader y matriz pgAdmin/DBeaver/`psql` que pruebe
+  que copy/download conserva exactamente los bytes y el target gobernado.
 
 No guardar DSN, token, prompt, SQL, filas ni schema protegido en el bundle público.
 

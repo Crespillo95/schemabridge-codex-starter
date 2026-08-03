@@ -1391,16 +1391,21 @@ pilot evidence remain mandatory commercial/production gates.
 - Phase-1a/1b report destinations are acquired once through the same per-component descriptor
   walk. They must be owner-owned mode `0700`; files are mode `0600`, single-link and bounded.
   External publication is create-only through same-dirfd hard-link installation, while the exact
-  ignored candidate destination may use same-dirfd atomic replacement. Markdown is published
-  before the JSON commit marker; file/directory `fsync`, final descriptor-relative read-back and a
-  path-binding recheck are mandatory. Different external bytes, symlinks, hardlinks, FIFOs,
-  unsafe modes and unsupported filesystem primitives fail closed.
-- This closes D135's in-operation external checked-pathname redirection family; it does not make
-  local files durable commercial authority. Same-UID substitution of the private paths consumed by
-  the verifier subprocess, a bind mount directly onto a checkout subdirectory and any `Path`
-  mutation after return remain residual P2/deployment limits. The portable adapter is limited to
-  reviewed local POSIX filesystems and cannot uniformly prove ACL or hostile mount integrity.
+  ignored, untracked candidate destination may use same-dirfd atomic replacement. Markdown is
+  published before the JSON commit marker; repairing Markdown republishes JSON last, while an
+  external orphan marker fails closed. Both names must be Git-ignored and absent from the index.
+  File/directory `fsync`, final descriptor-relative read-back and a path-binding recheck after the
+  second exact read are mandatory. Different external bytes, symlinks, hardlinks, FIFOs, unsafe
+  modes, unsafe temporary parents and unsupported filesystem primitives fail closed.
+- D137 closes D135's in-operation external checked-pathname redirection family; it does not make
+  local files durable commercial authority. Same-UID ABA substitution of the private paths
+  consumed by `Popen`/`gh` can change the verifier executable or its manifest/bundle inputs and is
+  therefore a conditional **P1 blocker before commercial authority**, not a closed local risk. A
+  bind mount directly onto a checkout subdirectory and any `Path` mutation after return remain
+  deployment limits. The portable adapter is limited to reviewed local POSIX filesystems and
+  cannot uniformly prove ACL or hostile mount integrity.
   Before receipts or release decisions consume filesystem evidence, operation still requires a
-  dedicated non-co-tenant UID/mount policy, independently owned read-only inputs and authenticated
-  append-only/CAS retention. Linux deployments with hostile mount authority additionally require
-  a reviewed `openat2`/mount-namespace boundary. All controls remain 0/24 and `no_go`.
+  dedicated non-co-tenant UID/mount policy or a separately reviewed fd-input/fd-exec verifier,
+  independently owned read-only inputs and authenticated append-only/CAS retention. Linux
+  deployments with hostile mount authority additionally require a reviewed `openat2`/mount-
+  namespace boundary. All controls remain 0/24 and `no_go`.

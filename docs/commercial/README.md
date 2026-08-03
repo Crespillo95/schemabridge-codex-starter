@@ -69,11 +69,23 @@ secretos `m30-manifest-attestation` debe configurarse y probarse externamente; d
 no demuestra reviewers ni ausencia de bypass. Verificar un bundle separado tampoco equivale por sí
 solo a una operación air-gapped.
 
+Phase 1b aún no es autoridad: exige un trust bundle independiente, verificación criptográfica de
+recibos y snapshots crudos, reloj confiable, ledger CAS antirreplay, evaluador sin co-tenancy por
+UID/mount —o consumo/ejecución por descriptor revisado— y retención autenticada append-only. Sólo
+cuando los 24 controles estén adjudicados contra el candidato y entorno exactos puede celebrarse
+el go/no-go. El writer local con dirfds reduce carreras de rutas, pero sus ficheros siguen siendo
+provisionales y no sustituyen esa puerta.
+
 ## Bloqueadores que no puede resolver el repositorio
 
 - propietario independiente del corpus ciego 500 ES + 500 EN y answer key;
 - entorno objetivo, IdP, DataHub, source, secret manager, cluster, SIEM y almacenamiento remoto;
+- protección real de `main`/tags/environment y autoridad Phase-1b con receipts, ledger CAS,
+  evaluador aislado y retención append-only;
 - pentest/assessor independiente y responsables con autoridad de firma;
+- API/OpenAPI y consola versionada que integren el ciclo completo, identidad humana verificable
+  de environment/base/schema/reader y matriz de fidelidad copy/download en pgAdmin, DBeaver y
+  `psql`;
 - acuerdos DPA, privacidad, retención/borrado, subprocesadores, residencia, soporte y facturación;
 - uno a tres design partners autorizados y 30–60 días de piloto medido.
 

@@ -47,6 +47,12 @@ comercial no debe exponerlo a un tenant como superficie productiva.
 6. Registrar request/plan/artifact fingerprints y resultado de aceptación; no registrar prompt,
    SQL, literales o filas por defecto.
 
+La UI actual muestra conexión, revisión y fingerprints, pero todavía no ofrece una identidad humana
+no secreta y verificable de environment/base/schema/reader ni existe evidencia de fidelidad para
+clipboard/descarga en pgAdmin, DBeaver y `psql`. Hasta que ambas cosas estén implementadas y
+certificadas, el paso 5 es un **hard stop comercial**: un fingerprint opaco y una comprobación
+manual no prueban que el editor externo apunta al destino gobernado.
+
 El P0 está implementado localmente para staging/production y pendiente de la verificación final de
 bytes exactos: el runtime exige
 registry-v2, gate M26 del registro completo antes de target/proveedor y gate M26 del plan en cada
