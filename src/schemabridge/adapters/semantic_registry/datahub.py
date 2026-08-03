@@ -134,7 +134,7 @@ _LEGACY_ALLOWED_WRITER_PRIVILEGES = frozenset(
         "manageStructuredProperties",
     }
 )
-_LEGACY_ALLOWED_TARGET_GRANTS = frozenset({"MANAGE_DOCUMENTS"})
+_LEGACY_ALLOWED_TARGET_GRANTS = frozenset({"EDIT_ENTITY", "MANAGE_DOCUMENTS"})
 _M34_WRITER_PRIVILEGES = frozenset({"manageDocuments"})
 
 

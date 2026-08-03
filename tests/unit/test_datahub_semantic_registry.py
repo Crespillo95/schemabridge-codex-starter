@@ -726,7 +726,7 @@ def test_legacy_publisher_tolerates_the_historical_target_grant(
                     "manageStructuredProperties",
                 }
             ),
-            granted_target_edit_privileges=frozenset({"MANAGE_DOCUMENTS"}),
+            granted_target_edit_privileges=frozenset({"EDIT_ENTITY", "MANAGE_DOCUMENTS"}),
         )
     )
 
@@ -737,7 +737,9 @@ def test_legacy_publisher_tolerates_the_historical_target_grant(
 
     client.identity_value = replace(
         client.identity_value,
-        granted_target_edit_privileges=frozenset({"MANAGE_DOCUMENTS", "canEditProperties"}),
+        granted_target_edit_privileges=frozenset(
+            {"EDIT_ENTITY", "MANAGE_DOCUMENTS", "canEditProperties"}
+        ),
     )
     with pytest.raises(RegistryPublicationError) as raised:
         _publisher(client).publish(live_registry, approval)
