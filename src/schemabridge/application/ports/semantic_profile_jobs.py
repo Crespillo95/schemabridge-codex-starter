@@ -139,7 +139,7 @@ class SemanticJoinProfileEvidenceFactoryPort(Protocol):
         *,
         should_continue: Callable[[], bool],
     ) -> SemanticJoinProfileEvidencePort:
-        """Return an evidence port that cannot outlive or redirect this claim."""
+        """Return evidence that revalidates the claim before every protected boundary."""
 
 
 @runtime_checkable

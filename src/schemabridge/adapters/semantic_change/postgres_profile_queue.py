@@ -13,6 +13,7 @@ from psycopg.errors import (
     CheckViolation,
     ForeignKeyViolation,
     UndefinedColumn,
+    UndefinedFunction,
     UndefinedTable,
     UniqueViolation,
 )
@@ -380,8 +381,14 @@ class PostgresSemanticJoinProfileQueue:
             label="semantic profile lease duration",
         )
         table = self._database.table("semantic_join_profile_jobs")
+        reject_stale = self._database.table("reject_stale_registry_model_profile_jobs")
+        claimable = self._database.table("registry_model_profile_job_claimable")
         try:
             with self._database.connect() as connection:
+                connection.execute(
+                    sql.SQL("SELECT {function}(%s)").format(function=reject_stale),
+                    (100,),
+                ).fetchone()
                 now = _database_now(connection)
                 row = connection.execute(
                     sql.SQL(
@@ -392,6 +399,12 @@ class PostgresSemanticJoinProfileQueue:
                           AND available_at <= %s
                           AND attempt_count < max_attempts
                           AND connector_target_fingerprint IS NOT NULL
+                          AND {claimable}(
+                              workspace_id,
+                              job_id,
+                              scan_id,
+                              proposal_fingerprint
+                          )
                         ORDER BY
                             available_at,
                             requested_at,
@@ -401,7 +414,11 @@ class PostgresSemanticJoinProfileQueue:
                         LIMIT 1
                         FOR UPDATE SKIP LOCKED
                         """
-                    ).format(columns=_JOB_COLUMNS, table=table),
+                    ).format(
+                        claimable=claimable,
+                        columns=_JOB_COLUMNS,
+                        table=table,
+                    ),
                     (now,),
                 ).fetchone()
                 if row is None:
@@ -418,7 +435,7 @@ class PostgresSemanticJoinProfileQueue:
                 return claimed
         except SemanticJoinProfileQueueError:
             raise
-        except (UndefinedTable, UndefinedColumn) as error:
+        except (UndefinedTable, UndefinedColumn, UndefinedFunction) as error:
             raise _schema_mismatch() from error
         except (
             ValidationError,

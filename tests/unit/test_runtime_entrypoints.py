@@ -180,9 +180,12 @@ def test_api_composition_uses_only_api_role_and_read_only_workflow_inspection(
     )
     assert publication_jobs._database.application_name == "schemabridge-control-api"
     assert publication_proposals._database.application_name == "schemabridge-control-api"
+    assert services.registry_model_changes is not None
     assert not hasattr(inspector, "execute")
     assert not hasattr(services.registry_publication, "publisher")
     assert not hasattr(services.registry_publication, "credential_resolver")
+    assert not hasattr(services.registry_model_changes, "publisher")
+    assert not hasattr(services.registry_model_changes, "credential_resolver")
     assert "api-secret" not in repr(services)
     assert LOCAL_TOKEN not in repr(services)
 

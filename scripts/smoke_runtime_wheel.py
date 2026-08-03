@@ -25,6 +25,7 @@ EXPECTED_CONTROL_PLANE_MIGRATIONS: tuple[tuple[int, str], ...] = (
     (12, "backup_identity"),
     (13, "semantic_onboarding"),
     (14, "registry_publication"),
+    (15, "registry_v2_changes"),
 )
 EXPECTED_RUNTIME_ENTRYPOINTS: tuple[tuple[str, str], ...] = (
     ("schemabridge", "schemabridge.entrypoints.cli.main:app"),
@@ -204,7 +205,7 @@ def main() -> int:
                 text=True,
                 timeout=30,
             )
-    print("Installed runtime wheel validated migrations 1-14 and all runtime entrypoints.")
+    print("Installed runtime wheel validated migrations 1-15 and all runtime entrypoints.")
     return 0
 
 

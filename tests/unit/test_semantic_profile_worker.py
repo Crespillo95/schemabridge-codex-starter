@@ -21,7 +21,10 @@ from schemabridge.application.ports.relationships import (
 )
 from schemabridge.application.ports.semantic_profile_jobs import (
     BatchSemanticJoinProfileEvidencePort,
+    SemanticJoinProfileQueueError,
+    SemanticJoinProfileQueueErrorCode,
     SemanticJoinProfileRouteContext,
+    SemanticJoinProfileSourceCancelled,
 )
 from schemabridge.application.semantic_profile_worker import (
     RunOneSemanticJoinProfile,
@@ -169,6 +172,7 @@ class FakeProfileQueue:
     clock: TickingClock
     return_cross_tenant: bool = False
     corrupt_heartbeat: bool = False
+    heartbeat_error_at: int | None = None
     enqueue_calls: int = 0
     claim_calls: int = 0
     heartbeat_calls: int = 0
@@ -275,6 +279,11 @@ class FakeProfileQueue:
             self.state.job_id,
         )
         self.heartbeat_calls += 1
+        if self.heartbeat_error_at == self.heartbeat_calls:
+            raise SemanticJoinProfileQueueError(
+                SemanticJoinProfileQueueErrorCode.STATE_CONFLICT,
+                "synthetic stale profile authority",
+            )
         now = self.clock.now()
         self.state = heartbeat_semantic_join_profile_job(
             self.state,
@@ -430,6 +439,41 @@ class FakeEvidenceFactory:
         return self.evidence
 
 
+@dataclass
+class BoundaryEvidence:
+    should_continue: Callable[[], bool]
+    source_calls: int = 0
+
+    def profile_bound(
+        self,
+        proposal: SemanticJoinProfileProposal,
+    ) -> RelationshipProfile:
+        assert proposal == _bound_proposal()
+        try:
+            allowed = self.should_continue()
+        except Exception:
+            raise SemanticJoinProfileSourceCancelled("synthetic cancellation") from None
+        if not allowed:
+            raise SemanticJoinProfileSourceCancelled("synthetic cancellation")
+        self.source_calls += 1
+        return _profile()
+
+
+@dataclass
+class BoundaryEvidenceFactory:
+    evidence: BoundaryEvidence | None = None
+
+    def for_claim(
+        self,
+        context: SemanticJoinProfileRouteContext,
+        *,
+        should_continue: Callable[[], bool],
+    ) -> BoundaryEvidence:
+        assert context.workspace_id == "workspace-semantic"
+        self.evidence = BoundaryEvidence(should_continue)
+        return self.evidence
+
+
 def _requested_job(
     clock: TickingClock,
     *,
@@ -487,6 +531,32 @@ def test_worker_completes_only_aggregate_profile_with_two_heartbeats() -> None:
     assert queue.fail_calls == 0
     assert queue.state is not None and queue.state.result is not None
     assert queue.state.result.profile == _profile()
+
+
+def test_authority_drift_after_initial_heartbeat_opens_zero_source_connections() -> None:
+    clock = TickingClock()
+    queue = FakeProfileQueue(
+        _requested_job(clock),
+        clock,
+        heartbeat_error_at=2,
+    )
+    factory = BoundaryEvidenceFactory()
+    worker = RunOneSemanticJoinProfile(
+        queue=queue,
+        evidence_factory=factory,
+        clock=clock,
+        capability_factory=lambda: CAPABILITY,
+        worker_id="semantic-profile-worker-a",
+    )
+
+    result = worker.execute()
+
+    assert result.outcome is SemanticJoinProfileWorkerOutcome.STOPPED
+    assert result.failure_code is SemanticJoinProfileFailureCode.SHUTDOWN_REQUESTED
+    assert queue.heartbeat_calls == 2
+    assert queue.complete_calls == 0
+    assert factory.evidence is not None
+    assert factory.evidence.source_calls == 0
 
 
 def test_worker_routes_a_second_connection_from_the_claimed_target() -> None:

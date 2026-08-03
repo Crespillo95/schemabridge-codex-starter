@@ -3620,7 +3620,7 @@ exactly `format_version`, `kind`, `server`, `token`, and `platform`. The secret 
 SHA-256 of its opaque reference plus `.json`; operators should use approved provisioning tooling
 to create it and must not derive or print the filename in application output.
 
-### 1. Apply and verify exact current control-plane schema v14
+### 1. Apply and verify exact current control-plane schema v15
 
 ```bash
 make control-plane-reset
@@ -3631,8 +3631,9 @@ make control-plane-check
 Schema v11 was the M28 checkpoint. The current tree must preserve immutable migrations
 0001–0009, apply `0010_operational_observer.sql`, then
 `0011_connector_secret_versions.sql`, `0012_backup_identity.sql`,
-`0013_semantic_onboarding.sql`, and finally `0014_registry_publication.sql`. Every managed
-component must report current/expected schema version 14 with no pending migration and
+`0013_semantic_onboarding.sql`, `0014_registry_publication.sql`, and finally
+`0015_registry_v2_changes.sql`. Every managed component must report current/expected schema
+version 15 with no pending migration and
 source/control separation. Provision the exact backup role posture described in the M29 recovery
 section before v12; an unsafe role must make the migration fail and roll back rather than be
 repaired. Retain pristine and upgrade results, immutable historical checksums, and the exact role
@@ -3649,6 +3650,15 @@ Migration v14 adds the target-reserving registry-publication queue, append-only 
 must reject an unsafe publisher identity rather than repair it. The publisher role must be an
 exact login with `NOINHERIT`, no memberships or administrative attributes, a positive 30-second
 statement timeout, and no active-pointer write privilege.
+
+Migration v15 adds tenant-bound join and model-replacement authoring, aggregate profile jobs,
+append-only decisions/audit, exact replay and the closed `replace_model_v1` publication source.
+It preserves migrations and rows 0001–0014. Verify that API, profile worker, reconciler and
+publisher receive only their closed functions/table grants; no role gains active-pointer writes,
+source-write capability or another component's credential. Phase B replacement publication must
+pass `registry_model_publication_witness_valid` before an activation-ready handoff is visible.
+Rejection or stale authority requires a new immutable M33 source proposal; do not reuse or edit an
+old source row.
 
 ### 1a. Operate one M34 publication without automatic activation
 

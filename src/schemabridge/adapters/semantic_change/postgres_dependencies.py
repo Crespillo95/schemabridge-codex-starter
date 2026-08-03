@@ -225,7 +225,7 @@ class PostgresSemanticChangeDependencyIndex:
         self,
         scope: SemanticRegistryScope,
     ) -> SemanticDependencyIndexState:
-        states = self._database.table("semantic_dependency_index_states")
+        reader = self._database.table("load_semantic_dependency_index_state")
         try:
             with self._database.connect() as connection, connection.transaction():
                 connection.execute("SET TRANSACTION READ ONLY")
@@ -233,12 +233,9 @@ class PostgresSemanticChangeDependencyIndex:
                     sql.SQL(
                         """
                         SELECT watermark, index_fingerprint, complete
-                        FROM {states}
-                        WHERE workspace_id = %s
-                          AND catalog_scope = %s
-                          AND registry_id = %s
+                        FROM {reader}(%s, %s, %s)
                         """
-                    ).format(states=states),
+                    ).format(reader=reader),
                     _scope(scope),
                 ).fetchone()
             if row is None:

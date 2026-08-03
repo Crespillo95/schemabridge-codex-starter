@@ -1,50 +1,53 @@
 # Current task
 
-- Current milestone: M34 — Governed registry publication and activation handoff
+- Current milestone: M35 — Governed registry-v2 change lifecycle
 - Status: complete; accepted locally
-- Prompt: `prompts/M34_GOVERNED_REGISTRY_PUBLICATION.md`
-- Plan: `plans/M34_GOVERNED_REGISTRY_PUBLICATION.md`
-- ADR: `docs/adr/0017-governed-registry-publication.md`
-- Handoff: `tasks/M34_HANDOFF.md`
+- Prompt: `prompts/M35_REGISTRY_V2_CHANGE_LIFECYCLE.md`
+- Plan: `plans/M35_REGISTRY_V2_CHANGE_LIFECYCLE.md`
+- ADR: `docs/adr/0018-governed-registry-v2-change-lifecycle.md`
+- Handoff: `tasks/M35_HANDOFF.md`
 - Production/release GO: **NO**
 
 ## Objective delivered
 
-Publish one exact M33 `ready_for_publication` proposal as an immutable DataHub registry-v2
-document through a tenant-bound durable queue and isolated writer identity. Publication requires a
-fresh approval of the complete assembled candidate, independent exact read-back, and finishes at
-`activation_ready`; a separate M23 approval/CAS path performs activation.
+Evolve one exact active registry-v2 without editing fixtures or existing DataHub documents: either
+add one explicitly approved same-connection join or replace/remediate one model with complete
+mapping, binding, dependency/M26 and incident-join authority. The result reuses M34 publication,
+finishes at `activation_ready` and leaves activation to the separate M23 approval/CAS path.
 
 ## Final evidence and retained boundaries
 
-- Registry v2 preserves exact workspace, connection, catalog generation/vector, physical locator,
-  opaque observed DataHub URN and metadata fingerprints for every active mapping.
-- Schema v14 reserves one target, stores bounded payloads/events, uses database-time leases,
-  capability digests, fencing, retry/dead-letter and a pre-write cooperative cancellation boundary.
-- API can submit, inspect, authorize and cancel but has no writer secret; the publisher has no
-  source/LLM/OIDC/activation credential and cannot update active pointers.
-- DataHub success requires exact typed read-back of candidate, authorization, audit and observed
-  related assets. An absent target is explicit; ambiguity, altered content and partial privilege
-  responses fail closed.
-- M23 loads only an exact `activation_ready` v2 handoff and atomically rechecks retained catalog
-  authority under the workspace lock before pointer CAS. Rollback/reconciliation remain separate.
-- Required M34 matrix passes 118 tests with 5 explicit live-DataHub skips; fresh PostgreSQL
-  publication/M23/observer regressions pass 17 tests and deployment/runtime tests pass 215.
-- Internal-browser evidence covers the exact queued → approval → activation-ready path with one
-  immutable write, one version, opaque URN, unchanged pointer and no browser errors. One advanced
-  M32 Spanish request also produced a twice-guarded 106-line standalone PostgreSQL query without
-  execution.
-- The final full gate passes supply-chain/release policy, Ruff, mypy over 343 source files and
-  3,779 unit tests with 238 explicit deselections. Independent review and exact commands are
-  recorded in `tasks/M34_HANDOFF.md`.
+- Phase A profiles only aggregate key evidence and rejects self/cross-connection/many-to-many or
+  unmitigated fanout before a proposal exists.
+- Phase B consumes one immutable M33 source and exact active base/dependency/M26 authority, then
+  preserves, freshly upserts or explicitly removes every incident join.
+- Schema v15 persists bounded tenant history, exact replay, crash-safe requested-job binding,
+  fenced claims and closed `add_join_v1`/`replace_model_v1` publication sources.
+- HTTP derives actor/workspace from authentication, minimizes lists, masks cross-tenant existence
+  and exposes no source/DataHub/activation credential.
+- The publisher revalidates the complete authority closure; the replacement witness rejects
+  model, mapping, physical-binding or incident-join tampering before handoff.
+- Fresh PostgreSQL proves the complete replacement vertical through `activation_ready`, exact M23
+  handoff and unchanged pointer; all 88 v15 tables are visible to the read-only backup role.
+- Browser Phase A covers the safe journey and four hostile cases at desktop/mobile with zero
+  source writes, SQL, rows or credentials.
+- Final evidence passes 165 focal unit, 17 HTTP, 6 M34/M35 PostgreSQL and 7 acceptance tests plus
+  Ruff, mypy over 357 source files and the full 3,881-test gate with 245 explicit deselections.
 
 ## Commercial status
 
-M34 closes bounded local publication/read-back and the activation-ready bridge only. Live DataHub
-evidence on these exact bytes, live-provider/holdout quality, multi-dialect output, independent
-security verification, a typed v2 replacement/remediation lifecycle, operated SLO/scale evidence,
-M30 and M31 remain mandatory. The superseded M26 format-v1 replacement acceptance is an explicit
-skip and is not live M34 evidence.
+M35 closes the bounded local PostgreSQL registry-v2 change lifecycle only. The Phase B DataHub
+receipt is simulated and activation is deliberately not executed. Operated M29 controls, live
+DataHub/IAM/secrets, blind bilingual M30 quality and independent security verification, M31 pilot,
+large-scale customer evidence, legal/service controls and certification per future SQL dialect
+remain mandatory. Commercial/production/release status is **NO-GO**.
+
+---
+
+## Previous milestone snapshot — M34
+
+M34 remains accepted locally under D128. It supplies the isolated immutable publication/read-back
+queue and activation-ready handoff reused by M35; it never activates a registry.
 
 ---
 

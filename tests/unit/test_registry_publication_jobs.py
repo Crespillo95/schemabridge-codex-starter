@@ -5,8 +5,21 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from pydantic import ValidationError
+from tests.unit.test_registry_join_changes import _approved_draft, _two_model_base
+from tests.unit.test_registry_model_changes import (
+    _joined_base,
+    _prepared_change,
+    _replacement,
+    _replacement_base,
+)
 from tests.unit.test_registry_publication_v2 import OPAQUE_ORDERS_URN, _proposal
 
+from schemabridge.domain.registry_changes import PreparedRegistryJoinProposal
+from schemabridge.domain.registry_model_changes import (
+    PreparedRegistryModelReplacementProposal,
+    RegistryIncidentJoinPreservation,
+)
 from schemabridge.domain.registry_publication import (
     PublicationReadbackReceipt,
     RegistryPublicationAuthorization,
@@ -15,6 +28,7 @@ from schemabridge.domain.registry_publication import (
     observed_registry_related_asset_urns,
 )
 from schemabridge.domain.registry_publication_jobs import (
+    PreparedRegistryPublicationProposal,
     RegistryPublicationFailureCode,
     RegistryPublicationJob,
     RegistryPublicationJobStatus,
@@ -32,7 +46,6 @@ from schemabridge.domain.registry_publication_jobs import (
     registry_publication_request_fingerprint,
     request_registry_publication_cancellation,
 )
-from schemabridge.domain.semantic_onboarding import PreparedSemanticOnboardingProposal
 
 NOW = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
 CAPABILITY_A = "a" * 64
@@ -319,10 +332,69 @@ def test_expired_publication_lease_requires_readback_even_after_cancellation() -
     assert recovered.cancel_requested_at == NOW + timedelta(seconds=4)
 
 
+def test_job_round_trip_accepts_closed_join_proposal_without_changing_m33_payload() -> None:
+    historical = _job(_proposal())
+    historical_payload = historical.model_dump(mode="json")
+    base, base_identity = _two_model_base()
+    proposal = PreparedRegistryJoinProposal.create(
+        id="join-change-job-v3",
+        draft=_approved_draft(base, base_identity),
+        prepared_by="publisher-job",
+        prepared_at=NOW + timedelta(minutes=4),
+    )
+    joined = _job(proposal, submitted_at=NOW + timedelta(minutes=5))
+
+    restored = RegistryPublicationJob.model_validate(joined.model_dump(mode="json"))
+    historical_restored = RegistryPublicationJob.model_validate(historical_payload)
+
+    assert isinstance(restored.proposal, PreparedRegistryJoinProposal)
+    assert restored == joined
+    assert historical_restored == historical
+    assert historical_restored.model_dump(mode="json") == historical_payload
+    assert historical_restored.request_fingerprint == historical.request_fingerprint
+
+
+def test_job_rejects_a_join_payload_with_a_mismatched_proposal_kind() -> None:
+    base, base_identity = _two_model_base()
+    proposal = PreparedRegistryJoinProposal.create(
+        id="join-change-kind-v3",
+        draft=_approved_draft(base, base_identity),
+        prepared_by="publisher-kind",
+        prepared_at=NOW + timedelta(minutes=4),
+    )
+    job = _job(proposal, submitted_at=NOW + timedelta(minutes=5))
+    forged = proposal.model_dump(mode="json")
+    forged["proposal_kind"] = "onboarding_additive"
+
+    with pytest.raises(ValidationError, match="proposal_kind"):
+        RegistryPublicationJob.model_validate({**job.model_dump(mode="python"), "proposal": forged})
+
+
+def test_job_round_trip_accepts_closed_model_replacement_proposal() -> None:
+    base, identity = _joined_base()
+    replacement_base = _replacement_base(base, identity)
+    proposal = _prepared_change(
+        base=replacement_base,
+        replacement=_replacement(identity),
+        incident_changes=(
+            RegistryIncidentJoinPreservation(base=replacement_base.incident_joins[0]),
+        ),
+    )
+    job = _job(proposal, submitted_at=proposal.prepared_at + timedelta(minutes=1))
+
+    restored = RegistryPublicationJob.model_validate(job.model_dump(mode="json"))
+
+    assert isinstance(restored.proposal, PreparedRegistryModelReplacementProposal)
+    assert restored == job
+    assert restored.proposal.base_registry == identity
+    assert restored.proposal.target_registry_version == base.version + 1
+
+
 def _job(
-    proposal: PreparedSemanticOnboardingProposal,
+    proposal: PreparedRegistryPublicationProposal,
     *,
     max_attempts: int = 5,
+    submitted_at: datetime = NOW,
 ) -> RegistryPublicationJob:
     request_fingerprint = registry_publication_request_fingerprint(
         proposal,
@@ -331,7 +403,7 @@ def _job(
     return create_registry_publication_job(
         proposal,
         submitted_by="publisher-a",
-        submitted_at=NOW,
+        submitted_at=submitted_at,
         idempotency_digest=FP_A,
         request_fingerprint=request_fingerprint,
         max_attempts=max_attempts,

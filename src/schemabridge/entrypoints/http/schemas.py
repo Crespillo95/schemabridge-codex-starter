@@ -40,7 +40,38 @@ from schemabridge.domain.catalog_inventory import (
 )
 from schemabridge.domain.concepts import LogicalModelRef
 from schemabridge.domain.decisions import DecisionAction
+from schemabridge.domain.joins import JoinProposal
 from schemabridge.domain.physical_types import PhysicalValueType
+from schemabridge.domain.registry_change_authoring import (
+    RegistryChangeAuditRecord,
+    RegistryJoinChangeSnapshot,
+    RegistryJoinDraftMutation,
+    RegistryJoinPreparation,
+    RegistryJoinProfileAuthoringMutation,
+    RegistryJoinProfileAuthoringRequest,
+    RequestRegistryJoinProfileInput,
+)
+from schemabridge.domain.registry_changes import (
+    PreparedRegistryJoinProposal,
+    RegistryJoinChangeDraft,
+)
+from schemabridge.domain.registry_model_change_authoring import (
+    CreateRegistryModelChangeInput,
+    RegistryIncidentJoinInput,
+    RegistryModelChangeAuditRecord,
+    RegistryModelChangeDraft,
+    RegistryModelChangeMutation,
+    RegistryModelChangeSnapshot,
+    RegistryModelChangeStatus,
+    RegistryModelJoinProfileAuthoringRequest,
+    RegistryModelJoinProfileMutation,
+    RequestRegistryModelJoinProfileInput,
+)
+from schemabridge.domain.registry_model_changes import (
+    PreparedRegistryModelReplacementProposal,
+    RegistryModelChangeKind,
+    RegistryModelJoinProfileWitness,
+)
 from schemabridge.domain.registry_publication import (
     PublicationReadbackReceipt,
     PublishableRegistryVersion,
@@ -78,6 +109,7 @@ from schemabridge.domain.semantic_onboarding import (
     SemanticOnboardingPreparation,
     SemanticOnboardingStatus,
 )
+from schemabridge.domain.semantic_profile_jobs import SemanticJoinProfileJobStatus
 from schemabridge.domain.semantic_registry import SemanticRegistryScope
 
 
@@ -240,6 +272,11 @@ class RegistryPublicationJobResponse(_StrictApiModel):
     revision: int = Field(ge=1)
     attempt_count: int = Field(ge=0, le=10)
     max_attempts: int = Field(ge=1, le=10)
+    proposal_kind: Literal[
+        "onboarding_additive_v1",
+        "add_join_v1",
+        "replace_model_v1",
+    ]
     proposal_id: str = Field(min_length=3, max_length=200)
     proposal_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
     target_registry_version: int = Field(ge=1)
@@ -263,6 +300,15 @@ class RegistryPublicationJobResponse(_StrictApiModel):
             revision=value.revision,
             attempt_count=value.attempts,
             max_attempts=value.max_attempts,
+            proposal_kind=(
+                "replace_model_v1"
+                if isinstance(value.proposal, PreparedRegistryModelReplacementProposal)
+                else (
+                    "add_join_v1"
+                    if isinstance(value.proposal, PreparedRegistryJoinProposal)
+                    else "onboarding_additive_v1"
+                )
+            ),
             proposal_id=value.proposal.id,
             proposal_fingerprint=value.proposal.fingerprint,
             target_registry_version=value.proposal.target_registry_version,
@@ -806,6 +852,378 @@ class SemanticOnboardingPreparationResponse(_StrictApiModel):
 
     @classmethod
     def from_domain(cls, value: SemanticOnboardingPreparation) -> Self:
+        return cls(
+            draft=value.draft,
+            draft_fingerprint=value.draft.fingerprint,
+            proposal=value.proposal,
+            replayed=value.replayed,
+        )
+
+
+class RegistryJoinChangeListQuery(_StrictApiModel):
+    """Bounded first page of join changes visible to the authenticated principal."""
+
+    limit: int = Field(default=50, ge=1, le=50)
+
+
+class RegistryJoinChangeInspectionQuery(_StrictApiModel):
+    """Bounded most-recent audit window for one exact join change."""
+
+    history_limit: int = Field(default=25, ge=1, le=50)
+
+
+class RegistryJoinProfileRequest(_StrictApiModel):
+    """Client intent only; base, bindings and connector authority are reread server-side."""
+
+    change_id: str = Field(pattern=r"^[a-z][a-z0-9_-]{2,79}$")
+    connection_id: CatalogConnectionId
+    proposal: JoinProposal
+    expected_base_registry: OnboardingRegistryBase
+    expected_execution_target_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    def to_domain(self) -> RequestRegistryJoinProfileInput:
+        return RequestRegistryJoinProfileInput(**self.model_dump(mode="python"))
+
+
+class RegistryJoinDraftFinalizationRequest(_StrictApiModel):
+    confirmed_authoring_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class RegistryJoinDecisionRequest(_StrictApiModel):
+    action: Literal[DecisionAction.APPROVE, DecisionAction.REJECT]
+    expected_revision: int = Field(ge=1)
+    confirmed_draft_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    rationale: str = Field(min_length=12, max_length=2_000)
+
+    @field_validator("rationale")
+    @classmethod
+    def rationale_must_be_meaningful(cls, value: str) -> str:
+        stripped = value.strip()
+        if len(stripped) < 12:
+            raise ValueError("registry join rationale must contain 12 meaningful characters")
+        return stripped
+
+
+class RegistryJoinPreparationRequest(_StrictApiModel):
+    expected_revision: int = Field(ge=1)
+    confirmed_draft_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class RegistryJoinChangeSummaryResponse(_StrictApiModel):
+    """List projection without physical mapping, evidence, decision or audit payloads."""
+
+    change_id: str = Field(pattern=r"^[a-z][a-z0-9_-]{2,79}$")
+    owner_actor_id: str = Field(min_length=1, max_length=200)
+    scope: SemanticRegistryScope
+    connection_id: CatalogConnectionId
+    scan_id: str = Field(pattern=r"^scan_[0-9a-f]{64}$")
+    base_registry_version: int = Field(ge=1)
+    base_registry_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    authoring_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    created_at: datetime
+
+    @classmethod
+    def from_domain(cls, value: RegistryJoinProfileAuthoringRequest) -> Self:
+        base = value.request.base_evidence.base_registry
+        if base.registry_version is None or base.registry_fingerprint is None:
+            raise ValueError("registry join change list item has no active base")
+        return cls(
+            change_id=value.id,
+            owner_actor_id=value.owner_actor_id,
+            scope=value.request.scope,
+            connection_id=value.request.proposal.connection_id,
+            scan_id=value.request.scan_id,
+            base_registry_version=base.registry_version,
+            base_registry_fingerprint=base.registry_fingerprint,
+            authoring_fingerprint=value.fingerprint,
+            created_at=value.created_at,
+        )
+
+
+class RegistryJoinChangeListResponse(_StrictApiModel):
+    resource: Literal["registry_join_changes"] = "registry_join_changes"
+    state: Literal["not_configured", "configured"]
+    items: tuple[RegistryJoinChangeSummaryResponse, ...] = Field(max_length=50)
+
+    @classmethod
+    def from_domain(
+        cls,
+        values: tuple[RegistryJoinProfileAuthoringRequest, ...],
+    ) -> Self:
+        return cls(
+            state="not_configured" if not values else "configured",
+            items=tuple(RegistryJoinChangeSummaryResponse.from_domain(item) for item in values),
+        )
+
+
+class RegistryJoinProfileMutationResponse(_StrictApiModel):
+    authoring: RegistryJoinProfileAuthoringRequest
+    authoring_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    profile_job_id: str | None = Field(
+        default=None,
+        pattern=r"^profile_job_[0-9a-f]{64}$",
+    )
+    profile_job_status: SemanticJoinProfileJobStatus | None = None
+    replayed: bool
+    external_writes_performed: Literal[False] = False
+
+    @classmethod
+    def from_domain(cls, value: RegistryJoinProfileAuthoringMutation) -> Self:
+        return cls(
+            authoring=value.authoring,
+            authoring_fingerprint=value.authoring.fingerprint,
+            profile_job_id=None if value.job is None else value.job.job_id,
+            profile_job_status=None if value.job is None else value.job.status,
+            replayed=value.replayed,
+        )
+
+
+class RegistryJoinDraftMutationResponse(_StrictApiModel):
+    draft: RegistryJoinChangeDraft
+    draft_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    replayed: bool
+    external_writes_performed: Literal[False] = False
+
+    @classmethod
+    def from_domain(cls, value: RegistryJoinDraftMutation) -> Self:
+        return cls(
+            draft=value.draft,
+            draft_fingerprint=value.draft.fingerprint,
+            replayed=value.replayed,
+        )
+
+
+class RegistryJoinChangeResponse(_StrictApiModel):
+    authoring: RegistryJoinProfileAuthoringRequest
+    authoring_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    draft: RegistryJoinChangeDraft | None
+    draft_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    audit_visible: bool
+    history_truncated: bool
+    audit: tuple[RegistryChangeAuditRecord, ...] = Field(max_length=50)
+    external_writes_performed: Literal[False] = False
+
+    @classmethod
+    def from_domain(cls, value: RegistryJoinChangeSnapshot) -> Self:
+        return cls(
+            authoring=value.authoring,
+            authoring_fingerprint=value.authoring.fingerprint,
+            draft=value.draft,
+            draft_fingerprint=None if value.draft is None else value.draft.fingerprint,
+            audit_visible=value.audit_visible,
+            history_truncated=value.history_truncated,
+            audit=value.audit,
+        )
+
+
+class RegistryJoinPreparationResponse(_StrictApiModel):
+    draft: RegistryJoinChangeDraft
+    draft_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    proposal: PreparedRegistryJoinProposal
+    replayed: bool
+    external_writes_performed: Literal[False] = False
+
+    @classmethod
+    def from_domain(cls, value: RegistryJoinPreparation) -> Self:
+        return cls(
+            draft=value.draft,
+            draft_fingerprint=value.draft.fingerprint,
+            proposal=value.proposal,
+            replayed=value.replayed,
+        )
+
+
+class RegistryModelChangeListQuery(_StrictApiModel):
+    limit: int = Field(default=50, ge=1, le=50)
+
+
+class RegistryModelChangeInspectionQuery(_StrictApiModel):
+    history_limit: int = Field(default=25, ge=1, le=50)
+
+
+class RegistryModelProfileRequest(_StrictApiModel):
+    """Candidate join-profile intent; all authority is reread by the server."""
+
+    request_id: str = Field(pattern=r"^[a-z][a-z0-9_-]{2,79}$")
+    change_id: str = Field(pattern=r"^[a-z][a-z0-9_-]{2,79}$")
+    replacement_proposal_id: str = Field(min_length=3, max_length=200)
+    expected_replacement_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    target_model_id: LogicalModelRef
+    expected_base_registry: OnboardingRegistryBase
+    join_id: str = Field(min_length=3, max_length=200)
+    proposal: JoinProposal
+    expected_execution_target_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    def to_domain(self) -> RequestRegistryModelJoinProfileInput:
+        return RequestRegistryModelJoinProfileInput(**self.model_dump(mode="python"))
+
+
+class RegistryModelProfileFinalizationRequest(_StrictApiModel):
+    confirmed_authoring_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class RegistryModelChangeCreateRequest(_StrictApiModel):
+    """Typed model replacement/remediation intent without trusted authority payloads."""
+
+    change_id: str = Field(pattern=r"^[a-z][a-z0-9_-]{2,79}$")
+    replacement_proposal_id: str = Field(min_length=3, max_length=200)
+    expected_replacement_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    target_model_id: LogicalModelRef
+    expected_base_registry: OnboardingRegistryBase
+    kind: RegistryModelChangeKind
+    remediation_report_id: str | None = Field(default=None, min_length=3, max_length=200)
+    expected_remediation_report_fingerprint: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+    resolved_finding_ids: tuple[str, ...] = Field(default=(), max_length=2_000)
+    incident_joins: tuple[RegistryIncidentJoinInput, ...] = Field(default=(), max_length=500)
+    risks: tuple[str, ...] = Field(min_length=1, max_length=100)
+
+    def to_domain(self) -> CreateRegistryModelChangeInput:
+        return CreateRegistryModelChangeInput(**self.model_dump(mode="python"))
+
+
+class RegistryModelDecisionRequest(_StrictApiModel):
+    action: Literal[DecisionAction.APPROVE, DecisionAction.REJECT]
+    expected_revision: int = Field(ge=1)
+    confirmed_draft_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    rationale: str = Field(min_length=12, max_length=2_000)
+
+    @field_validator("rationale")
+    @classmethod
+    def rationale_must_be_meaningful(cls, value: str) -> str:
+        stripped = value.strip()
+        if len(stripped) < 12:
+            raise ValueError("registry model rationale must contain 12 meaningful characters")
+        return stripped
+
+
+class RegistryModelPreparationRequest(_StrictApiModel):
+    expected_revision: int = Field(ge=1)
+    confirmed_draft_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class RegistryModelProfileMutationResponse(_StrictApiModel):
+    authoring: RegistryModelJoinProfileAuthoringRequest
+    authoring_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    profile_job_id: str | None = Field(default=None, pattern=r"^profile_job_[0-9a-f]{64}$")
+    profile_job_status: SemanticJoinProfileJobStatus | None = None
+    witness: RegistryModelJoinProfileWitness | None = None
+    replayed: bool
+    external_writes_performed: Literal[False] = False
+
+    @classmethod
+    def from_domain(cls, value: RegistryModelJoinProfileMutation) -> Self:
+        return cls(
+            authoring=value.authoring,
+            authoring_fingerprint=value.authoring.fingerprint,
+            profile_job_id=None if value.job is None else value.job.job_id,
+            profile_job_status=None if value.job is None else value.job.status,
+            witness=value.witness,
+            replayed=value.replayed,
+        )
+
+
+class RegistryModelChangeSummaryResponse(_StrictApiModel):
+    """Bounded list projection without physical mappings, evidence, or audit payloads."""
+
+    change_id: str = Field(pattern=r"^[a-z][a-z0-9_-]{2,79}$")
+    owner_actor_id: str = Field(min_length=1, max_length=200)
+    scope: SemanticRegistryScope
+    source_proposal_id: str = Field(min_length=3, max_length=200)
+    source_proposal_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    target_model_id: LogicalModelRef
+    kind: RegistryModelChangeKind
+    base_registry_version: int = Field(ge=1)
+    base_registry_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    status: RegistryModelChangeStatus
+    revision: int = Field(ge=1)
+    draft_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    updated_at: datetime
+
+    @classmethod
+    def from_domain(cls, value: RegistryModelChangeDraft) -> Self:
+        base = value.base.base_registry
+        if base.registry_version is None or base.registry_fingerprint is None:
+            raise ValueError("registry model change list item has no active base")
+        return cls(
+            change_id=value.id,
+            owner_actor_id=value.owner_actor_id,
+            scope=value.base.scope,
+            source_proposal_id=value.source.proposal.id,
+            source_proposal_fingerprint=value.source.proposal.fingerprint,
+            target_model_id=value.base.target_model.id,
+            kind=value.authority.kind,
+            base_registry_version=base.registry_version,
+            base_registry_fingerprint=base.registry_fingerprint,
+            status=value.status,
+            revision=value.revision,
+            draft_fingerprint=value.fingerprint,
+            updated_at=value.updated_at,
+        )
+
+
+class RegistryModelChangeListResponse(_StrictApiModel):
+    resource: Literal["registry_model_changes"] = "registry_model_changes"
+    state: Literal["not_configured", "configured"]
+    items: tuple[RegistryModelChangeSummaryResponse, ...] = Field(max_length=50)
+
+    @classmethod
+    def from_domain(cls, values: tuple[RegistryModelChangeDraft, ...]) -> Self:
+        return cls(
+            state="not_configured" if not values else "configured",
+            items=tuple(RegistryModelChangeSummaryResponse.from_domain(item) for item in values),
+        )
+
+
+class RegistryModelChangeMutationResponse(_StrictApiModel):
+    draft: RegistryModelChangeDraft
+    draft_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    proposal: PreparedRegistryModelReplacementProposal | None = None
+    replayed: bool
+    external_writes_performed: Literal[False] = False
+
+    @classmethod
+    def from_domain(cls, value: RegistryModelChangeMutation) -> Self:
+        return cls(
+            draft=value.draft,
+            draft_fingerprint=value.draft.fingerprint,
+            proposal=value.proposal,
+            replayed=value.replayed,
+        )
+
+
+class RegistryModelChangeResponse(_StrictApiModel):
+    draft: RegistryModelChangeDraft
+    draft_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    audit_visible: bool
+    history_truncated: bool
+    audit: tuple[RegistryModelChangeAuditRecord, ...] = Field(max_length=50)
+    external_writes_performed: Literal[False] = False
+
+    @classmethod
+    def from_domain(cls, value: RegistryModelChangeSnapshot) -> Self:
+        return cls(
+            draft=value.draft,
+            draft_fingerprint=value.draft.fingerprint,
+            audit_visible=value.audit_visible,
+            history_truncated=value.history_truncated,
+            audit=value.audit,
+        )
+
+
+class RegistryModelPreparationResponse(_StrictApiModel):
+    draft: RegistryModelChangeDraft
+    draft_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    proposal: PreparedRegistryModelReplacementProposal
+    replayed: bool
+    external_writes_performed: Literal[False] = False
+
+    @classmethod
+    def from_domain(cls, value: RegistryModelChangeMutation) -> Self:
+        if value.proposal is None:
+            raise ValueError("registry model preparation has no immutable proposal")
         return cls(
             draft=value.draft,
             draft_fingerprint=value.draft.fingerprint,

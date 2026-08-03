@@ -57,6 +57,10 @@ from schemabridge.application.ports.semantic_change_read import (
     SemanticChangeReportFilter,
     SemanticChangeReportPublic,
 )
+from schemabridge.application.registry_changes import (
+    RegistryChangeAuthoringError,
+    RegistryChangeAuthoringErrorCode,
+)
 from schemabridge.application.registry_publication import (
     RegistryPublicationError,
     RegistryPublicationErrorCode,
@@ -94,6 +98,22 @@ from schemabridge.domain.catalog_inventory import (
 )
 from schemabridge.domain.decisions import DecisionAction
 from schemabridge.domain.identity import AuthenticatedPrincipal
+from schemabridge.domain.registry_change_authoring import (
+    RegistryJoinChangeSnapshot,
+    RegistryJoinDraftMutation,
+    RegistryJoinPreparation,
+    RegistryJoinProfileAuthoringMutation,
+    RegistryJoinProfileAuthoringRequest,
+    RequestRegistryJoinProfileInput,
+)
+from schemabridge.domain.registry_model_change_authoring import (
+    CreateRegistryModelChangeInput,
+    RegistryModelChangeDraft,
+    RegistryModelChangeMutation,
+    RegistryModelChangeSnapshot,
+    RegistryModelJoinProfileMutation,
+    RequestRegistryModelJoinProfileInput,
+)
 from schemabridge.domain.registry_publication import (
     RegistryPublicationAuthorizationConfirmation,
 )
@@ -128,6 +148,29 @@ from schemabridge.entrypoints.http.schemas import (
     ExecutionJobSubmissionResponse,
     HealthResponse,
     ProblemResponse,
+    RegistryJoinChangeInspectionQuery,
+    RegistryJoinChangeListQuery,
+    RegistryJoinChangeListResponse,
+    RegistryJoinChangeResponse,
+    RegistryJoinDecisionRequest,
+    RegistryJoinDraftFinalizationRequest,
+    RegistryJoinDraftMutationResponse,
+    RegistryJoinPreparationRequest,
+    RegistryJoinPreparationResponse,
+    RegistryJoinProfileMutationResponse,
+    RegistryJoinProfileRequest,
+    RegistryModelChangeCreateRequest,
+    RegistryModelChangeInspectionQuery,
+    RegistryModelChangeListQuery,
+    RegistryModelChangeListResponse,
+    RegistryModelChangeMutationResponse,
+    RegistryModelChangeResponse,
+    RegistryModelDecisionRequest,
+    RegistryModelPreparationRequest,
+    RegistryModelPreparationResponse,
+    RegistryModelProfileFinalizationRequest,
+    RegistryModelProfileMutationResponse,
+    RegistryModelProfileRequest,
     RegistryPublicationAuthorizationRequest,
     RegistryPublicationCancellationRequest,
     RegistryPublicationJobResponse,
@@ -161,6 +204,8 @@ _REFRESH_ID_PATTERN = r"^[a-z0-9][a-z0-9_-]{2,199}$"
 _ASSET_ID_PATTERN = r"^[^\x00-\x1f\x7f]{1,500}$"
 _SEMANTIC_CHANGE_REPORT_ID_PATTERN = r"^report_[0-9a-f]{64}$"
 _SEMANTIC_ONBOARDING_DRAFT_ID_PATTERN = r"^[a-z][a-z0-9_-]{2,79}$"
+_REGISTRY_JOIN_CHANGE_ID_PATTERN = r"^[a-z][a-z0-9_-]{2,79}$"
+_REGISTRY_MODEL_CHANGE_ID_PATTERN = r"^[a-z][a-z0-9_-]{2,79}$"
 _REGISTRY_PUBLICATION_JOB_ID_PATTERN = r"^[a-z0-9][a-z0-9_-]{2,199}$"
 _IDEMPOTENCY_PATTERN = r"^[A-Za-z0-9._~-]{16,128}$"
 _JSON_MEDIA_TYPE = "application/json"
@@ -213,6 +258,37 @@ _BUSINESS_HTTP_ROUTES: tuple[tuple[str, re.Pattern[str]], ...] = (
         re.compile(
             r"^/v1/semantic-onboarding/drafts/[a-z][a-z0-9_-]{2,79}"
             r"/(?:model-decisions|mapping-decisions|prepare-publication)$"
+        ),
+    ),
+    ("GET", re.compile(r"^/v1/registry-changes/joins$")),
+    ("POST", re.compile(r"^/v1/registry-changes/joins$")),
+    (
+        "GET",
+        re.compile(r"^/v1/registry-changes/joins/[a-z][a-z0-9_-]{2,79}$"),
+    ),
+    (
+        "POST",
+        re.compile(
+            r"^/v1/registry-changes/joins/[a-z][a-z0-9_-]{2,79}"
+            r"/(?:finalize|decide|prepare-publication)$"
+        ),
+    ),
+    ("POST", re.compile(r"^/v1/registry-changes/model-profiles$")),
+    (
+        "POST",
+        re.compile(r"^/v1/registry-changes/model-profiles/[a-z][a-z0-9_-]{2,79}/finalize$"),
+    ),
+    ("GET", re.compile(r"^/v1/registry-changes/models$")),
+    ("POST", re.compile(r"^/v1/registry-changes/models$")),
+    (
+        "GET",
+        re.compile(r"^/v1/registry-changes/models/[a-z][a-z0-9_-]{2,79}$"),
+    ),
+    (
+        "POST",
+        re.compile(
+            r"^/v1/registry-changes/models/[a-z][a-z0-9_-]{2,79}"
+            r"/(?:decide|prepare-publication)$"
         ),
     ),
     ("POST", re.compile(r"^/v1/registry-publications$")),
@@ -545,6 +621,161 @@ class SemanticOnboardingPreparationPort(Protocol):
         """Prepare one immutable non-executable publication proposal."""
 
 
+class RegistryJoinProfileRequestPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        request: RequestRegistryJoinProfileInput,
+        *,
+        idempotency_key: str,
+    ) -> RegistryJoinProfileAuthoringMutation:
+        """Persist, enqueue and bind one exact aggregate join-profile request."""
+
+
+class RegistryJoinChangeListPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        *,
+        limit: int = 50,
+    ) -> tuple[RegistryJoinProfileAuthoringRequest, ...]:
+        """Return a bounded tenant-scoped join-change list."""
+
+
+class RegistryJoinChangeInspectionPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        change_id: str,
+        *,
+        history_limit: int = 25,
+    ) -> RegistryJoinChangeSnapshot:
+        """Return one authorized join-change snapshot."""
+
+
+class RegistryJoinDraftFinalizationPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        change_id: str,
+        *,
+        confirmed_authoring_fingerprint: str,
+        idempotency_key: str,
+    ) -> RegistryJoinDraftMutation:
+        """Finalize one draft from an exact current completed profile."""
+
+
+class RegistryJoinDecisionPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        change_id: str,
+        *,
+        action: DecisionAction,
+        expected_revision: int,
+        confirmed_draft_fingerprint: str,
+        rationale: str,
+        idempotency_key: str,
+    ) -> RegistryJoinDraftMutation:
+        """Record or exactly replay one explicit join decision."""
+
+
+class RegistryJoinPreparationPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        change_id: str,
+        *,
+        expected_revision: int,
+        confirmed_draft_fingerprint: str,
+        idempotency_key: str,
+    ) -> RegistryJoinPreparation:
+        """Prepare one immutable add-join publication proposal."""
+
+
+class RegistryModelProfileRequestPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        request: RequestRegistryModelJoinProfileInput,
+        *,
+        idempotency_key: str,
+    ) -> RegistryModelJoinProfileMutation:
+        """Persist, enqueue, and bind one exact replacement join profile."""
+
+
+class RegistryModelProfileFinalizationPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        request_id: str,
+        *,
+        confirmed_authoring_fingerprint: str,
+        idempotency_key: str,
+    ) -> RegistryModelJoinProfileMutation:
+        """Record one exact completed aggregate profile as a durable witness."""
+
+
+class RegistryModelChangeCreationPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        request: CreateRegistryModelChangeInput,
+        *,
+        idempotency_key: str,
+    ) -> RegistryModelChangeMutation:
+        """Create one complete model replacement/remediation draft."""
+
+
+class RegistryModelChangeListPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        *,
+        limit: int = 50,
+    ) -> tuple[RegistryModelChangeDraft, ...]:
+        """Return a bounded tenant-scoped model-change list."""
+
+
+class RegistryModelChangeInspectionPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        change_id: str,
+        *,
+        history_limit: int = 25,
+    ) -> RegistryModelChangeSnapshot:
+        """Inspect one authorized model replacement/remediation."""
+
+
+class RegistryModelChangeDecisionPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        change_id: str,
+        *,
+        action: DecisionAction,
+        expected_revision: int,
+        confirmed_draft_fingerprint: str,
+        rationale: str,
+        idempotency_key: str,
+    ) -> RegistryModelChangeMutation:
+        """Record or replay one explicit outer replacement decision."""
+
+
+class RegistryModelChangePreparationPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        change_id: str,
+        *,
+        expected_revision: int,
+        confirmed_draft_fingerprint: str,
+        idempotency_key: str,
+    ) -> RegistryModelChangeMutation:
+        """Prepare one immutable replacement publication proposal."""
+
+
 class RegistryPublicationSubmissionPort(Protocol):
     def execute(
         self,
@@ -620,6 +851,27 @@ class SemanticOnboardingHttpServices:
 
 
 @dataclass(frozen=True, slots=True)
+class RegistryChangeHttpServices:
+    request_join_profile: RegistryJoinProfileRequestPort
+    list_join_changes: RegistryJoinChangeListPort
+    inspect_join_change: RegistryJoinChangeInspectionPort
+    finalize_join_draft: RegistryJoinDraftFinalizationPort
+    decide_join: RegistryJoinDecisionPort
+    prepare_join_publication: RegistryJoinPreparationPort
+
+
+@dataclass(frozen=True, slots=True)
+class RegistryModelChangeHttpServices:
+    request_profile: RegistryModelProfileRequestPort
+    finalize_profile: RegistryModelProfileFinalizationPort
+    create_change: RegistryModelChangeCreationPort
+    list_changes: RegistryModelChangeListPort
+    inspect_change: RegistryModelChangeInspectionPort
+    decide_change: RegistryModelChangeDecisionPort
+    prepare_publication: RegistryModelChangePreparationPort
+
+
+@dataclass(frozen=True, slots=True)
 class RegistryPublicationHttpServices:
     submit: RegistryPublicationSubmissionPort
     inspect: RegistryPublicationInspectionPort
@@ -639,6 +891,8 @@ class ApiHttpServices:
     admission: ApiAdmissionPort | None = None
     semantic_changes: SemanticChangeHttpServices | None = None
     semantic_onboarding: SemanticOnboardingHttpServices | None = None
+    registry_changes: RegistryChangeHttpServices | None = None
+    registry_model_changes: RegistryModelChangeHttpServices | None = None
     registry_publication: RegistryPublicationHttpServices | None = None
 
 
@@ -1248,6 +1502,67 @@ def create_http_app(
             headers={"WWW-Authenticate": "Bearer"} if status == 401 else None,
         )
 
+    @app.exception_handler(RegistryChangeAuthoringError)
+    async def registry_change_authoring_error(
+        request: Request,
+        error: RegistryChangeAuthoringError,
+    ) -> JSONResponse:
+        if error.code is RegistryChangeAuthoringErrorCode.UNAVAILABLE:
+            _mark_resource_access_cause(request, OperationalResourceAccessCause.DENIED)
+        status = {
+            RegistryChangeAuthoringErrorCode.INVALID_REQUEST: 422,
+            RegistryChangeAuthoringErrorCode.UNAVAILABLE: 404,
+            RegistryChangeAuthoringErrorCode.CONFLICT: 409,
+            RegistryChangeAuthoringErrorCode.STALE_BASE: 409,
+            RegistryChangeAuthoringErrorCode.STALE_CATALOG: 409,
+            RegistryChangeAuthoringErrorCode.STALE_TARGET: 409,
+            RegistryChangeAuthoringErrorCode.PROFILE_NOT_READY: 409,
+            RegistryChangeAuthoringErrorCode.PROFILE_STALE: 409,
+            RegistryChangeAuthoringErrorCode.NOT_READY: 409,
+            RegistryChangeAuthoringErrorCode.SEPARATION_OF_DUTIES: 403,
+            RegistryChangeAuthoringErrorCode.SERVICE_UNAVAILABLE: 503,
+        }[error.code]
+        return _problem_response(
+            request,
+            status=status,
+            code=error.code.value,
+            title={
+                RegistryChangeAuthoringErrorCode.INVALID_REQUEST: (
+                    "The registry-change request is invalid."
+                ),
+                RegistryChangeAuthoringErrorCode.UNAVAILABLE: (
+                    "The registry-change resource is not available."
+                ),
+                RegistryChangeAuthoringErrorCode.CONFLICT: (
+                    "The registry-change state changed; reload and retry."
+                ),
+                RegistryChangeAuthoringErrorCode.STALE_BASE: (
+                    "The active registry base changed; start a fresh change."
+                ),
+                RegistryChangeAuthoringErrorCode.STALE_CATALOG: (
+                    "The bound catalog authority is no longer current."
+                ),
+                RegistryChangeAuthoringErrorCode.STALE_TARGET: (
+                    "The governed connector target changed."
+                ),
+                RegistryChangeAuthoringErrorCode.PROFILE_NOT_READY: (
+                    "The exact aggregate profile is not complete."
+                ),
+                RegistryChangeAuthoringErrorCode.PROFILE_STALE: (
+                    "The exact aggregate profile is no longer current."
+                ),
+                RegistryChangeAuthoringErrorCode.NOT_READY: (
+                    "The registry change is not ready for this operation."
+                ),
+                RegistryChangeAuthoringErrorCode.SEPARATION_OF_DUTIES: (
+                    "A separate current publisher is required."
+                ),
+                RegistryChangeAuthoringErrorCode.SERVICE_UNAVAILABLE: (
+                    "The registry-change service is temporarily unavailable."
+                ),
+            }[error.code],
+        )
+
     @app.exception_handler(AuthorizationError)
     async def authorization_error(
         request: Request,
@@ -1256,6 +1571,7 @@ def create_http_app(
         _mark_resource_access_cause(request, OperationalResourceAccessCause.DENIED)
         if error.code is AuthorizationErrorCode.WORKFLOW_ACCESS_DENIED:
             semantic_onboarding_route = request.url.path.startswith("/v1/semantic-onboarding/")
+            registry_change_route = request.url.path.startswith("/v1/registry-changes/")
             registry_publication_route = request.url.path.startswith("/v1/registry-publications")
             return _problem_response(
                 request,
@@ -1264,18 +1580,26 @@ def create_http_app(
                     RegistryPublicationErrorCode.UNAVAILABLE.value
                     if registry_publication_route
                     else (
-                        SemanticOnboardingErrorCode.UNAVAILABLE.value
-                        if semantic_onboarding_route
-                        else "resource_unavailable"
+                        RegistryChangeAuthoringErrorCode.UNAVAILABLE.value
+                        if registry_change_route
+                        else (
+                            SemanticOnboardingErrorCode.UNAVAILABLE.value
+                            if semantic_onboarding_route
+                            else "resource_unavailable"
+                        )
                     )
                 ),
                 title=(
                     "The registry-publication resource is not available."
                     if registry_publication_route
                     else (
-                        "The semantic-onboarding resource is not available."
-                        if semantic_onboarding_route
-                        else "The requested resource is not available."
+                        "The registry-change resource is not available."
+                        if registry_change_route
+                        else (
+                            "The semantic-onboarding resource is not available."
+                            if semantic_onboarding_route
+                            else "The requested resource is not available."
+                        )
                     )
                 ),
             )
@@ -1884,6 +2208,362 @@ def create_http_app(
         response.status_code = 200 if result.replayed else 201
         return SemanticOnboardingPreparationResponse.from_domain(result)
 
+    @app.get(
+        "/v1/registry-changes/joins",
+        response_model=RegistryJoinChangeListResponse,
+    )
+    def list_registry_join_changes(
+        request: Request,
+        query: Annotated[RegistryJoinChangeListQuery, Query()],
+    ) -> RegistryJoinChangeListResponse:
+        authenticated = principal(request)
+        changes = _registry_change_services(services)
+        result = changes.list_join_changes.execute(
+            authenticated,
+            limit=query.limit,
+        )
+        return RegistryJoinChangeListResponse.from_domain(result)
+
+    @app.post(
+        "/v1/registry-changes/joins",
+        response_model=RegistryJoinProfileMutationResponse,
+        responses={
+            200: {"model": RegistryJoinProfileMutationResponse},
+            201: {"model": RegistryJoinProfileMutationResponse},
+        },
+    )
+    def request_registry_join_profile(
+        body: RegistryJoinProfileRequest,
+        response: Response,
+        request: Request,
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> RegistryJoinProfileMutationResponse:
+        _require_single_registry_change_idempotency_header(request, idempotency_key)
+        authenticated = principal(request)
+        changes = _registry_change_services(services)
+        try:
+            command = body.to_domain()
+        except ValueError as error:
+            raise _registry_change_invalid_request() from error
+        result = changes.request_join_profile.execute(
+            authenticated,
+            command,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 201
+        return RegistryJoinProfileMutationResponse.from_domain(result)
+
+    @app.get(
+        "/v1/registry-changes/joins/{change_id}",
+        response_model=RegistryJoinChangeResponse,
+    )
+    def inspect_registry_join_change(
+        request: Request,
+        query: Annotated[RegistryJoinChangeInspectionQuery, Query()],
+        change_id: str = Path(pattern=_REGISTRY_JOIN_CHANGE_ID_PATTERN),
+    ) -> RegistryJoinChangeResponse:
+        authenticated = principal(request)
+        changes = _registry_change_services(services)
+        result = changes.inspect_join_change.execute(
+            authenticated,
+            change_id,
+            history_limit=query.history_limit,
+        )
+        return RegistryJoinChangeResponse.from_domain(result)
+
+    @app.post(
+        "/v1/registry-changes/joins/{change_id}/finalize",
+        response_model=RegistryJoinDraftMutationResponse,
+        responses={
+            200: {"model": RegistryJoinDraftMutationResponse},
+            201: {"model": RegistryJoinDraftMutationResponse},
+        },
+    )
+    def finalize_registry_join_change(
+        body: RegistryJoinDraftFinalizationRequest,
+        response: Response,
+        request: Request,
+        change_id: str = Path(pattern=_REGISTRY_JOIN_CHANGE_ID_PATTERN),
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> RegistryJoinDraftMutationResponse:
+        _require_single_registry_change_idempotency_header(request, idempotency_key)
+        authenticated = principal(request)
+        changes = _registry_change_services(services)
+        result = changes.finalize_join_draft.execute(
+            authenticated,
+            change_id,
+            confirmed_authoring_fingerprint=body.confirmed_authoring_fingerprint,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 201
+        return RegistryJoinDraftMutationResponse.from_domain(result)
+
+    @app.post(
+        "/v1/registry-changes/joins/{change_id}/decide",
+        response_model=RegistryJoinDraftMutationResponse,
+        responses={
+            200: {"model": RegistryJoinDraftMutationResponse},
+            201: {"model": RegistryJoinDraftMutationResponse},
+        },
+    )
+    def decide_registry_join_change(
+        body: RegistryJoinDecisionRequest,
+        response: Response,
+        request: Request,
+        change_id: str = Path(pattern=_REGISTRY_JOIN_CHANGE_ID_PATTERN),
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> RegistryJoinDraftMutationResponse:
+        _require_single_registry_change_idempotency_header(request, idempotency_key)
+        authenticated = principal(request)
+        changes = _registry_change_services(services)
+        result = changes.decide_join.execute(
+            authenticated,
+            change_id,
+            action=body.action,
+            expected_revision=body.expected_revision,
+            confirmed_draft_fingerprint=body.confirmed_draft_fingerprint,
+            rationale=body.rationale,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 201
+        return RegistryJoinDraftMutationResponse.from_domain(result)
+
+    @app.post(
+        "/v1/registry-changes/joins/{change_id}/prepare-publication",
+        response_model=RegistryJoinPreparationResponse,
+        responses={
+            200: {"model": RegistryJoinPreparationResponse},
+            201: {"model": RegistryJoinPreparationResponse},
+        },
+    )
+    def prepare_registry_join_publication(
+        body: RegistryJoinPreparationRequest,
+        response: Response,
+        request: Request,
+        change_id: str = Path(pattern=_REGISTRY_JOIN_CHANGE_ID_PATTERN),
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> RegistryJoinPreparationResponse:
+        _require_single_registry_change_idempotency_header(request, idempotency_key)
+        authenticated = principal(request)
+        changes = _registry_change_services(services)
+        result = changes.prepare_join_publication.execute(
+            authenticated,
+            change_id,
+            expected_revision=body.expected_revision,
+            confirmed_draft_fingerprint=body.confirmed_draft_fingerprint,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 201
+        return RegistryJoinPreparationResponse.from_domain(result)
+
+    @app.post(
+        "/v1/registry-changes/model-profiles",
+        response_model=RegistryModelProfileMutationResponse,
+        responses={
+            200: {"model": RegistryModelProfileMutationResponse},
+            201: {"model": RegistryModelProfileMutationResponse},
+        },
+    )
+    def request_registry_model_profile(
+        body: RegistryModelProfileRequest,
+        response: Response,
+        request: Request,
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> RegistryModelProfileMutationResponse:
+        _require_single_registry_change_idempotency_header(request, idempotency_key)
+        try:
+            command = body.to_domain()
+        except ValueError as error:
+            raise _registry_change_invalid_request() from error
+        result = _registry_model_change_services(services).request_profile.execute(
+            principal(request),
+            command,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 201
+        return RegistryModelProfileMutationResponse.from_domain(result)
+
+    @app.post(
+        "/v1/registry-changes/model-profiles/{request_id}/finalize",
+        response_model=RegistryModelProfileMutationResponse,
+        responses={
+            200: {"model": RegistryModelProfileMutationResponse},
+            201: {"model": RegistryModelProfileMutationResponse},
+        },
+    )
+    def finalize_registry_model_profile(
+        body: RegistryModelProfileFinalizationRequest,
+        response: Response,
+        request: Request,
+        request_id: str = Path(pattern=_REGISTRY_MODEL_CHANGE_ID_PATTERN),
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> RegistryModelProfileMutationResponse:
+        _require_single_registry_change_idempotency_header(request, idempotency_key)
+        result = _registry_model_change_services(services).finalize_profile.execute(
+            principal(request),
+            request_id,
+            confirmed_authoring_fingerprint=body.confirmed_authoring_fingerprint,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 201
+        return RegistryModelProfileMutationResponse.from_domain(result)
+
+    @app.get(
+        "/v1/registry-changes/models",
+        response_model=RegistryModelChangeListResponse,
+    )
+    def list_registry_model_changes(
+        request: Request,
+        query: Annotated[RegistryModelChangeListQuery, Query()],
+    ) -> RegistryModelChangeListResponse:
+        values = _registry_model_change_services(services).list_changes.execute(
+            principal(request),
+            limit=query.limit,
+        )
+        return RegistryModelChangeListResponse.from_domain(values)
+
+    @app.post(
+        "/v1/registry-changes/models",
+        response_model=RegistryModelChangeMutationResponse,
+        responses={
+            200: {"model": RegistryModelChangeMutationResponse},
+            201: {"model": RegistryModelChangeMutationResponse},
+        },
+    )
+    def create_registry_model_change(
+        body: RegistryModelChangeCreateRequest,
+        response: Response,
+        request: Request,
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> RegistryModelChangeMutationResponse:
+        _require_single_registry_change_idempotency_header(request, idempotency_key)
+        try:
+            command = body.to_domain()
+        except ValueError as error:
+            raise _registry_change_invalid_request() from error
+        result = _registry_model_change_services(services).create_change.execute(
+            principal(request),
+            command,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 201
+        return RegistryModelChangeMutationResponse.from_domain(result)
+
+    @app.get(
+        "/v1/registry-changes/models/{change_id}",
+        response_model=RegistryModelChangeResponse,
+    )
+    def inspect_registry_model_change(
+        request: Request,
+        query: Annotated[RegistryModelChangeInspectionQuery, Query()],
+        change_id: str = Path(pattern=_REGISTRY_MODEL_CHANGE_ID_PATTERN),
+    ) -> RegistryModelChangeResponse:
+        result = _registry_model_change_services(services).inspect_change.execute(
+            principal(request),
+            change_id,
+            history_limit=query.history_limit,
+        )
+        return RegistryModelChangeResponse.from_domain(result)
+
+    @app.post(
+        "/v1/registry-changes/models/{change_id}/decide",
+        response_model=RegistryModelChangeMutationResponse,
+        responses={
+            200: {"model": RegistryModelChangeMutationResponse},
+            201: {"model": RegistryModelChangeMutationResponse},
+        },
+    )
+    def decide_registry_model_change(
+        body: RegistryModelDecisionRequest,
+        response: Response,
+        request: Request,
+        change_id: str = Path(pattern=_REGISTRY_MODEL_CHANGE_ID_PATTERN),
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> RegistryModelChangeMutationResponse:
+        _require_single_registry_change_idempotency_header(request, idempotency_key)
+        result = _registry_model_change_services(services).decide_change.execute(
+            principal(request),
+            change_id,
+            action=body.action,
+            expected_revision=body.expected_revision,
+            confirmed_draft_fingerprint=body.confirmed_draft_fingerprint,
+            rationale=body.rationale,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 201
+        return RegistryModelChangeMutationResponse.from_domain(result)
+
+    @app.post(
+        "/v1/registry-changes/models/{change_id}/prepare-publication",
+        response_model=RegistryModelPreparationResponse,
+        responses={
+            200: {"model": RegistryModelPreparationResponse},
+            201: {"model": RegistryModelPreparationResponse},
+        },
+    )
+    def prepare_registry_model_publication(
+        body: RegistryModelPreparationRequest,
+        response: Response,
+        request: Request,
+        change_id: str = Path(pattern=_REGISTRY_MODEL_CHANGE_ID_PATTERN),
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> RegistryModelPreparationResponse:
+        _require_single_registry_change_idempotency_header(request, idempotency_key)
+        result = _registry_model_change_services(services).prepare_publication.execute(
+            principal(request),
+            change_id,
+            expected_revision=body.expected_revision,
+            confirmed_draft_fingerprint=body.confirmed_draft_fingerprint,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 201
+        return RegistryModelPreparationResponse.from_domain(result)
+
     @app.post(
         "/v1/registry-publications",
         response_model=RegistryPublicationSubmissionResponse,
@@ -2014,6 +2694,28 @@ def _registry_publication_services(
     return services.registry_publication
 
 
+def _registry_change_services(
+    services: ApiHttpServices,
+) -> RegistryChangeHttpServices:
+    if services.registry_changes is None:
+        raise RegistryChangeAuthoringError(
+            RegistryChangeAuthoringErrorCode.SERVICE_UNAVAILABLE,
+            "registry change service is unavailable",
+        )
+    return services.registry_changes
+
+
+def _registry_model_change_services(
+    services: ApiHttpServices,
+) -> RegistryModelChangeHttpServices:
+    if services.registry_model_changes is None:
+        raise RegistryChangeAuthoringError(
+            RegistryChangeAuthoringErrorCode.SERVICE_UNAVAILABLE,
+            "registry model change service is unavailable",
+        )
+    return services.registry_model_changes
+
+
 def _decide_semantic_onboarding(
     services: ApiHttpServices,
     *,
@@ -2084,10 +2786,26 @@ def _require_single_registry_publication_idempotency_header(
         )
 
 
+def _require_single_registry_change_idempotency_header(
+    request: Request,
+    parsed_value: str,
+) -> None:
+    values = request.headers.getlist("idempotency-key")
+    if len(values) != 1 or values[0] != parsed_value:
+        raise _registry_change_invalid_request()
+
+
 def _semantic_onboarding_invalid_request() -> SemanticOnboardingError:
     return SemanticOnboardingError(
         SemanticOnboardingErrorCode.INVALID_REQUEST,
         "semantic onboarding request is invalid",
+    )
+
+
+def _registry_change_invalid_request() -> RegistryChangeAuthoringError:
+    return RegistryChangeAuthoringError(
+        RegistryChangeAuthoringErrorCode.INVALID_REQUEST,
+        "registry change request is invalid",
     )
 
 

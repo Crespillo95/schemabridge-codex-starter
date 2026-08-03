@@ -215,6 +215,16 @@ class RunOneSemanticJoinProfile:
                 capability,
                 SemanticJoinProfileFailureCode.SHUTDOWN_REQUESTED,
             )
+
+        def claim_is_current() -> bool:
+            """Revalidate the exact lease and its database-enforced authority."""
+
+            nonlocal current
+            if self._stopping():
+                return False
+            current = self._heartbeat(current, capability)
+            return True
+
         try:
             context = SemanticJoinProfileRouteContext.from_claim(
                 current,
@@ -223,7 +233,7 @@ class RunOneSemanticJoinProfile:
             )
             relationships = self.evidence_factory.for_claim(
                 context,
-                should_continue=self._should_continue,
+                should_continue=claim_is_current,
             )
             profile = relationships.profile_bound(proposal)
             profile = validate_semantic_join_profile_result(profile)
@@ -492,9 +502,6 @@ class RunOneSemanticJoinProfile:
                 "semantic profile stop signal is invalid",
             )
         return stopping
-
-    def _should_continue(self) -> bool:
-        return not self._stopping()
 
 
 def _relationship_failure_code(

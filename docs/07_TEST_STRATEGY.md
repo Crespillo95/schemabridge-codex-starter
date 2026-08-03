@@ -1381,3 +1381,25 @@ The exact required files are listed in `plans/M34_GOVERNED_REGISTRY_PUBLICATION.
 integration is separately credential-gated; a skip caused by absent external credentials must be
 reported and cannot become production evidence. The full `make check`, runtime-wheel smoke,
 deployment validator and `git diff --check` run on final bytes before local acceptance.
+
+## M35 registry-v2 change test matrix
+
+M35 adds independent positive and fail-closed coverage for both delta families:
+
+1. pure Phase A join and Phase B replacement/remediation assembly, complete incident-join
+   accounting, fanout, fresh aggregate evidence, M26/dependency authority and one-shot source
+   provenance;
+2. authenticated HTTP for every profile/change command, exact concurrent replay, altered replay,
+   tenant masking, strict bodies, minimized lists and no client-controlled identity;
+3. fresh PostgreSQL v15 for 88 backup-visible base tables, role/ACL separation, crash-safe job
+   binding, claim/heartbeat authority, restart/reaper behavior and immutable history;
+4. a vertical replacement proposal through generic M34 reservation, candidate assembly, exact
+   publication witness, authorization, `activation_ready` handoff and unchanged active pointer;
+5. tampering of the replacement model, mapping, physical binding, incident join, source proposal,
+   catalog/base/dependency/M26 authority or profile witness must yield no handoff/external write;
+6. internal-browser Phase A evidence must show the complete join path, hostile cases, desktop/mobile
+   layout, no source/SQL/credential exposure and no automatic activation.
+
+Live DataHub, external IAM/secret manager, production load and provider quality remain separate
+M29/M30/M31 gates. Passing this matrix establishes the bounded local PostgreSQL lifecycle, not a
+multi-dialect or production/commercial claim.

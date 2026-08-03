@@ -341,7 +341,7 @@ class Settings(BaseSettings):
         alias="SCHEMABRIDGE_CONTROL_PLANE_SCHEMA",
     )
     control_plane_schema_version: int = Field(
-        default=14,
+        default=15,
         ge=1,
         le=10_000,
         alias="SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION",

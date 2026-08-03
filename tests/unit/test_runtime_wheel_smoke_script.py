@@ -52,6 +52,7 @@ def test_runtime_wheel_contract_matches_every_current_packaged_asset() -> None:
         (12, "backup_identity"),
         (13, "semantic_onboarding"),
         (14, "registry_publication"),
+        (15, "registry_v2_changes"),
     )
     migration_files = sorted((root / "migrations" / "control_plane").glob("*.sql"))
     assert (
@@ -103,7 +104,7 @@ def test_runtime_wheel_contract_matches_every_current_packaged_asset() -> None:
         (
             "migration addition",
             EXPECTED_CONTROL_PLANE_MIGRATIONS,
-            (*EXPECTED_CONTROL_PLANE_MIGRATIONS, (15, "unexpected")),
+            (*EXPECTED_CONTROL_PLANE_MIGRATIONS, (16, "unexpected")),
         ),
         (
             "entrypoint deletion",

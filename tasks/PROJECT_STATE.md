@@ -117,6 +117,41 @@ checked in but not exercised locally; live-provider holdout quality, other SQL d
 engines, batch onboarding, large-catalog/load evidence, external IAM/TLS/secret rotation,
 independent security review, operated SLOs, legal/privacy controls, M30 and M31 all remain open.
 
+M35 is complete and accepted locally under D129. Phase A creates one tenant-bound join change over
+two exact active mappings, obtains only aggregate read-only relationship evidence, requires an
+explicit steward decision and assembles the next immutable registry-v2. Phase B consumes one
+immutable M33 replacement proposal, exact active base/catalog/dependency authority and, for
+remediation, one complete current blocking M26 report. It replaces exactly one model and accounts
+for every incident join as exact preservation, freshly profiled upsert or explicit removal.
+
+Control-plane schema v15 adds closed profile/change history and generalizes M34 publication with
+`add_join_v1` and `replace_model_v1` sources while preserving historical M33/M34 payloads. The API
+exposes strict tenant-derived Phase A/B commands but no source/DataHub credential; the worker
+rechecks exact authority before source I/O; the publisher verifies the outer proposal, M33 source,
+decisions, dependencies, M26 state and current profile witnesses. PostgreSQL accepts the model
+replacement handoff only when its typed witness matches model/fields, mappings, bindings,
+approvals and every incident-join effect.
+
+The final M35 evidence includes 165 focal unit tests, 17 HTTP boundary tests, 6 fresh M34/M35
+PostgreSQL publication tests, one isolated v15 backup proof over all 88 base tables, 7 acceptance
+passes with one explicit historical-v1 skip, Ruff, mypy over 357 source files and the full 3,881
+test gate with 245 explicit deselections. A final migration-expectation audit corrected stale v14
+lists in historical upgrade fixtures; all 64 affected PostgreSQL tests pass against v15. The
+PostgreSQL Phase B vertical reaches
+`activation_ready`, rejects model/mapping/binding/incident tampering and leaves the active pointer
+unchanged. Codex internal-browser Phase A passes the join journey and self/cross-connection/stale/
+many-to-many hostile cases at desktop/mobile with zero source writes, SQL, rows or credentials.
+Final independent security review found and corrected one invalid equality between the immutable
+M33 source owner and the separate outer change owner; the exact authority regression uses distinct
+owners and the closing review reports P0=0 and P1=0.
+
+M35 does not establish a commercial or production GO. Its DataHub publication/read-back vertical
+uses a closed simulated receipt, not live external IAM. PostgreSQL is still the sole output
+dialect; each request remains bounded to one connection, three tables and two joins; unsupported
+SQL families return no SQL. Operated M29 controls, M30 blind bilingual quality/security, M31 pilot,
+large-scale customer evidence, legal/service controls and separate certification for every future
+dialect remain mandatory.
+
 Initial commit `09c3a2e0f47a7fbadb5297fa6bc4f9aca0d21950` and its 12-commit history pass
 the exact secret scan and are published on draft PR #1. Hosted run `30765372081` passed quality,
 supply chain and GitGuardian, then failed closed on the backup-evidence ceiling and stale legacy
@@ -1787,9 +1822,13 @@ M29 final-byte remediation status on 2026-07-30:
   supports additive models only; it does not add joins, replace/remove models, onboard in batch,
   prove high-volume queue/catalog performance, or activate automatically.
 - The retained M26 live acceptance publishes format-v1 replacement registries and is explicitly
-  skipped after M34 because v1 is read-only and cannot produce an `activation_ready` handoff. A
-  typed v2 replacement/remediation contract plus the document-only publisher is required before
-  that operated lifecycle can be re-enabled; a green CI run is not evidence that it exists.
+  skipped after M34 because v1 is read-only and cannot produce an `activation_ready` handoff. Its
+  green historical CI result is not evidence for the typed v2 lifecycle added later by M35.
+- M35 now supplies that typed v2 replacement/remediation contract locally, but its Phase B
+  publication receipt is simulated and it deliberately does not activate. A rejected or stale M33
+  replacement source is one-shot and must be authored again; batch remediation and live DataHub/
+  IAM evidence remain open. The historical M26 live-v1 test stays skipped because it is not proof
+  of the new v2 path.
 
 ## Next milestone
 
@@ -1825,8 +1864,12 @@ M34 — governed registry publication and activation-ready handoff — is comple
 locally under D128. Its schema-v14 queue, isolated writer/readback, v2 physical authority,
 cooperative cancellation boundary, publication observability, exact M23 handoff, focused/fresh
 PostgreSQL/deployment/wheel/browser gates and independent review are recorded in
-`tasks/M34_HANDOFF.md`. M30 remains blocked on live evaluation/security inputs and an exact hosted
-M34 rerun; production/release remain NO-GO.
+`tasks/M34_HANDOFF.md`.
+M35 — governed registry-v2 join and one-model replacement/remediation — is complete and accepted
+locally under D129. Its schema-v15 authoring/profile authority, exact M34 publication source,
+replacement witness/handoff, HTTP/PostgreSQL/backup/acceptance/browser/full gates and retained
+commercial limitations are recorded in `tasks/M35_HANDOFF.md`. M30 remains blocked on operated
+M29 prerequisites and live evaluation/security inputs; production/release remain NO-GO.
 M17/M18 release work remains independently blocked on a reviewed clean commit, strict
 `make release-clean`, exact-commit deployment, public/incognito and cold-start evidence, final
 media/links/checksums, and external reviewer sign-off.

@@ -22,18 +22,29 @@ from schemabridge.application.ports.registry_publication import (
     RegistryPublicationStoreError,
 )
 from schemabridge.application.ports.semantic_onboarding import SemanticOnboardingClockPort
+from schemabridge.domain.registry_changes import (
+    PreparedRegistryJoinProposal,
+    assemble_join_change_registry_version,
+)
+from schemabridge.domain.registry_model_changes import (
+    PreparedRegistryModelReplacementProposal,
+    assemble_model_replacement_registry_version,
+)
 from schemabridge.domain.registry_publication import (
     ObservedRegistryPublicationResult,
     PublishableRegistryVersion,
     assemble_publishable_registry_version,
 )
 from schemabridge.domain.registry_publication_jobs import (
+    PreparedRegistryPublicationProposal,
     RegistryPublicationFailureCode,
     RegistryPublicationJob,
     RegistryPublicationJobPhase,
     RegistryPublicationJobStatus,
     digest_registry_publication_lease_capability,
 )
+from schemabridge.domain.semantic_onboarding import PreparedSemanticOnboardingProposal
+from schemabridge.domain.semantic_registry import GovernedSemanticRegistrySnapshot
 
 _SAFE_WORKER_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{2,199}$")
 
@@ -153,8 +164,10 @@ class RunOneRegistryPublisherWorker:
         capability: str,
     ) -> RegistryPublisherIterationResult:
         def operation() -> PublishableRegistryVersion:
+            _require_current_proposal(claim.proposal, at=self.clock.now())
             base = self.authority.resolve_base(claim.proposal)
-            return assemble_publishable_registry_version(claim.proposal, base=base)
+            _require_current_proposal(claim.proposal, at=self.clock.now())
+            return _assemble_registry_publication_candidate(claim.proposal, base=base)
 
         try:
             candidate, refreshed = self.heartbeat_supervisor.run(
@@ -178,6 +191,18 @@ class RunOneRegistryPublisherWorker:
                     fencing_token=refreshed.last_fencing_token,
                 )
                 return _iteration_result(cancelled)
+            _require_current_proposal(claim.proposal, at=self.clock.now())
+            current_base = self.authority.resolve_base(claim.proposal)
+            _require_current_proposal(claim.proposal, at=self.clock.now())
+            current_candidate = _assemble_registry_publication_candidate(
+                claim.proposal,
+                base=current_base,
+            )
+            if current_candidate != candidate:
+                raise RegistryPublicationAuthorityError(
+                    RegistryPublicationFailureCode.CANDIDATE_INVALID,
+                    "registry publication candidate changed before durable preparation",
+                )
             ready = self.jobs.record_candidate(
                 claim.id,
                 candidate,
@@ -241,8 +266,10 @@ class RunOneRegistryPublisherWorker:
                     RegistryPublicationFailureCode.AUTHORIZATION_EXPIRED,
                     "registry publication authorization expired before a new write",
                 )
+            _require_current_proposal(claim.proposal, at=self.clock.now())
             base = self.authority.resolve_base(claim.proposal)
-            rebuilt = assemble_publishable_registry_version(claim.proposal, base=base)
+            _require_current_proposal(claim.proposal, at=self.clock.now())
+            rebuilt = _assemble_registry_publication_candidate(claim.proposal, base=base)
             if rebuilt != candidate:
                 raise RegistryPublicationAuthorityError(
                     RegistryPublicationFailureCode.CANDIDATE_INVALID,
@@ -265,6 +292,23 @@ class RunOneRegistryPublisherWorker:
                 # cancellation observed before it performs no DataHub write;
                 # after it, exact read-back remains authoritative.
                 return observed
+            if not authorization.is_current(self.clock.now()):
+                raise RegistryPublicationAuthorityError(
+                    RegistryPublicationFailureCode.AUTHORIZATION_EXPIRED,
+                    "registry publication authorization expired before a new write",
+                )
+            _require_current_proposal(claim.proposal, at=self.clock.now())
+            prewrite_base = self.authority.resolve_base(claim.proposal)
+            _require_current_proposal(claim.proposal, at=self.clock.now())
+            prewrite_candidate = _assemble_registry_publication_candidate(
+                claim.proposal,
+                base=prewrite_base,
+            )
+            if prewrite_candidate != candidate:
+                raise RegistryPublicationAuthorityError(
+                    RegistryPublicationFailureCode.CANDIDATE_INVALID,
+                    "registry publication candidate changed at the external-write boundary",
+                )
             return self.publisher.publish(
                 candidate,
                 authorization,
@@ -473,6 +517,39 @@ def _claim_matches(
         and lease.fencing_token == claim.last_fencing_token
         and lease.is_current(at)
     )
+
+
+def _require_current_proposal(
+    proposal: PreparedRegistryPublicationProposal,
+    *,
+    at: datetime,
+) -> None:
+    if isinstance(
+        proposal,
+        (PreparedRegistryJoinProposal, PreparedRegistryModelReplacementProposal),
+    ) and not proposal.is_current(at):
+        raise RegistryPublicationAuthorityError(
+            RegistryPublicationFailureCode.PROPOSAL_STALE,
+            "registry change publication evidence expired",
+        )
+
+
+def _assemble_registry_publication_candidate(
+    proposal: PreparedRegistryPublicationProposal,
+    *,
+    base: GovernedSemanticRegistrySnapshot | None,
+) -> PublishableRegistryVersion:
+    if isinstance(proposal, PreparedRegistryJoinProposal):
+        if not isinstance(base, GovernedSemanticRegistrySnapshot):
+            raise ValueError("registry join publication requires one exact active base")
+        return assemble_join_change_registry_version(proposal, base=base)
+    if isinstance(proposal, PreparedRegistryModelReplacementProposal):
+        if not isinstance(base, GovernedSemanticRegistrySnapshot):
+            raise ValueError("registry model publication requires one exact active base")
+        return assemble_model_replacement_registry_version(proposal, base=base)
+    if isinstance(proposal, PreparedSemanticOnboardingProposal):
+        return assemble_publishable_registry_version(proposal, base=base)
+    raise ValueError("registry publication proposal kind is unsupported")
 
 
 def _datahub_error_code(error: DataHubPublicationError) -> RegistryPublicationFailureCode:

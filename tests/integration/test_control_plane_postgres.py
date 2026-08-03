@@ -355,8 +355,8 @@ def test_backup_identity_reads_complete_schema_and_cannot_write(
             True,
             True,
             900_000,
-            14,
-            69,
+            15,
+            88,
         )
 
     with (
@@ -1414,8 +1414,8 @@ def test_signed_backup_restores_exact_state_into_a_fresh_database(
     assert evidence.archive.stat().st_mode & 0o077 == 0
     assert evidence.manifest_path.stat().st_mode & 0o077 == 0
     manifest = evidence.manifest
-    assert len(manifest.table_counts) == 69
-    assert manifest.table_counts["schema_migrations"] == 14
+    assert len(manifest.table_counts) == 88
+    assert manifest.table_counts["schema_migrations"] == 15
     assert manifest.table_counts["execution_jobs"] == 0
     assert manifest.table_counts["execution_job_events"] == 0
     assert manifest.table_counts["registry_active_pointers"] == 1
@@ -1437,7 +1437,7 @@ def test_signed_backup_restores_exact_state_into_a_fresh_database(
 
     verification = restore.restore_backup(evidence.archive, evidence.manifest_path)
 
-    assert verification.schema_version == 14
+    assert verification.schema_version == 15
     assert verification.schema_checksum == manifest.schema_checksum
     assert verification.state_sha256 == manifest.state_sha256
     assert verification.table_counts == manifest.table_counts

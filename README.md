@@ -19,6 +19,10 @@ approved semantic context can be written back to DataHub through its separate ap
 > onboarding through an immutable `ready_for_publication` handoff. M34 is accepted locally for
 > queued, approval-gated publication of an exact registry-v2 document, independent DataHub
 > read-back, and a separate activation-ready handoff; the publisher cannot activate a registry.
+> M35 is accepted locally for one approved same-connection join or one complete model
+> replacement/remediation over an exact active registry-v2, including PostgreSQL v15 authority,
+> HTTP, publication witness and activation-ready handoff. It still performs no automatic
+> activation and the local DataHub read-back evidence is simulated.
 > Live-provider evaluation, independent security verification, an operated pilot, and every
 > production/release control remain open. No error-free, all-SQL-dialects, or production claim is
 > made. The exact support matrix and adoption gates are in the
@@ -594,9 +598,9 @@ authenticated API/durable worker; and M25 adds dynamic tenant catalog indexing, 
 and local scale measurement; M26 adds governed drift/change management; M27 adds bounded Query
 Studio and optional tenant-governed AI; M28 adds connector routing/cost controls; and M29 adds
 production-shaped local operations/supply-chain contracts. M32 is a separately accepted local
-copy-first product capability and does not advance the reserved M30/M31 production-evaluation,
-security-verification, pilot, or GA gates. The public recorded judge profile remains intentionally
-anonymous and secret-free.
+copy-first product capability; M33–M35 add governed onboarding, publication and immutable v2
+changes. None advances the reserved M30/M31 production-evaluation, security-verification, pilot,
+or GA gates. The public recorded judge profile remains intentionally anonymous and secret-free.
 
 ## Repository and evidence
 
@@ -610,6 +614,11 @@ anonymous and secret-free.
 - [M27 local synthetic handoff and retained limitations](tasks/M27_HANDOFF.md)
 - [M32 simple/advanced copyable PostgreSQL plan](plans/M32_ADVANCED_COPYABLE_SQL.md)
 - [M32 architectural decision](docs/adr/0015-advanced-copyable-postgresql.md)
+- [M35 registry-v2 change plan](plans/M35_REGISTRY_V2_CHANGE_LIFECYCLE.md)
+- [M35 accepted local handoff](tasks/M35_HANDOFF.md)
+- [Commercial support matrix and adoption plan](docs/19_COMMERCIAL_USAGE.md)
+- [M30 production evaluation/security plan](plans/M30_PRODUCTION_EVALUATION_SECURITY.md)
+- [M31 controlled pilot/GA-readiness plan](plans/M31_CONTROLLED_PILOT_GA_READINESS.md)
 - [Evaluation methodology](docs/15_EVALUATION.md)
 - [Submission draft and link status](docs/18_DEVPOST_SUBMISSION.md)
 - [Video script, caption, and rights checklist](docs/18_VIDEO_PRODUCTION.md)

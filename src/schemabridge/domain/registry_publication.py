@@ -496,31 +496,61 @@ def assemble_publishable_registry_version(
         physical_bindings=(*base_bindings, *new_bindings),
     )
     registry = prepare_datahub_registry_version(registry, proposal.scope)
-    payload = {
-        "id": registry_publication_candidate_id(proposal.id, proposal.fingerprint),
-        "scope": proposal.scope,
-        "source_proposal_id": proposal.id,
-        "source_proposal_fingerprint": proposal.fingerprint,
-        "base_registry": proposal.base_registry,
-        "registry": registry,
-        "target": datahub_registry_document_urn(proposal.scope, target_version),
-        "review_decision_ids": tuple(
+    return create_publishable_registry_version(
+        scope=proposal.scope,
+        source_proposal_id=proposal.id,
+        source_proposal_fingerprint=proposal.fingerprint,
+        base_registry=proposal.base_registry,
+        registry=registry,
+        review_decision_ids=tuple(
             sorted(set(proposal.decision_ids) | set(semantic_registry_decision_ids(registry)))
         ),
-        "active_decision_ids": semantic_registry_decision_ids(registry),
+    )
+
+
+def create_publishable_registry_version(
+    *,
+    scope: SemanticRegistryScope,
+    source_proposal_id: str,
+    source_proposal_fingerprint: str,
+    base_registry: OnboardingRegistryBase,
+    registry: GovernedSemanticRegistrySnapshot,
+    review_decision_ids: tuple[str, ...],
+) -> PublishableRegistryVersion:
+    """Create one self-verifying M34 candidate from a complete prepared v2 snapshot.
+
+    The helper is proposal-family neutral.  It preserves the accepted M34 candidate
+    identity while allowing later governed proposal types to reuse the isolated
+    publication/read-back boundary.
+    """
+
+    active_decision_ids = semantic_registry_decision_ids(registry)
+    payload = {
+        "id": registry_publication_candidate_id(
+            source_proposal_id,
+            source_proposal_fingerprint,
+        ),
+        "scope": scope,
+        "source_proposal_id": source_proposal_id,
+        "source_proposal_fingerprint": source_proposal_fingerprint,
+        "base_registry": base_registry,
+        "registry": registry,
+        "target": datahub_registry_document_urn(scope, registry.version),
+        "review_decision_ids": tuple(sorted(set(review_decision_ids))),
+        "active_decision_ids": active_decision_ids,
     }
     fingerprint = registry_publication_candidate_fingerprint(
         _candidate_identity_payload(
             id=payload["id"],
-            scope=proposal.scope,
-            source_proposal_id=proposal.id,
-            source_proposal_fingerprint=proposal.fingerprint,
-            base_registry=proposal.base_registry,
+            scope=scope,
+            source_proposal_id=source_proposal_id,
+            source_proposal_fingerprint=source_proposal_fingerprint,
+            base_registry=base_registry,
             registry_version=registry.version,
             registry_fingerprint=registry.fingerprint,
             target=payload["target"],
             review_decision_ids=payload["review_decision_ids"],
-            active_decision_ids=payload["active_decision_ids"],
+            active_decision_ids=active_decision_ids,
         )
     )
     return PublishableRegistryVersion(**payload, fingerprint=fingerprint)
@@ -751,6 +781,7 @@ __all__ = [
     "RegistryPublicationAuthorizationConfirmation",
     "RegistryPublicationCandidateManifest",
     "assemble_publishable_registry_version",
+    "create_publishable_registry_version",
     "observed_registry_related_asset_urns",
     "registry_publication_candidate_fingerprint",
     "registry_publication_candidate_id",

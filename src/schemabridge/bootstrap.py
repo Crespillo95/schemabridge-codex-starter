@@ -3601,7 +3601,7 @@ def build_api_http_services(
     settings: Settings | None = None,
     control_connection_provider: "ControlConnectionProvider | None" = None,
 ) -> "ApiHttpServices":
-    """Compose the API without source, LLM, external-registry, or DataHub adapters."""
+    """Compose the API without source, LLM, or DataHub writer adapters."""
 
     from schemabridge.adapters.catalog.cursor import SignedInventoryCursorCodec
     from schemabridge.adapters.catalog.postgres_inventory import (
@@ -3612,11 +3612,20 @@ def build_api_http_services(
     from schemabridge.adapters.catalog.postgres_refresh import (
         PostgresCatalogRefreshStore,
     )
+    from schemabridge.adapters.catalog.postgres_registry_publication import (
+        PostgresRegistryPhysicalBindingAuthority,
+    )
     from schemabridge.adapters.catalog.postgres_semantic_onboarding import (
         PostgresSemanticOnboardingCatalogEvidence,
     )
+    from schemabridge.adapters.connectors.postgres_routing import (
+        PostgresExecutionTargetResolver,
+    )
     from schemabridge.adapters.control_plane.postgres_active_registry import (
         PostgresActiveRegistryPointerReader,
+    )
+    from schemabridge.adapters.control_plane.postgres_active_registry_version import (
+        PostgresActiveRegistryVersionReader,
     )
     from schemabridge.adapters.control_plane.postgres_registry_publication import (
         PostgresRegistryPublicationJobStore,
@@ -3625,11 +3634,26 @@ def build_api_http_services(
     from schemabridge.adapters.semantic_change.cursor import (
         SignedSemanticChangeCursorCodec,
     )
+    from schemabridge.adapters.semantic_change.postgres_dependencies import (
+        PostgresSemanticChangeDependencyIndex,
+    )
     from schemabridge.adapters.semantic_change.postgres_read import (
         PostgresSemanticChangeReadStore,
     )
     from schemabridge.adapters.semantic_onboarding.registry_base import (
         AuthoritativeSemanticOnboardingRegistryBaseReader,
+    )
+    from schemabridge.adapters.storage.postgres_registry_changes import (
+        PostgresRegistryChangeStore,
+        PostgresRegistryJoinProfileRequestQueue,
+    )
+    from schemabridge.adapters.storage.postgres_registry_model_changes import (
+        PostgresRegistryModelChangeStore,
+        PostgresRegistryModelJoinProfileQueue,
+        PostgresRegistryModelJoinProfileWitnessReader,
+        PostgresRegistryModelProfileStore,
+        PostgresRegistryModelRemediationEvidenceReader,
+        PostgresRegistryModelReplacementSourceReader,
     )
     from schemabridge.adapters.storage.postgres_semantic_onboarding import (
         PostgresSemanticOnboardingStore,
@@ -3651,6 +3675,26 @@ def build_api_http_services(
         SemanticOnboardingStorePort,
     )
     from schemabridge.application.ports.workflow_access import WorkflowAccessStorePort
+    from schemabridge.application.registry_change_authorization import (
+        RegistryChangeAuthorizationPolicy,
+    )
+    from schemabridge.application.registry_changes import (
+        DecideRegistryJoinChange,
+        FinalizeRegistryJoinChangeDraft,
+        InspectRegistryJoinChange,
+        ListRegistryJoinChanges,
+        PrepareRegistryJoinChangePublication,
+        RequestRegistryJoinProfile,
+    )
+    from schemabridge.application.registry_model_changes import (
+        CreateRegistryModelChange,
+        DecideRegistryModelChange,
+        FinalizeRegistryModelJoinProfile,
+        InspectRegistryModelChange,
+        ListRegistryModelChanges,
+        PrepareRegistryModelChangePublication,
+        RequestRegistryModelJoinProfile,
+    )
     from schemabridge.application.registry_publication import (
         AuthorizeRegistryPublication,
         CancelRegistryPublication,
@@ -3676,6 +3720,22 @@ def build_api_http_services(
         SemanticOnboardingAuthorizationPolicy,
     )
     from schemabridge.domain.decisions import DecisionAction
+    from schemabridge.domain.registry_change_authoring import (
+        RegistryJoinChangeSnapshot,
+        RegistryJoinDraftMutation,
+        RegistryJoinPreparation,
+        RegistryJoinProfileAuthoringMutation,
+        RegistryJoinProfileAuthoringRequest,
+        RequestRegistryJoinProfileInput,
+    )
+    from schemabridge.domain.registry_model_change_authoring import (
+        CreateRegistryModelChangeInput,
+        RegistryModelChangeDraft,
+        RegistryModelChangeMutation,
+        RegistryModelChangeSnapshot,
+        RegistryModelJoinProfileMutation,
+        RequestRegistryModelJoinProfileInput,
+    )
     from schemabridge.domain.semantic_onboarding import (
         CreateSemanticOnboardingRequest,
         OnboardingEvidence,
@@ -3689,6 +3749,8 @@ def build_api_http_services(
     from schemabridge.entrypoints.http.app import (
         ApiHttpServices,
         CatalogHttpServices,
+        RegistryChangeHttpServices,
+        RegistryModelChangeHttpServices,
         RegistryPublicationHttpServices,
         SemanticChangeHttpServices,
         SemanticOnboardingHttpServices,
@@ -3772,13 +3834,89 @@ def build_api_http_services(
         stale_after_seconds=resolved.catalog_stale_after_seconds,
         connection_provider=control_connection_provider,
     )
+    api_control_dsn = _control_plane_dsn(resolved, "api")
+    active_registry_pointers = PostgresActiveRegistryPointerReader(
+        dsn=api_control_dsn,
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-api",
+        connection_provider=control_connection_provider,
+    )
     onboarding_registry_bases = AuthoritativeSemanticOnboardingRegistryBaseReader(
-        pointers=PostgresActiveRegistryPointerReader(
-            dsn=_control_plane_dsn(resolved, "api"),
-            schema=resolved.control_plane_schema,
-            application_name="schemabridge-control-api",
-            connection_provider=control_connection_provider,
-        )
+        pointers=active_registry_pointers
+    )
+    registry_versions = PostgresActiveRegistryVersionReader(
+        dsn=api_control_dsn,
+        pointers=active_registry_pointers,
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-api",
+        connection_provider=control_connection_provider,
+    )
+    registry_change_store = PostgresRegistryChangeStore(
+        dsn=api_control_dsn,
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-api",
+        connection_provider=control_connection_provider,
+    )
+    registry_join_profiles = PostgresRegistryJoinProfileRequestQueue(
+        dsn=api_control_dsn,
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-api",
+        connection_provider=control_connection_provider,
+    )
+    registry_change_targets = PostgresExecutionTargetResolver(
+        api_control_dsn,
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-api",
+        connection_provider=control_connection_provider,
+    )
+    registry_change_bindings = PostgresRegistryPhysicalBindingAuthority(
+        dsn=api_control_dsn,
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-api",
+        stale_after_seconds=resolved.catalog_stale_after_seconds,
+        connection_provider=control_connection_provider,
+    )
+    registry_model_changes = PostgresRegistryModelChangeStore(
+        dsn=api_control_dsn,
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-api",
+        connection_provider=control_connection_provider,
+    )
+    registry_model_profiles = PostgresRegistryModelProfileStore(
+        dsn=api_control_dsn,
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-api",
+        connection_provider=control_connection_provider,
+    )
+    registry_model_profile_queue = PostgresRegistryModelJoinProfileQueue(
+        dsn=api_control_dsn,
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-api",
+        connection_provider=control_connection_provider,
+    )
+    registry_model_sources = PostgresRegistryModelReplacementSourceReader(
+        dsn=api_control_dsn,
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-api",
+        connection_provider=control_connection_provider,
+    )
+    registry_model_remediation = PostgresRegistryModelRemediationEvidenceReader(
+        dsn=api_control_dsn,
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-api",
+        connection_provider=control_connection_provider,
+    )
+    registry_model_witnesses = PostgresRegistryModelJoinProfileWitnessReader(
+        dsn=api_control_dsn,
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-api",
+        connection_provider=control_connection_provider,
+    )
+    registry_model_dependencies = PostgresSemanticChangeDependencyIndex(
+        dsn=api_control_dsn,
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-api",
+        connection_provider=control_connection_provider,
     )
     identity_resolver = (
         build_identity_binding_resolver(
@@ -3790,6 +3928,7 @@ def build_api_http_services(
         else None
     )
     onboarding_authorization = SemanticOnboardingAuthorizationPolicy(identity_resolver)
+    registry_change_authorization = RegistryChangeAuthorizationPolicy(identity_resolver)
 
     def onboarding_store_for(
         principal: AuthenticatedPrincipal,
@@ -3947,6 +4086,305 @@ def build_api_http_services(
                 idempotency_key=idempotency_key,
             )
 
+    class TenantRegistryJoinProfileRequester:
+        """Bind a new join-profile request to the authenticated tenant scope."""
+
+        def execute(
+            self,
+            principal: AuthenticatedPrincipal,
+            request: RequestRegistryJoinProfileInput,
+            *,
+            idempotency_key: str,
+        ) -> RegistryJoinProfileAuthoringMutation:
+            return RequestRegistryJoinProfile(
+                store=registry_change_store,
+                pointers=active_registry_pointers,
+                versions=registry_versions,
+                targets=registry_change_targets,
+                physical_bindings=registry_change_bindings,
+                profiles=registry_join_profiles,
+                authorization=registry_change_authorization,
+                clock=clock,
+                scope=onboarding_scope(principal),
+            ).execute(
+                principal,
+                request,
+                idempotency_key=idempotency_key,
+            )
+
+    class TenantRegistryJoinChangeLister:
+        def execute(
+            self,
+            principal: AuthenticatedPrincipal,
+            *,
+            limit: int = 50,
+        ) -> tuple[RegistryJoinProfileAuthoringRequest, ...]:
+            return ListRegistryJoinChanges(
+                store=registry_change_store,
+                authorization=registry_change_authorization,
+                clock=clock,
+            ).execute(principal, limit=limit)
+
+    class TenantRegistryJoinChangeInspector:
+        def execute(
+            self,
+            principal: AuthenticatedPrincipal,
+            change_id: str,
+            *,
+            history_limit: int = 25,
+        ) -> RegistryJoinChangeSnapshot:
+            return InspectRegistryJoinChange(
+                store=registry_change_store,
+                authorization=registry_change_authorization,
+                clock=clock,
+            ).execute(principal, change_id, history_limit=history_limit)
+
+    class TenantRegistryJoinDraftFinalizer:
+        def execute(
+            self,
+            principal: AuthenticatedPrincipal,
+            change_id: str,
+            *,
+            confirmed_authoring_fingerprint: str,
+            idempotency_key: str,
+        ) -> RegistryJoinDraftMutation:
+            return FinalizeRegistryJoinChangeDraft(
+                store=registry_change_store,
+                pointers=active_registry_pointers,
+                versions=registry_versions,
+                targets=registry_change_targets,
+                physical_bindings=registry_change_bindings,
+                profiles=registry_join_profiles,
+                authorization=registry_change_authorization,
+                clock=clock,
+            ).execute(
+                principal,
+                change_id,
+                confirmed_authoring_fingerprint=confirmed_authoring_fingerprint,
+                idempotency_key=idempotency_key,
+            )
+
+    class TenantRegistryJoinDecider:
+        def execute(
+            self,
+            principal: AuthenticatedPrincipal,
+            change_id: str,
+            *,
+            action: DecisionAction,
+            expected_revision: int,
+            confirmed_draft_fingerprint: str,
+            rationale: str,
+            idempotency_key: str,
+        ) -> RegistryJoinDraftMutation:
+            return DecideRegistryJoinChange(
+                store=registry_change_store,
+                pointers=active_registry_pointers,
+                versions=registry_versions,
+                targets=registry_change_targets,
+                physical_bindings=registry_change_bindings,
+                profiles=registry_join_profiles,
+                authorization=registry_change_authorization,
+                clock=clock,
+            ).execute(
+                principal,
+                change_id,
+                action=action,
+                expected_revision=expected_revision,
+                confirmed_draft_fingerprint=confirmed_draft_fingerprint,
+                rationale=rationale,
+                idempotency_key=idempotency_key,
+            )
+
+    class TenantRegistryJoinPublicationPreparer:
+        def execute(
+            self,
+            principal: AuthenticatedPrincipal,
+            change_id: str,
+            *,
+            expected_revision: int,
+            confirmed_draft_fingerprint: str,
+            idempotency_key: str,
+        ) -> RegistryJoinPreparation:
+            return PrepareRegistryJoinChangePublication(
+                store=registry_change_store,
+                pointers=active_registry_pointers,
+                versions=registry_versions,
+                targets=registry_change_targets,
+                physical_bindings=registry_change_bindings,
+                profiles=registry_join_profiles,
+                authorization=registry_change_authorization,
+                clock=clock,
+            ).execute(
+                principal,
+                change_id,
+                expected_revision=expected_revision,
+                confirmed_draft_fingerprint=confirmed_draft_fingerprint,
+                idempotency_key=idempotency_key,
+            )
+
+    class TenantRegistryModelProfileRequester:
+        def execute(
+            self,
+            principal: AuthenticatedPrincipal,
+            request: RequestRegistryModelJoinProfileInput,
+            *,
+            idempotency_key: str,
+        ) -> RegistryModelJoinProfileMutation:
+            return RequestRegistryModelJoinProfile(
+                store=registry_model_profiles,
+                queue=registry_model_profile_queue,
+                sources=registry_model_sources,
+                pointers=active_registry_pointers,
+                versions=registry_versions,
+                dependencies=registry_model_dependencies,
+                targets=registry_change_targets,
+                physical_bindings=registry_change_bindings,
+                authorization=registry_change_authorization,
+                clock=clock,
+                scope=onboarding_scope(principal),
+            ).execute(principal, request, idempotency_key=idempotency_key)
+
+    class TenantRegistryModelProfileFinalizer:
+        def execute(
+            self,
+            principal: AuthenticatedPrincipal,
+            request_id: str,
+            *,
+            confirmed_authoring_fingerprint: str,
+            idempotency_key: str,
+        ) -> RegistryModelJoinProfileMutation:
+            return FinalizeRegistryModelJoinProfile(
+                store=registry_model_profiles,
+                queue=registry_model_profile_queue,
+                sources=registry_model_sources,
+                pointers=active_registry_pointers,
+                versions=registry_versions,
+                dependencies=registry_model_dependencies,
+                targets=registry_change_targets,
+                physical_bindings=registry_change_bindings,
+                authorization=registry_change_authorization,
+                clock=clock,
+            ).execute(
+                principal,
+                request_id,
+                confirmed_authoring_fingerprint=confirmed_authoring_fingerprint,
+                idempotency_key=idempotency_key,
+            )
+
+    class TenantRegistryModelChangeCreator:
+        def execute(
+            self,
+            principal: AuthenticatedPrincipal,
+            request: CreateRegistryModelChangeInput,
+            *,
+            idempotency_key: str,
+        ) -> RegistryModelChangeMutation:
+            return CreateRegistryModelChange(
+                store=registry_model_changes,
+                sources=registry_model_sources,
+                remediation=registry_model_remediation,
+                profile_witnesses=registry_model_witnesses,
+                pointers=active_registry_pointers,
+                versions=registry_versions,
+                dependencies=registry_model_dependencies,
+                targets=registry_change_targets,
+                physical_bindings=registry_change_bindings,
+                authorization=registry_change_authorization,
+                clock=clock,
+                scope=onboarding_scope(principal),
+            ).execute(principal, request, idempotency_key=idempotency_key)
+
+    class TenantRegistryModelChangeLister:
+        def execute(
+            self,
+            principal: AuthenticatedPrincipal,
+            *,
+            limit: int = 50,
+        ) -> tuple[RegistryModelChangeDraft, ...]:
+            return ListRegistryModelChanges(
+                store=registry_model_changes,
+                authorization=registry_change_authorization,
+                clock=clock,
+            ).execute(principal, limit=limit)
+
+    class TenantRegistryModelChangeInspector:
+        def execute(
+            self,
+            principal: AuthenticatedPrincipal,
+            change_id: str,
+            *,
+            history_limit: int = 25,
+        ) -> RegistryModelChangeSnapshot:
+            return InspectRegistryModelChange(
+                store=registry_model_changes,
+                authorization=registry_change_authorization,
+                clock=clock,
+            ).execute(principal, change_id, history_limit=history_limit)
+
+    class TenantRegistryModelChangeDecider:
+        def execute(
+            self,
+            principal: AuthenticatedPrincipal,
+            change_id: str,
+            *,
+            action: DecisionAction,
+            expected_revision: int,
+            confirmed_draft_fingerprint: str,
+            rationale: str,
+            idempotency_key: str,
+        ) -> RegistryModelChangeMutation:
+            return DecideRegistryModelChange(
+                store=registry_model_changes,
+                sources=registry_model_sources,
+                remediation=registry_model_remediation,
+                profile_witnesses=registry_model_witnesses,
+                pointers=active_registry_pointers,
+                versions=registry_versions,
+                dependencies=registry_model_dependencies,
+                targets=registry_change_targets,
+                physical_bindings=registry_change_bindings,
+                authorization=registry_change_authorization,
+                clock=clock,
+            ).execute(
+                principal,
+                change_id,
+                action=action,
+                expected_revision=expected_revision,
+                confirmed_draft_fingerprint=confirmed_draft_fingerprint,
+                rationale=rationale,
+                idempotency_key=idempotency_key,
+            )
+
+    class TenantRegistryModelPublicationPreparer:
+        def execute(
+            self,
+            principal: AuthenticatedPrincipal,
+            change_id: str,
+            *,
+            expected_revision: int,
+            confirmed_draft_fingerprint: str,
+            idempotency_key: str,
+        ) -> RegistryModelChangeMutation:
+            return PrepareRegistryModelChangePublication(
+                store=registry_model_changes,
+                sources=registry_model_sources,
+                remediation=registry_model_remediation,
+                profile_witnesses=registry_model_witnesses,
+                pointers=active_registry_pointers,
+                versions=registry_versions,
+                dependencies=registry_model_dependencies,
+                targets=registry_change_targets,
+                physical_bindings=registry_change_bindings,
+                authorization=registry_change_authorization,
+                clock=clock,
+            ).execute(
+                principal,
+                change_id,
+                expected_revision=expected_revision,
+                confirmed_draft_fingerprint=confirmed_draft_fingerprint,
+                idempotency_key=idempotency_key,
+            )
+
     capacity = PostgresTenantCapacityStore(
         dsn=_control_plane_dsn(resolved, "api"),
         schema=resolved.control_plane_schema,
@@ -4097,6 +4535,23 @@ def build_api_http_services(
             inspect_draft=TenantSemanticOnboardingDraftInspector(),
             decide=TenantSemanticOnboardingDecider(),
             prepare_publication=TenantSemanticOnboardingPublicationPreparer(),
+        ),
+        registry_changes=RegistryChangeHttpServices(
+            request_join_profile=TenantRegistryJoinProfileRequester(),
+            list_join_changes=TenantRegistryJoinChangeLister(),
+            inspect_join_change=TenantRegistryJoinChangeInspector(),
+            finalize_join_draft=TenantRegistryJoinDraftFinalizer(),
+            decide_join=TenantRegistryJoinDecider(),
+            prepare_join_publication=TenantRegistryJoinPublicationPreparer(),
+        ),
+        registry_model_changes=RegistryModelChangeHttpServices(
+            request_profile=TenantRegistryModelProfileRequester(),
+            finalize_profile=TenantRegistryModelProfileFinalizer(),
+            create_change=TenantRegistryModelChangeCreator(),
+            list_changes=TenantRegistryModelChangeLister(),
+            inspect_change=TenantRegistryModelChangeInspector(),
+            decide_change=TenantRegistryModelChangeDecider(),
+            prepare_publication=TenantRegistryModelPublicationPreparer(),
         ),
         registry_publication=RegistryPublicationHttpServices(
             submit=SubmitRegistryPublication(
@@ -4536,6 +4991,9 @@ def build_registry_publisher_worker(
     from schemabridge.adapters.control_plane.threaded_registry_publication_heartbeat import (
         ThreadedRegistryPublicationHeartbeatSupervisor,
     )
+    from schemabridge.adapters.semantic_change.postgres_dependencies import (
+        PostgresSemanticChangeDependencyIndex,
+    )
     from schemabridge.adapters.semantic_onboarding.publication_authority import (
         ExactRegistryPublicationAuthority,
     )
@@ -4547,6 +5005,11 @@ def build_registry_publisher_worker(
     from schemabridge.adapters.semantic_registry.remote_secrets import (
         RemoteDataHubObservedSemanticRegistryPublisher,
         RemoteDataHubWriterRegistryVersionReader,
+    )
+    from schemabridge.adapters.storage.postgres_registry_model_changes import (
+        PostgresRegistryModelJoinProfileWitnessReader,
+        PostgresRegistryModelRemediationEvidenceReader,
+        PostgresRegistryModelReplacementSourceReader,
     )
     from schemabridge.adapters.workflows.system import SystemWorkflowClock
     from schemabridge.application.ports.registry_publication import (
@@ -4615,6 +5078,30 @@ def build_registry_publisher_worker(
             schema=resolved.control_plane_schema,
             application_name="schemabridge-control-publisher",
             stale_after_seconds=resolved.catalog_stale_after_seconds,
+            connection_provider=control_connection_provider,
+        ),
+        model_sources=PostgresRegistryModelReplacementSourceReader(
+            dsn,
+            schema=resolved.control_plane_schema,
+            application_name="schemabridge-control-publisher",
+            connection_provider=control_connection_provider,
+        ),
+        model_dependencies=PostgresSemanticChangeDependencyIndex(
+            dsn,
+            schema=resolved.control_plane_schema,
+            application_name="schemabridge-control-publisher",
+            connection_provider=control_connection_provider,
+        ),
+        model_remediation=PostgresRegistryModelRemediationEvidenceReader(
+            dsn,
+            schema=resolved.control_plane_schema,
+            application_name="schemabridge-control-publisher",
+            connection_provider=control_connection_provider,
+        ),
+        model_profile_witnesses=PostgresRegistryModelJoinProfileWitnessReader(
+            dsn,
+            schema=resolved.control_plane_schema,
+            application_name="schemabridge-control-publisher",
             connection_provider=control_connection_provider,
         ),
     )

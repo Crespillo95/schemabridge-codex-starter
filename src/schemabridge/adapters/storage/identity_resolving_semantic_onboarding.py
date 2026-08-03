@@ -93,15 +93,19 @@ class IdentityResolvingSemanticOnboardingStore:
         ):
             raise _resource_unavailable()
         aliases = self._workspace_aliases()
-        same_coordinate_replay = self._has_same_coordinate_replay(
+        self._has_same_coordinate_replay(
             idempotency_digest,
             workspace_id=draft.workspace_id,
             draft_id=draft.id,
             actor_id=actor_id,
             aliases=aliases,
         )
-        if not same_coordinate_replay and self._locate_draft(draft.id, aliases=aliases) is not None:
+        located = self._locate_draft(draft.id, aliases=aliases)
+        if located is not None and located.workspace_id != draft.workspace_id:
             raise _conflict()
+        # A matching active-coordinate draft can appear after the replay pre-check when an
+        # identical concurrent request commits first.  Delegate that case to the atomic store,
+        # which alone can compare the complete operation fingerprint without a TOCTOU window.
         return self.store.create(
             draft,
             audit,

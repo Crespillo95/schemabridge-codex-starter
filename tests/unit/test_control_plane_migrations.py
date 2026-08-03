@@ -134,6 +134,10 @@ class _FakeConnection:
             if self.ddl_failure is not None:
                 raise self.ddl_failure
             return _Cursor([])
+        if "CREATE TABLE schemabridge_control.semantic_profile_sources" in query:
+            if self.ddl_failure is not None:
+                raise self.ddl_failure
+            return _Cursor([])
         raise AssertionError(f"unexpected statement in fake connection: {normalized[:80]}")
 
     @contextmanager
@@ -212,6 +216,7 @@ def _known_identity(version: int = 1) -> tuple[str, str]:
         12: _MIGRATIONS / "0012_backup_identity.sql",
         13: _MIGRATIONS / "0013_semantic_onboarding.sql",
         14: _MIGRATIONS / "0014_registry_publication.sql",
+        15: _MIGRATIONS / "0015_registry_v2_changes.sql",
     }[version]
     return (
         migration_path.stem.split("_", maxsplit=1)[1],
@@ -239,6 +244,7 @@ def _current_database() -> _FakeDatabase:
             (12, *_known_identity(12)),
             (13, *_known_identity(13)),
             (14, *_known_identity(14)),
+            (15, *_known_identity(15)),
         ],
     )
 
@@ -269,6 +275,7 @@ def test_known_migrations_are_ordered_and_checksum_exact_file_bytes() -> None:
         (12, "backup_identity"),
         (13, "semantic_onboarding"),
         (14, "registry_publication"),
+        (15, "registry_v2_changes"),
     ]
     assert known[0].checksum == _known_identity()[1]
     assert known[1].checksum == _known_identity(2)[1]
@@ -284,6 +291,7 @@ def test_known_migrations_are_ordered_and_checksum_exact_file_bytes() -> None:
     assert known[11].checksum == _known_identity(12)[1]
     assert known[12].checksum == _known_identity(13)[1]
     assert known[13].checksum == _known_identity(14)[1]
+    assert known[14].checksum == _known_identity(15)[1]
     assert factory.calls == []
     assert connection.statements == []
 
@@ -294,7 +302,7 @@ def test_inspect_pristine_database_reports_pending_without_ddl() -> None:
     inspection = migrator.inspect()
 
     assert inspection.current_version == 0
-    assert inspection.expected_version == 14
+    assert inspection.expected_version == 15
     assert tuple(item.version for item in inspection.pending) == (
         1,
         2,
@@ -310,6 +318,7 @@ def test_inspect_pristine_database_reports_pending_without_ddl() -> None:
         12,
         13,
         14,
+        15,
     )
     assert not inspection.is_current
     assert factory.calls == [("postgresql://not-logged.invalid/control", 4)]
@@ -323,7 +332,7 @@ def test_require_current_only_reads_and_rejects_database_behind() -> None:
         migrator.require_current()
 
     assert raised.value.code is ControlPlaneMigrationErrorCode.SCHEMA_NOT_CURRENT
-    assert "current=0, expected=14" in str(raised.value)
+    assert "current=0, expected=15" in str(raised.value)
     _assert_no_ddl(connection)
 
 
@@ -333,7 +342,23 @@ def test_explicit_migrate_applies_all_pending_work_in_one_transaction() -> None:
 
     result = migrator.migrate()
 
-    assert result.applied_versions == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
+    assert result.applied_versions == (
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+    )
     assert not result.already_current
     assert result.inspection.is_current
     assert connection.transaction_count == 1
@@ -354,13 +379,14 @@ def test_explicit_migrate_applies_all_pending_work_in_one_transaction() -> None:
         (12, "backup_identity", _known_identity(12)[1]),
         (13, "semantic_onboarding", _known_identity(13)[1]),
         (14, "registry_publication", _known_identity(14)[1]),
+        (15, "registry_v2_changes", _known_identity(15)[1]),
     ]
     statements = [query for query, _ in connection.statements]
     assert "pg_try_advisory_xact_lock" in statements[0]
     assert sum("CREATE SCHEMA schemabridge_control" in query for query in statements) == 1
     assert (
         sum("INSERT INTO schemabridge_control.schema_migrations" in query for query in statements)
-        == 14
+        == 15
     )
 
 
@@ -419,7 +445,8 @@ def test_concurrent_migrator_fails_without_schema_mutation() -> None:
                 (12, *_known_identity(12)),
                 (13, *_known_identity(13)),
                 (14, *_known_identity(14)),
-                (15, "future_release", "a" * 64),
+                (15, *_known_identity(15)),
+                (16, "future_release", "a" * 64),
             ],
             ControlPlaneMigrationErrorCode.SCHEMA_AHEAD,
         ),

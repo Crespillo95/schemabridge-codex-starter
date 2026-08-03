@@ -871,7 +871,7 @@ def _check_backup_environment(
         "SCHEMABRIDGE_AUTH_MODE": "local-demo",
         "SCHEMABRIDGE_CONTROL_PLANE_MODE": "postgres",
         "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA": "schemabridge_control",
-        "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION": "14",
+        "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION": "15",
         "SCHEMABRIDGE_CONTROL_AUDIT_KEY_VERSION": "v1",
     }
     expected_secrets = EXPECTED_SECRET_ENV["backup"]
@@ -1248,7 +1248,7 @@ def _check_config(
                 "SCHEMABRIDGE_COMPONENT": "observer",
                 "SCHEMABRIDGE_CONTROL_PLANE_MODE": "postgres",
                 "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA": "schemabridge_control",
-                "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION": "14",
+                "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION": "15",
                 "SCHEMABRIDGE_LOG_LEVEL": "INFO",
                 "SCHEMABRIDGE_OBSERVER_BIND_HOST": "0.0.0.0",
                 "SCHEMABRIDGE_OBSERVER_PORT": "9464",
@@ -1275,7 +1275,7 @@ def _check_config(
                 "SCHEMABRIDGE_AUTH_MODE": "local-demo",
                 "SCHEMABRIDGE_CONTROL_PLANE_MODE": "postgres",
                 "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA": "schemabridge_control",
-                "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION": "14",
+                "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION": "15",
                 "SCHEMABRIDGE_REGISTRY_PUBLISHER_LEASE_SECONDS": "60",
                 "SCHEMABRIDGE_REGISTRY_PUBLISHER_HEARTBEAT_SECONDS": "20",
                 "SCHEMABRIDGE_REGISTRY_PUBLISHER_POLL_INTERVAL_MS": "500",

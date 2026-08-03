@@ -6,6 +6,14 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from tests.unit.test_registry_join_changes import _approved_draft, _two_model_base
+from tests.unit.test_registry_model_changes import (
+    _join_upsert,
+    _joined_base,
+    _prepared_change,
+    _replacement,
+    _replacement_base,
+)
 from tests.unit.test_registry_publication_jobs import _authorization
 from tests.unit.test_registry_publication_v2 import _proposal
 
@@ -26,6 +34,14 @@ from schemabridge.domain.publication_audit import (
     PublicationFamily,
     PublicationTargetAuditRecord,
 )
+from schemabridge.domain.registry_changes import (
+    PreparedRegistryJoinProposal,
+    assemble_join_change_registry_version,
+)
+from schemabridge.domain.registry_model_changes import (
+    RegistryIncidentJoinPreservation,
+    assemble_model_replacement_registry_version,
+)
 from schemabridge.domain.registry_publication import (
     ObservedRegistryPublicationResult,
     PublicationReadbackReceipt,
@@ -35,6 +51,7 @@ from schemabridge.domain.registry_publication import (
     observed_registry_related_asset_urns,
 )
 from schemabridge.domain.registry_publication_jobs import (
+    PreparedRegistryPublicationProposal,
     RegistryPublicationFailureCode,
     RegistryPublicationJob,
     RegistryPublicationJobStatus,
@@ -50,7 +67,7 @@ from schemabridge.domain.registry_publication_jobs import (
     registry_publication_request_fingerprint,
     request_registry_publication_cancellation,
 )
-from schemabridge.domain.semantic_onboarding import PreparedSemanticOnboardingProposal
+from schemabridge.domain.semantic_registry import GovernedSemanticRegistrySnapshot
 
 NOW = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
 CAPABILITY = "publisher-worker-capability-" + ("x" * 48)
@@ -79,15 +96,26 @@ class _CapabilityFactory:
 
 
 class _Authority:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        base: GovernedSemanticRegistrySnapshot | None = None,
+        after_resolve: Callable[[], None] | None = None,
+    ) -> None:
         self.calls: list[str] = []
         self.error: RegistryPublicationAuthorityError | None = None
+        self.base = base
+        self.after_resolve = after_resolve
 
-    def resolve_base(self, proposal: PreparedSemanticOnboardingProposal) -> None:
+    def resolve_base(
+        self,
+        proposal: PreparedRegistryPublicationProposal,
+    ) -> GovernedSemanticRegistrySnapshot | None:
         self.calls.append(proposal.id)
         if self.error is not None:
             raise self.error
-        return None
+        if self.after_resolve is not None:
+            self.after_resolve()
+        return self.base
 
 
 class _Publisher:
@@ -150,6 +178,7 @@ class _WorkerStore:
         self.fail_calls: list[RegistryPublicationFailureCode] = []
         self.acknowledge_calls = 0
         self.heartbeat_calls = 0
+        self.after_heartbeat: Callable[[], None] | None = None
         self.cancel_on_heartbeat = False
         self.cancel_after_claim = False
         self.invalid_claim = False
@@ -244,6 +273,8 @@ class _WorkerStore:
             lease_duration=lease_duration,
         )
         self.jobs[job_id] = updated
+        if self.after_heartbeat is not None:
+            self.after_heartbeat()
         return updated
 
     def record_candidate(
@@ -335,6 +366,7 @@ class _InlineSupervisor:
         self.calls = 0
         self.cancel_during_operation = False
         self.return_invalid_claim = False
+        self.after_operation: Callable[[], None] | None = None
         self.error: RegistryPublicationHeartbeatSupervisorError | None = None
 
     def run(
@@ -352,6 +384,8 @@ class _InlineSupervisor:
         if self.error is not None:
             raise self.error
         value = operation()
+        if self.after_operation is not None:
+            self.after_operation()
         refreshed = self.store.jobs[claim.id]
         if self.cancel_during_operation:
             refreshed = request_registry_publication_cancellation(
@@ -431,7 +465,180 @@ def test_prepare_builds_candidate_but_never_calls_datahub_publisher() -> None:
     assert result.outcome is RegistryPublisherIterationOutcome.CANDIDATE_READY
     assert durable.status is RegistryPublicationJobStatus.AWAITING_APPROVAL
     assert durable.candidate == assemble_publishable_registry_version(job.proposal, base=None)
-    assert authority.calls == [job.proposal.id]
+    assert authority.calls == [job.proposal.id, job.proposal.id]
+    assert publisher.observe_calls == []
+    assert publisher.publish_calls == []
+
+
+def test_prepare_dispatches_join_proposal_to_additive_m35_assembler() -> None:
+    proposal, base = _join_proposal("join-change-worker-v3")
+    job = _queued_job(proposal, submitted_at=NOW + timedelta(minutes=5))
+    store = _WorkerStore(job, database_now=NOW + timedelta(minutes=5))
+    authority = _Authority(base)
+    worker, _authority, publisher, _supervisor = _worker(store, authority=authority)
+
+    result = worker.execute()
+
+    durable = store.jobs[job.id]
+    assert result.outcome is RegistryPublisherIterationOutcome.CANDIDATE_READY
+    assert durable.status is RegistryPublicationJobStatus.AWAITING_APPROVAL
+    assert durable.candidate == assemble_join_change_registry_version(proposal, base=base)
+    assert durable.candidate.registry.mapping_set.mappings == base.mapping_set.mappings
+    assert len(durable.candidate.registry.join_contracts.contracts) == 1
+    assert authority.calls == [proposal.id, proposal.id]
+    assert publisher.observe_calls == []
+    assert publisher.publish_calls == []
+
+
+def test_prepare_dispatches_model_replacement_to_phase_b_assembler() -> None:
+    base, identity = _joined_base()
+    replacement_base = _replacement_base(base, identity)
+    proposal = _prepared_change(
+        base=replacement_base,
+        replacement=_replacement(identity),
+        incident_changes=(
+            RegistryIncidentJoinPreservation(base=replacement_base.incident_joins[0]),
+        ),
+    )
+    submitted_at = proposal.prepared_at + timedelta(minutes=1)
+    job = _queued_job(proposal, submitted_at=submitted_at)
+    store = _WorkerStore(job, database_now=submitted_at)
+    authority = _Authority(base)
+    worker, _authority, publisher, _supervisor = _worker(store, authority=authority)
+
+    result = worker.execute()
+
+    durable = store.jobs[job.id]
+    assert result.outcome is RegistryPublisherIterationOutcome.CANDIDATE_READY
+    assert durable.status is RegistryPublicationJobStatus.AWAITING_APPROVAL
+    assert durable.candidate == assemble_model_replacement_registry_version(
+        proposal,
+        base=base,
+    )
+    assert authority.calls == [proposal.id, proposal.id]
+    assert publisher.observe_calls == []
+    assert publisher.publish_calls == []
+
+
+def test_expired_model_replacement_profile_fails_before_authority_or_candidate() -> None:
+    base, identity = _joined_base()
+    replacement_base = _replacement_base(base, identity)
+    replacement = _replacement(identity, physical_field="crm.customers.customer_id_v2")
+    upsert = _join_upsert(base, identity, replacement_base, replacement)
+    proposal = _prepared_change(
+        base=replacement_base,
+        replacement=replacement,
+        incident_changes=(upsert,),
+    )
+    job = _queued_job(proposal, submitted_at=proposal.prepared_at + timedelta(minutes=1))
+    store = _WorkerStore(job, database_now=upsert.profile_witness.expires_at)
+    authority = _Authority(base)
+    worker, _authority, publisher, _supervisor = _worker(store, authority=authority)
+
+    result = worker.execute()
+
+    durable = store.jobs[job.id]
+    assert result.outcome is RegistryPublisherIterationOutcome.FAILED
+    assert durable.failure_code is RegistryPublicationFailureCode.PROPOSAL_STALE
+    assert durable.candidate is None
+    assert authority.calls == []
+    assert publisher.observe_calls == []
+    assert publisher.publish_calls == []
+
+
+def test_expired_join_profile_fails_before_authority_candidate_or_datahub() -> None:
+    proposal, base = _join_proposal("join-change-expired-worker-v3")
+    job = _queued_job(proposal, submitted_at=NOW + timedelta(minutes=5))
+    store = _WorkerStore(job, database_now=proposal.profile_expires_at)
+    authority = _Authority(base)
+    worker, _authority, publisher, _supervisor = _worker(store, authority=authority)
+
+    result = worker.execute()
+
+    durable = store.jobs[job.id]
+    assert result.outcome is RegistryPublisherIterationOutcome.FAILED
+    assert durable.failure_code is RegistryPublicationFailureCode.PROPOSAL_STALE
+    assert durable.candidate is None
+    assert store.record_calls == 0
+    assert authority.calls == []
+    assert publisher.observe_calls == []
+    assert publisher.publish_calls == []
+
+
+def test_join_profile_expiring_during_authority_fails_before_candidate() -> None:
+    proposal, base = _join_proposal("join-change-expiring-worker-v3")
+    current = _Clock(proposal.profile_expires_at - timedelta(microseconds=1))
+    job = _queued_job(proposal, submitted_at=NOW + timedelta(minutes=5))
+    store = _WorkerStore(
+        job,
+        database_now=proposal.profile_expires_at - timedelta(seconds=30),
+    )
+    authority = _Authority(
+        base,
+        after_resolve=lambda: setattr(current, "current", proposal.profile_expires_at),
+    )
+    worker, _authority, publisher, _supervisor = _worker(
+        store,
+        authority=authority,
+        clock=current,
+    )
+
+    result = worker.execute()
+
+    durable = store.jobs[job.id]
+    assert result.outcome is RegistryPublisherIterationOutcome.FAILED
+    assert durable.failure_code is RegistryPublicationFailureCode.PROPOSAL_STALE
+    assert durable.candidate is None
+    assert store.record_calls == 0
+    assert authority.calls == [proposal.id]
+    assert publisher.publish_calls == []
+
+
+def test_join_base_drift_fails_before_candidate_or_datahub() -> None:
+    proposal, base = _join_proposal("join-change-drift-worker-v3")
+    job = _queued_job(proposal, submitted_at=NOW + timedelta(minutes=5))
+    store = _WorkerStore(job, database_now=NOW + timedelta(minutes=5))
+    drifted = base.model_copy(update={"version": base.version + 1})
+    authority = _Authority(drifted)
+    worker, _authority, publisher, _supervisor = _worker(store, authority=authority)
+
+    result = worker.execute()
+
+    durable = store.jobs[job.id]
+    assert result.outcome is RegistryPublisherIterationOutcome.FAILED
+    assert durable.failure_code is RegistryPublicationFailureCode.CANDIDATE_INVALID
+    assert durable.candidate is None
+    assert store.record_calls == 0
+    assert authority.calls == [proposal.id]
+    assert publisher.observe_calls == []
+    assert publisher.publish_calls == []
+
+
+def test_join_base_drift_after_supervised_build_blocks_candidate_mutation() -> None:
+    proposal, base = _join_proposal("join-change-post-build-drift-v3")
+    job = _queued_job(proposal, submitted_at=NOW + timedelta(minutes=5))
+    store = _WorkerStore(job, database_now=NOW + timedelta(minutes=5))
+    authority = _Authority(base)
+    supervisor = _InlineSupervisor(store)
+    supervisor.after_operation = lambda: setattr(
+        authority,
+        "base",
+        base.model_copy(update={"version": base.version + 1}),
+    )
+    worker, _authority, publisher, _supervisor = _worker(
+        store,
+        authority=authority,
+        supervisor=supervisor,
+    )
+
+    result = worker.execute()
+
+    durable = store.jobs[job.id]
+    assert result.outcome is RegistryPublisherIterationOutcome.FAILED
+    assert durable.failure_code is RegistryPublicationFailureCode.CANDIDATE_INVALID
+    assert durable.candidate is None
+    assert store.record_calls == 0
+    assert authority.calls == [proposal.id, proposal.id]
     assert publisher.observe_calls == []
     assert publisher.publish_calls == []
 
@@ -486,9 +693,83 @@ def test_publish_observes_before_authority_and_writes_only_when_target_is_absent
 
     assert result.outcome is RegistryPublisherIterationOutcome.ACTIVATION_READY
     assert order == ["observe", "publish"]
-    assert authority.calls == [job.proposal.id]
+    assert authority.calls == [job.proposal.id, job.proposal.id]
     assert len(publisher.publish_calls) == 1
     assert store.jobs[job.id].status is RegistryPublicationJobStatus.ACTIVATION_READY
+
+
+def test_join_base_drift_after_authorization_blocks_the_external_write() -> None:
+    proposal, base = _join_proposal("join-change-prewrite-drift-v3")
+    job = _approved_join_job(proposal, base)
+    store = _WorkerStore(job, database_now=NOW + timedelta(minutes=6))
+    authority = _Authority(base.model_copy(update={"version": base.version + 1}))
+    worker, _authority, publisher, _supervisor = _worker(store, authority=authority)
+
+    result = worker.execute()
+
+    durable = store.jobs[job.id]
+    assert result.outcome is RegistryPublisherIterationOutcome.FAILED
+    assert durable.failure_code is RegistryPublicationFailureCode.CANDIDATE_INVALID
+    assert authority.calls == [proposal.id]
+    assert len(publisher.observe_calls) == 1
+    assert publisher.publish_calls == []
+    assert store.heartbeat_calls == 0
+
+
+def test_join_profile_expiring_during_prewrite_authority_blocks_external_write() -> None:
+    proposal, base = _join_proposal("join-change-prewrite-expiry-v3")
+    current = _Clock(proposal.profile_expires_at - timedelta(microseconds=1))
+    job = _approved_join_job(
+        proposal,
+        base,
+        authorized_at=proposal.profile_expires_at - timedelta(minutes=1),
+    )
+    store = _WorkerStore(
+        job,
+        database_now=proposal.profile_expires_at - timedelta(seconds=30),
+    )
+    authority = _Authority(
+        base,
+        after_resolve=lambda: setattr(current, "current", proposal.profile_expires_at),
+    )
+    worker, _authority, publisher, _supervisor = _worker(
+        store,
+        authority=authority,
+        clock=current,
+    )
+
+    result = worker.execute()
+
+    durable = store.jobs[job.id]
+    assert result.outcome is RegistryPublisherIterationOutcome.FAILED
+    assert durable.failure_code is RegistryPublicationFailureCode.PROPOSAL_STALE
+    assert authority.calls == [proposal.id]
+    assert len(publisher.observe_calls) == 1
+    assert publisher.publish_calls == []
+    assert store.heartbeat_calls == 0
+
+
+def test_join_base_drift_during_prewrite_heartbeat_blocks_external_write() -> None:
+    proposal, base = _join_proposal("join-change-heartbeat-drift-v3")
+    job = _approved_join_job(proposal, base)
+    store = _WorkerStore(job, database_now=NOW + timedelta(minutes=6))
+    authority = _Authority(base)
+    store.after_heartbeat = lambda: setattr(
+        authority,
+        "base",
+        base.model_copy(update={"version": base.version + 1}),
+    )
+    worker, _authority, publisher, _supervisor = _worker(store, authority=authority)
+
+    result = worker.execute()
+
+    durable = store.jobs[job.id]
+    assert result.outcome is RegistryPublisherIterationOutcome.FAILED
+    assert durable.failure_code is RegistryPublicationFailureCode.CANDIDATE_INVALID
+    assert authority.calls == [proposal.id, proposal.id]
+    assert len(publisher.observe_calls) == 1
+    assert publisher.publish_calls == []
+    assert store.heartbeat_calls == 1
 
 
 def test_cancellation_seen_at_prewrite_boundary_avoids_datahub_write() -> None:
@@ -617,7 +898,7 @@ def test_cancel_during_ambiguous_write_is_retained_then_recovered_readback_only(
     assert store.jobs[job.id].status is RegistryPublicationJobStatus.CANCELLED
     assert len(publisher.observe_calls) == 2
     assert len(publisher.publish_calls) == 1
-    assert authority.calls == [job.proposal.id]
+    assert authority.calls == [job.proposal.id, job.proposal.id]
 
 
 def test_cancelled_publish_with_absent_target_is_readback_only_then_cancelled() -> None:
@@ -677,6 +958,7 @@ def _worker(
     publisher: _Publisher | None = None,
     supervisor: _InlineSupervisor | None = None,
     capability_factory: _CapabilityFactory | None = None,
+    clock: _Clock | None = None,
 ) -> tuple[RunOneRegistryPublisherWorker, _Authority, _Publisher, _InlineSupervisor]:
     selected_authority = authority or _Authority()
     selected_publisher = publisher or _Publisher()
@@ -685,7 +967,7 @@ def _worker(
         jobs=store,  # type: ignore[arg-type]
         authority=selected_authority,
         publisher=selected_publisher,
-        clock=_Clock(store.database_now),
+        clock=clock or _Clock(store.database_now),
         capability_factory=capability_factory or _CapabilityFactory(),
         heartbeat_supervisor=selected_supervisor,  # type: ignore[arg-type]
         worker_id=WORKER_ID,
@@ -696,7 +978,7 @@ def _worker(
 
 
 def _queued_job(
-    proposal: PreparedSemanticOnboardingProposal | None = None,
+    proposal: PreparedRegistryPublicationProposal | None = None,
     *,
     submitted_at: datetime = NOW - timedelta(minutes=1),
 ) -> RegistryPublicationJob:
@@ -710,6 +992,50 @@ def _queued_job(
             selected,
             submitted_by="publisher-a",
         ),
+    )
+
+
+def _join_proposal(
+    proposal_id: str,
+) -> tuple[PreparedRegistryJoinProposal, GovernedSemanticRegistrySnapshot]:
+    base_value, base_identity = _two_model_base()
+    assert isinstance(base_value, GovernedSemanticRegistrySnapshot)
+    proposal = PreparedRegistryJoinProposal.create(
+        id=proposal_id,
+        draft=_approved_draft(base_value, base_identity),
+        prepared_by="publisher-worker-join",
+        prepared_at=NOW + timedelta(minutes=4),
+    )
+    return proposal, base_value
+
+
+def _approved_join_job(
+    proposal: PreparedRegistryJoinProposal,
+    base: GovernedSemanticRegistrySnapshot,
+    *,
+    authorized_at: datetime = NOW + timedelta(minutes=5, seconds=3),
+) -> RegistryPublicationJob:
+    queued = _queued_job(proposal, submitted_at=NOW + timedelta(minutes=5))
+    candidate = assemble_join_change_registry_version(proposal, base=base)
+    preparing = lease_registry_publication_job(
+        queued,
+        worker_id="publisher-worker-prepare",
+        lease_capability="prepare-capability-" + ("p" * 48),
+        acquired_at=NOW + timedelta(minutes=5, seconds=1),
+        lease_duration=timedelta(seconds=60),
+    )
+    awaiting = record_registry_publication_candidate(
+        preparing,
+        candidate,
+        worker_id="publisher-worker-prepare",
+        lease_capability="prepare-capability-" + ("p" * 48),
+        fencing_token=preparing.last_fencing_token,
+        completed_at=NOW + timedelta(minutes=5, seconds=2),
+    )
+    return authorize_registry_publication_job(
+        awaiting,
+        _authorization(candidate, at=authorized_at),
+        authorized_at=authorized_at,
     )
 
 

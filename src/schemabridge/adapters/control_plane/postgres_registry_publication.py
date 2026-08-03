@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
@@ -21,12 +21,21 @@ from schemabridge.application.ports.registry_publication import (
     RegistryPublicationStoreError,
     RegistryPublicationStoreErrorCode,
 )
+from schemabridge.domain.registry_changes import PreparedRegistryJoinProposal
+from schemabridge.domain.registry_model_change_authoring import (
+    RegistryModelChangeDraft,
+    RegistryModelChangeStatus,
+)
+from schemabridge.domain.registry_model_changes import (
+    PreparedRegistryModelReplacementProposal,
+)
 from schemabridge.domain.registry_publication import (
     PublicationReadbackReceipt,
     PublishableRegistryVersion,
     RegistryPublicationAuthorization,
 )
 from schemabridge.domain.registry_publication_jobs import (
+    PreparedRegistryPublicationProposal,
     RegistryPublicationEvent,
     RegistryPublicationEventKind,
     RegistryPublicationFailureCode,
@@ -87,7 +96,7 @@ _ROW_COLUMNS = sql.SQL(", ").join(sql.Identifier(name) for name in _ROW_NAMES)
 
 @dataclass(frozen=True, slots=True)
 class PostgresRegistryPublicationProposalReader:
-    """Load only an exact M33 proposal whose draft remains publication-ready."""
+    """Load one exact supported proposal whose draft remains publication-ready."""
 
     dsn: str = field(repr=False)
     schema: str = "schemabridge_control"
@@ -111,41 +120,132 @@ class PostgresRegistryPublicationProposalReader:
         self,
         workspace_id: str,
         proposal_id: str,
-    ) -> PreparedSemanticOnboardingProposal | None:
+    ) -> PreparedRegistryPublicationProposal | None:
+        sources = self._database.table("registry_publication_sources")
         proposals = self._database.table("semantic_onboarding_proposals")
         drafts = self._database.table("semantic_onboarding_drafts")
+        changes = self._database.table("semantic_registry_change_proposals")
+        change_drafts = self._database.table("semantic_registry_change_drafts")
+        model_changes = self._database.table("semantic_registry_model_change_proposals")
+        model_change_drafts = self._database.table("semantic_registry_model_change_drafts")
         try:
             with self._database.connect() as connection:
-                row = connection.execute(
+                source = connection.execute(
                     sql.SQL(
                         """
-                        SELECT proposal.payload,
-                               proposal.fingerprint,
-                               proposal.target_registry_version,
-                               draft.status,
-                               draft.prepared_proposal_id,
-                               draft.prepared_proposal_fingerprint
-                        FROM {proposals} AS proposal
-                        JOIN {drafts} AS draft
-                          ON draft.workspace_id = proposal.workspace_id
-                         AND draft.draft_id = proposal.draft_id
-                        WHERE proposal.workspace_id = %s
-                          AND proposal.proposal_id = %s
+                        SELECT proposal_kind, proposal_fingerprint, target_version
+                        FROM {sources}
+                        WHERE workspace_id = %s AND proposal_id = %s
                         """
-                    ).format(proposals=proposals, drafts=drafts),
+                    ).format(sources=sources),
                     (workspace_id, proposal_id),
                 ).fetchone()
+                if source is None:
+                    return None
+                proposal_kind = str(source[0])
+                if proposal_kind == "add_join_v1":
+                    row = connection.execute(
+                        sql.SQL(
+                            """
+                            SELECT proposal.payload,
+                                   proposal.fingerprint,
+                                   proposal.target_registry_version,
+                                   draft.status,
+                                   draft.prepared_proposal_id,
+                                   draft.prepared_proposal_fingerprint
+                            FROM {proposals} AS proposal
+                            JOIN {drafts} AS draft
+                              ON draft.workspace_id = proposal.workspace_id
+                             AND draft.draft_id = proposal.draft_id
+                            WHERE proposal.workspace_id = %s
+                              AND proposal.proposal_id = %s
+                            """
+                        ).format(proposals=changes, drafts=change_drafts),
+                        (workspace_id, proposal_id),
+                    ).fetchone()
+                    model: type[PreparedRegistryPublicationProposal] = PreparedRegistryJoinProposal
+                elif proposal_kind == "onboarding_additive_v1":
+                    row = connection.execute(
+                        sql.SQL(
+                            """
+                            SELECT proposal.payload,
+                                   proposal.fingerprint,
+                                   proposal.target_registry_version,
+                                   draft.status,
+                                   draft.prepared_proposal_id,
+                                   draft.prepared_proposal_fingerprint
+                            FROM {proposals} AS proposal
+                            JOIN {drafts} AS draft
+                              ON draft.workspace_id = proposal.workspace_id
+                             AND draft.draft_id = proposal.draft_id
+                            WHERE proposal.workspace_id = %s
+                              AND proposal.proposal_id = %s
+                            """
+                        ).format(proposals=proposals, drafts=drafts),
+                        (workspace_id, proposal_id),
+                    ).fetchone()
+                    model = PreparedSemanticOnboardingProposal
+                elif proposal_kind == "replace_model_v1":
+                    row = connection.execute(
+                        sql.SQL(
+                            """
+                            SELECT proposal.payload,
+                                   proposal.fingerprint,
+                                   proposal.target_registry_version,
+                                   draft.status,
+                                   draft.prepared_proposal_id,
+                                   draft.prepared_proposal_fingerprint,
+                                   draft.payload,
+                                   proposal.draft_fingerprint,
+                                   proposal.source_proposal_id,
+                                   proposal.source_proposal_fingerprint,
+                                   source.payload,
+                                   source.fingerprint,
+                                   source.target_registry_version,
+                                   source_draft.status,
+                                   source_draft.prepared_proposal_id,
+                                   source_draft.prepared_proposal_fingerprint
+                            FROM {model_changes} AS proposal
+                            JOIN {model_change_drafts} AS draft
+                              ON draft.workspace_id = proposal.workspace_id
+                             AND draft.draft_id = proposal.draft_id
+                            JOIN {proposals} AS source
+                              ON source.workspace_id = proposal.workspace_id
+                             AND source.proposal_id = proposal.source_proposal_id
+                            JOIN {drafts} AS source_draft
+                              ON source_draft.workspace_id = source.workspace_id
+                             AND source_draft.draft_id = source.draft_id
+                            WHERE proposal.workspace_id = %s
+                              AND proposal.proposal_id = %s
+                            """
+                        ).format(
+                            model_changes=model_changes,
+                            model_change_drafts=model_change_drafts,
+                            proposals=proposals,
+                            drafts=drafts,
+                        ),
+                        (workspace_id, proposal_id),
+                    ).fetchone()
+                    model = PreparedRegistryModelReplacementProposal
+                else:
+                    raise _invalid_response()
             if row is None:
                 return None
-            proposal = PreparedSemanticOnboardingProposal.model_validate(row[0])
+            proposal = model.model_validate(row[0])
             if (
                 proposal.workspace_id != workspace_id
                 or proposal.id != proposal_id
                 or proposal.fingerprint != str(row[1])
+                or proposal.fingerprint != str(source[1])
                 or proposal.target_registry_version != int(row[2])
+                or proposal.target_registry_version != int(source[2])
                 or str(row[3]) != "ready_for_publication"
                 or str(row[4]) != proposal.id
                 or str(row[5]) != proposal.fingerprint
+                or (
+                    isinstance(proposal, PreparedRegistryModelReplacementProposal)
+                    and not _model_replacement_source_is_exact(proposal, row)
+                )
             ):
                 raise _invalid_response()
             return proposal
@@ -157,6 +257,45 @@ class PostgresRegistryPublicationProposalReader:
             raise _schema_mismatch() from error
         except psycopg.Error as error:
             raise _unavailable() from error
+
+
+def _model_replacement_source_is_exact(
+    proposal: PreparedRegistryModelReplacementProposal,
+    row: Sequence[Any],
+) -> bool:
+    if len(row) != 16:
+        return False
+    draft = RegistryModelChangeDraft.model_validate(row[6])
+    source = PreparedSemanticOnboardingProposal.model_validate(row[10])
+    return (
+        str(row[7]) == proposal.draft_fingerprint
+        and str(row[8]) == proposal.source_replacement_proposal_id
+        and str(row[9]) == proposal.source_replacement_proposal_fingerprint
+        and source == proposal.replacement
+        and source.fingerprint == str(row[11])
+        and source.target_registry_version == int(row[12])
+        and str(row[13]) == "ready_for_publication"
+        and str(row[14]) == source.id
+        and str(row[15]) == source.fingerprint
+        and draft.id == proposal.draft_id
+        and draft.workspace_id == proposal.workspace_id
+        and draft.status is RegistryModelChangeStatus.READY_FOR_PUBLICATION
+        and draft.revision == proposal.draft_revision + 1
+        and draft.owner_actor_id == proposal.owner_actor_id
+        and draft.source.proposal == proposal.replacement
+        and draft.base == proposal.base
+        and draft.outer_decision == proposal.outer_decision
+        and draft.model_decision == proposal.model_decision
+        and draft.mapping_decisions == proposal.mapping_decisions
+        and draft.authority == proposal.authority
+        and draft.incident_changes == proposal.incident_join_changes
+        and draft.risks == proposal.risks
+        and draft.created_at == proposal.created_at
+        and draft.prepared_proposal_id == proposal.id
+        and draft.prepared_proposal_fingerprint == proposal.fingerprint
+        and draft.prepared_by == proposal.prepared_by
+        and draft.updated_at == proposal.prepared_at
+    )
 
 
 @dataclass(frozen=True, slots=True)

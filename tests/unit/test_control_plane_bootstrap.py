@@ -173,7 +173,7 @@ def test_migrator_builder_uses_pinned_release_version_and_hides_dsn() -> None:
         settings=settings,
     )
 
-    assert migrator.known_migrations()[-1].version == 14  # type: ignore[attr-defined]
+    assert migrator.known_migrations()[-1].version == 15  # type: ignore[attr-defined]
     assert "do-not-print" not in repr(migrator)
 
 

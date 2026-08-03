@@ -68,7 +68,7 @@ spec:
                 - name: SCHEMABRIDGE_CONTROL_PLANE_SCHEMA
                   value: schemabridge_control
                 - name: SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION
-                  value: "14"
+                  value: "15"
                 - name: SCHEMABRIDGE_CONTROL_AUDIT_KEY_VERSION
                   value: v1
                 - name: SCHEMABRIDGE_CONTROL_BACKUP_DATABASE_URL

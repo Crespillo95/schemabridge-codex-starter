@@ -21,6 +21,12 @@ from tests.unit.test_registry_publication_v2 import (
     _proposal,
 )
 
+from schemabridge.adapters.control_plane.postgres_active_registry import (
+    PostgresActiveRegistryPointerReader,
+)
+from schemabridge.adapters.control_plane.postgres_active_registry_version import (
+    PostgresActiveRegistryVersionReader,
+)
 from schemabridge.adapters.control_plane.postgres_migrations import (
     PostgresControlPlaneMigrator,
 )
@@ -162,7 +168,7 @@ def publication_database() -> Iterator[_Urls]:
     )
     try:
         migrated = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert migrated.inspection.current_version == 14
+        assert migrated.inspection.current_version == 15
         yield urls
     finally:
         with psycopg.connect(admin_dsn, autocommit=True) as connection:
@@ -219,7 +225,7 @@ def test_two_phase_publication_is_durable_fenced_and_activation_ready(
         fencing_token=preparing.last_fencing_token,
     )
     assert awaiting.status is RegistryPublicationJobStatus.AWAITING_APPROVAL
-    approved_at = datetime.now(UTC)
+    approved_at = datetime.now(UTC) - timedelta(seconds=1)
     authorization = RegistryPublicationAuthorization.create(
         candidate,
         actor_id="publisher-a",
@@ -336,6 +342,13 @@ def test_two_phase_publication_is_durable_fenced_and_activation_ready(
     )
     assert committed.transition.active_pointer.registry_version == 1
     assert control.load_active(candidate.scope) == committed.transition.active_pointer
+    api_pointers = PostgresActiveRegistryPointerReader(urls.api)
+    api_versions = PostgresActiveRegistryVersionReader(urls.api, api_pointers)
+    active_version = api_versions.load_version(candidate.scope, 1)
+    assert active_version.trust is RegistryVersionTrust.STRICT
+    assert active_version.snapshot.registry == candidate.registry
+    assert active_version.snapshot.activation_generation == 1
+    assert active_version.publication_approval_id == authorization.id
 
 
 def test_target_reservation_and_role_boundaries_fail_closed(

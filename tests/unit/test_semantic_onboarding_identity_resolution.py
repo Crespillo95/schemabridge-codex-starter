@@ -111,6 +111,7 @@ class _ConcurrentExactReplayStore(InMemorySemanticOnboardingStore):
     def __init__(self) -> None:
         super().__init__()
         self.hide_next_replay_for: str | None = None
+        self.hidden_replay_reads = 1
 
     def load_operation_replay(
         self,
@@ -118,7 +119,9 @@ class _ConcurrentExactReplayStore(InMemorySemanticOnboardingStore):
         idempotency_digest: str,
     ) -> SemanticOnboardingOperationReplay | None:
         if self.hide_next_replay_for == workspace_id:
-            self.hide_next_replay_for = None
+            self.hidden_replay_reads -= 1
+            if self.hidden_replay_reads == 0:
+                self.hide_next_replay_for = None
             return None
         return super().load_operation_replay(workspace_id, idempotency_digest)
 
@@ -475,6 +478,9 @@ def test_concurrent_exact_create_replay_delegates_to_the_atomic_raw_store() -> N
         harness.request,
         idempotency_key="concurrent-exact-create-1",
     )
+    # Hide the operation from both the application replay lookup and the wrapper pre-check.
+    # The already committed draft then becomes visible between those reads and delegation.
+    raw.hidden_replay_reads = 2
     raw.hide_next_replay_for = resolver.new_workspace
     resolving = IdentityResolvingSemanticOnboardingStore(
         raw,

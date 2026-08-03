@@ -15,10 +15,10 @@ from schemabridge.domain.registry_publication import (
     RegistryPublicationAuthorization,
 )
 from schemabridge.domain.registry_publication_jobs import (
+    PreparedRegistryPublicationProposal,
     RegistryPublicationFailureCode,
     RegistryPublicationJob,
 )
-from schemabridge.domain.semantic_onboarding import PreparedSemanticOnboardingProposal
 from schemabridge.domain.semantic_registry import (
     GovernedPhysicalBinding,
     GovernedSemanticRegistrySnapshot,
@@ -68,14 +68,14 @@ class RegistryPublicationProposalPort(Protocol):
         self,
         workspace_id: str,
         proposal_id: str,
-    ) -> PreparedSemanticOnboardingProposal | None:
-        """Load one exact immutable M33 proposal inside the workspace."""
+    ) -> PreparedRegistryPublicationProposal | None:
+        """Load one exact immutable supported proposal inside the workspace."""
 
 
 class RegistryPublicationAuthorityPort(Protocol):
     def resolve_base(
         self,
-        proposal: PreparedSemanticOnboardingProposal,
+        proposal: PreparedRegistryPublicationProposal,
     ) -> GovernedSemanticRegistrySnapshot | None:
         """Revalidate proposal/catalog/pointer and return the exact strict v2 base."""
 

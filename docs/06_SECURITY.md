@@ -1300,3 +1300,28 @@ external security review remain mandatory production NO-GO items until independe
 These controls are local implementation evidence. They do not prove real DataHub IAM exclusivity,
 secret-manager policy, target-cluster NetworkPolicy enforcement, external audit retention or an
 operated incident/recovery path; those remain production NO-GO gates.
+
+## M35 registry-change authority
+
+- Join discovery and model-remediation profiling use only closed, aggregate read-only requests.
+  Requested-job binding and its audit witness must exist before claim; a heartbeat rechecks exact
+  catalog/base/route authority before each protected source-I/O boundary.
+- A join name, score or apparent uniqueness never approves a contract. Self joins,
+  cross-connection joins, many-to-many cardinality and one-to-many fanout without the explicit
+  distinct-left-entity mitigation fail closed.
+- A model replacement is bound to one immutable M33 source proposal, exact active v2 base,
+  dependency watermark and, for remediation, the complete current blocking M26 report/impact set.
+  Every incident join is preserved exactly, freshly approved, or explicitly removed.
+- Phase B has an additional outer steward decision and a separate fresh publisher preparation.
+  One M33 source can authorize only one outer draft; rejection or staleness requires a new source
+  proposal instead of rebinding prior evidence.
+- The generic publication INSERT trigger accepts only the three closed proposal kinds and verifies
+  the exact source row, proposal payload, target scope/version and ready draft. The historical M34
+  transition guard remains unchanged for update/delete state transitions.
+- `replace_model_v1` must pass an exact PostgreSQL witness over source identity, model/fields,
+  mappings, physical bindings, approvals and incident-join effects before M23 can observe an
+  activation-ready handoff. Publication still cannot activate or write a source database.
+
+M35 closes this bounded local PostgreSQL lifecycle only. Other dialects, real customer scale,
+external IAM/secret/SIEM/recovery operation, independent penetration testing, M30 quality and M31
+pilot evidence remain mandatory commercial/production gates.

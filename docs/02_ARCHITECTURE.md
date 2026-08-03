@@ -1434,11 +1434,12 @@ and the authorization is current, and requires exact read-back of the document, 
 and observed `relatedAssets`. Ambiguous external failure becomes bounded read-back recovery rather
 than inferred success.
 
-Control-plane schema v14 owns the target reservation, immutable payload, append-only events,
-database-time leases, hashed transient capability, monotonically increasing fencing token,
-bounded retry/dead-letter state and cooperative cancellation. PostgreSQL privileges and lifecycle
-triggers split API transitions from publisher transitions. The publisher can read only the exact
-catalog/base state needed for revalidation and cannot update `registry_active_pointers`.
+The schema-v14 publication tables retained inside current control-plane schema v15 own the target
+reservation, immutable payload, append-only events, database-time leases, hashed transient
+capability, monotonically increasing fencing token, bounded retry/dead-letter state and
+cooperative cancellation. PostgreSQL privileges and lifecycle triggers split API transitions from
+publisher transitions. The publisher can read only the exact catalog/base state needed for
+revalidation and cannot update `registry_active_pointers`.
 
 Successful publication finishes at `activation_ready`; it does not activate. A bounded
 `SECURITY DEFINER` function returns only the exact handoff identity, receipt and a fingerprint of
@@ -1453,3 +1454,30 @@ capability, PDB, metrics service and default-deny NetworkPolicy. Its only non-DN
 the secret manager, control publisher database and DataHub registry writer. It receives no OIDC,
 LLM, source, execution, API or registry-reader credential. These manifests remain static local
 contracts, not operated-cluster evidence.
+
+## M35 governed registry-v2 changes
+
+M35 adds two immutable delta families over one exact active registry-v2 base. Phase A appends one
+approved same-connection join between exact active mappings after aggregate-only profiling. Phase
+B replaces/remediates one logical model from an immutable M33 source proposal and accounts for
+every incident join as exact preservation, newly profiled upsert, or explicit removal. Neither
+family edits an existing registry document or active pointer.
+
+The API composes tenant-bound profile and change commands with strict bodies and exact
+idempotency. It can persist/finalize aggregate profile requests, create/list/inspect changes,
+record a steward decision and let a separate publisher prepare a proposal. List responses omit
+mapping/evidence payloads; unknown and cross-tenant identifiers share the same bounded response.
+Source rows, SQL, parameters, DSNs and credentials never enter these records.
+
+Control-plane schema v15 adds append-only M35 requests, jobs, profile witnesses, join/model drafts,
+decisions, prepared proposals and audit events. Database functions enforce current catalog/base/
+dependency authority, immutable requested-job binding, fenced leases, exact replay and role
+separation. A worker rechecks authority by heartbeat before source I/O. Each M33 replacement
+proposal is a one-shot provenance source: rejection or staleness requires a new immutable M33
+proposal rather than rebinding old evidence.
+
+M34 publication is generalized with closed proposal kind `replace_model_v1`. The publisher reads
+the outer replacement proposal plus its exact M33 source, decisions, catalog/base/dependency/M26
+authority and profile witnesses. A PostgreSQL witness function rejects any altered closure before
+the candidate can become `activation_ready`; the existing isolated write/read-back path and the
+separate M23 activation CAS remain unchanged.

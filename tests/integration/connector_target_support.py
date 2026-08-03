@@ -248,7 +248,10 @@ def ensure_compatible_catalog_generation(
             connection_id=connection_id,
             mode=CatalogRefreshMode.FULL,
             requested_by="actor_catalog_test_support",
-            requested_at=datetime.now(UTC),
+            # The API and PostgreSQL clocks are distinct authorities in managed deployments.
+            # Keep this cross-process fixture outside a sub-millisecond negative-skew race while
+            # still exercising an otherwise fresh request.
+            requested_at=datetime.now(UTC) - timedelta(seconds=1),
             idempotency_digest=_digest(f"catalog-test-generation:{label}"),
         )
     )

@@ -9,8 +9,16 @@ la petición cabe por completo en su lenguaje tipado y en contexto semántico ap
 localmente el onboarding genérico gobernado que evita editar fixtures para cada cliente, pero
 termina en una propuesta inmutable `ready_for_publication`. M34 ya cierra localmente la cola
 durable, aprobación posterior al ensamblado, publicación DataHub v2, read-back exacto y handoff
-`activation_ready`; la activación sigue siendo un flujo M23 separado. La certificación M30, el
-piloto M31 y los controles externos operados siguen siendo puertas de salida.
+`activation_ready`; la activación sigue siendo un flujo M23 separado. M35 es el cierre local del
+cambio posterior: alta de un join y reemplazo/remediación de un modelo contra una base v2 exacta,
+siempre creando una versión nueva. La certificación M30, el piloto M31 y los controles externos
+operados siguen siendo puertas de salida.
+
+La decisión comercial defendible es **GO condicionado para una beta privada PostgreSQL
+copy-first, aislada por cliente, sólo después de cerrar todos los P0 de M35/M30 y operación real**.
+Sigue siendo **NO-GO hoy** y **NO-GO para GA multi-base/multi-dialecto**. Los planes ejecutables son
+[M30](../plans/M30_PRODUCTION_EVALUATION_SECURITY.md) y
+[M31](../plans/M31_CONTROLLED_PILOT_GA_READINESS.md).
 
 La promesa comercial correcta es **exactitud acotada y fallo cerrado**, no “experto supremo sin
 errores”. Una consulta de 50 líneas puede ser compatible y otra de 5 líneas puede no serlo: manda
@@ -29,6 +37,7 @@ devolver una explicación sin SQL.
 | Ejecución | Preview read-only separado, opcional y acotado cuando está habilitado | El flujo principal M32 no ejecuta: `executed=false` |
 | Onboarding M33 | Preflight server-side, borrador tenant-bound, decisiones steward append-only y handoff inmutable | Cero escritura externa; no publicación ni activación |
 | Publicación M34 | Reserva tenant-bound, worker aislado, aprobación del candidato completo, DataHub v2 y read-back exacto | No activa; la evidencia local/sintética no prueba IAM ni operación externa |
+| Cambio M35 | Join nuevo y reemplazo/remediación de un modelo sobre una base v2 exacta, con dependencias y joins incidentes cerrados | No permite cambio masivo, cross-connection, borrado de modelo ni activación automática |
 | Operación gestionada | Contratos locales de identidad, aislamiento, secretos, observabilidad, backup y supply chain | No equivalen a evidencia de proveedor/cluster/guardias operadas en producción |
 
 ### Relación con el benchmark LearnSQL solicitado
@@ -78,7 +87,7 @@ Estos son límites de producto, no una estimación de rendimiento para cualquier
 | Campos por registro semántico | 1.000 |
 | Mapeos por registro semántico | 2.000 |
 | Contratos de join por registro semántico | 500 |
-| Tablas base del control plane cubiertas por backup/restore | 67 actuales; máximo tipado 128 |
+| Tablas base del control plane cubiertas por backup/restore | 88 actuales; máximo tipado 128 |
 | Campos en un modelo de onboarding M33 | 100 |
 | Propuestas de mapeo en un borrador M33 | 2.000 como límite estructural/storage; el alta HTTP efectiva es menor y depende del payload de 64 KiB |
 | Evidencias o riesgos por propuesta M33 | 16 de cada tipo |
@@ -113,7 +122,7 @@ duplica el borrador completo por decisión. La inspección pública sigue siendo
 no una paginación histórica completa: un cursor de auditoría/exportación y cuotas operadas por
 tenant continúan siendo requisitos previos a GA si el segmento necesita revisar cierres grandes.
 
-El backup y la verificación de restore contabilizan las 67 tablas base actuales sin truncarlas. El
+El backup y la verificación de restore contabilizan las 88 tablas base actuales sin truncarlas. El
 contrato rechaza un inventario superior a 128; ampliar ese límite exige una migración deliberada,
 pruebas de memoria/tamaño del manifiesto y un restore completo antes de aceptar el nuevo esquema.
 Los identificadores físicos aceptados son exactamente `schema.table.column`, con un único segmento
@@ -129,10 +138,10 @@ imposibles.
 
 ## Roles y separación de funciones
 
-| Rol | Puede hacer | No puede hacer en M33/M34 |
+| Rol | Puede hacer | No puede hacer en M33/M34/M35 |
 |---|---|---|
 | Analyst | Ver sus borradores y crear uno con un catálogo exacto | Aprobar significado o preparar publicación |
-| Steward | Ver el workspace, crear, aprobar/rechazar modelo y mapeos, revisar auditoría | Publicar o activar; la confianza no sustituye su decisión |
+| Steward | Ver el workspace, crear, aprobar/rechazar modelo, mapeos, joins y cambios completos, revisar auditoría | Publicar o activar; la confianza no sustituye su decisión |
 | Publisher humano | Preparar M33 y reservar/autorizar/cancelar M34 con sesión reciente | Obtener el token DataHub, escribir directamente o activar el registro |
 | Publisher worker | Reclamar la cola, ensamblar, revalidar, publicar y hacer read-back exacto | Autenticarse como usuario, aprobar, leer fuente/LLM o cambiar el active pointer |
 | Auditor | Ver borradores y trazabilidad del workspace | Crear, decidir o preparar |
@@ -155,9 +164,11 @@ flowchart LR
     E --> F["M34: reserva, aprobación, publicación y read-back"]
     F --> G["Handoff activation_ready"]
     G -. "M23: aprobación y CAS separados" .-> H["Registro activo"]
-    H --> I["Petición natural tipada"]
-    I --> J["Confirmación humana"]
-    J --> K["PostgreSQL standalone validado"]
+    H --> I["M35: nueva versión por join o reemplazo"]
+    H --> J["Petición natural tipada"]
+    I --> F
+    J --> K["Confirmación humana"]
+    K --> L["PostgreSQL standalone validado"]
 ```
 
 1. **Contrato de alcance.** Registrar dialecto, regiones, clasificación de datos, propietario de
@@ -216,8 +227,9 @@ flowchart LR
 
 ### Puerta 2 — M34 local cerrada: publicación genérica segura
 
-- cola PostgreSQL v14 con reserva única, fencing, heartbeat, retry/dead-letter, cancelación y
-  worker dedicado cuya credencial de escritura no está disponible para web/API;
+- contrato de cola M34 schema-v14 preservado dentro del control plane v15 actual, con reserva
+  única, fencing, heartbeat, retry/dead-letter, cancelación y worker dedicado cuya credencial de
+  escritura no está disponible para web/API;
 - privilegios M34 cerrados a exactamente `manageDocuments`; los grants residuales del writer local
   histórico se rechazan y no cuentan como postura comercial;
 - URN exacta observada, nunca construida desde `schema.table`; binding físico revalidado antes de
@@ -232,6 +244,20 @@ Esta puerta cierra implementación local, no operación externa. Antes de produc
 probarse el DataHub real con IAM exclusivo, el gestor de secretos real, NetworkPolicy/admission en
 el cluster destino, alertas/SIEM, recuperación y carga con el perfil del cliente.
 
+### Puerta 2b — M35 local cerrada: cambio gobernado de registry-v2
+
+- un join nuevo usa dos mappings activos exactos, evidencia agregada read-only y una decisión
+  steward; self/cross-connection/many-to-many y fanout sin mitigación fallan cerrados;
+- un reemplazo nombra un modelo activo, aporta todos sus mappings/bindings y da una acción exacta
+  para cada join incidente: preservar, refrescar con perfil nuevo o retirar explícitamente;
+- la autoridad de publicación relee propuesta, fuente M33, catálogo, puntero/base, dependency
+  watermark, informe/impactos M26 y el witness de perfil más reciente antes de persistir candidato
+  y antes de la única escritura externa;
+- cada aceptación crea la siguiente versión completa e inmutable; M23 sigue siendo la única ruta
+  de activación y M26 debe volver a inspeccionar la evidencia tras activarla;
+- PostgreSQL v15 prueba roles, append-only, CAS, retry/heartbeat, reinicio, compatibilidad histórica
+  y handoff `activation_ready` para los tres tipos de propuesta.
+
 ### Puerta 3 — M30: certificación de calidad y seguridad
 
 - corpus ciego representativo por familia soportada, incluyendo positivos, ambiguos,
@@ -243,6 +269,9 @@ el cluster destino, alertas/SIEM, recuperación y carga con el perfil del client
   hallazgo crítico/alto;
 - evidencia reproducible en un checkout limpio y artefactos firmados.
 
+El plan completo, corpus mínimo, métricas y umbrales están en
+[`plans/M30_PRODUCTION_EVALUATION_SECURITY.md`](../plans/M30_PRODUCTION_EVALUATION_SECURITY.md).
+
 ### Puerta 4 — M31: piloto operado
 
 - un tenant real de bajo riesgo con datos autorizados fuera del repositorio público;
@@ -250,6 +279,9 @@ el cluster destino, alertas/SIEM, recuperación y carga con el perfil del client
 - observación de consultas rechazadas, drift, latencia, coste y decisiones humanas;
 - criterios de salida y rollback acordados; ninguna expansión automática de alcance durante el
   piloto.
+
+El piloto propuesto limita la cohorte a uno–tres design partners durante 30–60 días y está descrito
+en [`plans/M31_CONTROLLED_PILOT_GA_READINESS.md`](../plans/M31_CONTROLLED_PILOT_GA_READINESS.md).
 
 ### Puerta 5 — disponibilidad comercial
 
@@ -287,6 +319,8 @@ No iniciar tráfico hasta que todos los elementos aplicables tengan evidencia en
 - [ ] Dialecto PostgreSQL, versión, región y contexto destino registrados.
 - [ ] Propietarios técnico, steward, publisher, auditor y contacto de incidente asignados.
 - [ ] OIDC y grupos probados; sin usuarios compartidos ni identidad local en managed.
+- [ ] API, workers y PostgreSQL sincronizados con una fuente horaria operada; skew y alertas
+      medidos frente a ventanas de aprobación/lease.
 - [ ] Secretos remotos versionados y rotación/revocación ensayadas.
 - [ ] Roles de fuente read-only, timeout y límites verificados independientemente.
 - [ ] Inventario completo, capacidad, paginación y generación retenida verificados.
@@ -371,6 +405,44 @@ automatic_activation=false
 La prueba equivalente es
 `.venv/bin/pytest tests/acceptance/test_m34_registry_publication.py`. La evidencia en memoria no
 sustituye la integración PostgreSQL ni un DataHub/secret-manager/cluster real.
+
+## Prueba manual M35 en navegador interno
+
+La instrumentación sintética `scripts/m35_registry_join_change_scenario_app.py` se recorrió en el
+navegador interno de Codex el 3 de agosto de 2026. El recorrido manual ejecutado fue:
+
+```text
+persist request → aggregate profile → finalize draft → steward approval
+→ separate publisher handoff → M34 reservation → isolated prepare
+→ exact candidate confirmation → authorization → publish/read-back
+```
+
+El resultado observado fue `queued → leased → awaiting_approval → approved → leased →
+activation_ready`, active pointer `v2 · generation 4` sin cambio, una única escritura en el target
+sintético y cero escrituras de fuente, SQL generado, filas, credenciales o secretos expuestos. Los
+casos `self_join`, `cross_connection`, `stale_target` y `many_to_many` terminaron con cero mutación
+externa. En viewport 390×844, `scrollWidth` y ancho visible fueron 390, sin overflow horizontal.
+
+Esto demuestra el recorrido UI y los contratos locales de join, no un DataHub, source/IAM o
+secret-manager real. Phase B de reemplazo/remediación se certifica mediante contratos,
+PostgreSQL/HTTP y aceptación; el criterio manual M35 exige sólo el recorrido de join.
+
+## Prueba manual del nivel SQL solicitado
+
+Query Studio se probó también en el navegador interno con el runtime real de la aplicación y sus
+adaptadores recorded/fake, sin ejecución de fuente. Una petición avanzada en español pidió, por
+mes y categoría, ingresos netos, unidades y pedidos distintos, mínimo cuatro pedidos, ranking
+determinista top-3, porcentaje sobre el total elegible e ingreso acumulado. Antes de confirmar no
+había bloque SQL ni descarga. Tras confirmar se obtuvo PostgreSQL standalone de 106 líneas y 2.975
+caracteres con dos CTE, `COUNT(DISTINCT ...)`, `HAVING`, `ROW_NUMBER`, porcentaje y ventana
+acumulada, terminando en `LIMIT 100`; no contenía placeholders y `executed=false`.
+
+Una petición simple de productos activos generó un `SELECT` de una tabla con proyección, filtro,
+orden y `LIMIT 50`, también sin ejecución. La frase ambigua “Muestra las ventas por fecha” devolvió
+`date_meaning` y cero SQL/confirmación/descarga. El viewport 390×844 no presentó overflow. Esta
+evidencia prueba una familia avanzada material y el fallo cerrado de una ambigüedad; no convierte
+en soportadas las subconsultas arbitrarias, self/CROSS joins, `INTERSECT`, recursión o `ROLLUP` del
+benchmark externo.
 
 ## Cómo interpretar una consulta solicitada
 

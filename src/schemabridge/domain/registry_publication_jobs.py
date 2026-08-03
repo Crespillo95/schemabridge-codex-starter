@@ -8,10 +8,15 @@ import json
 import re
 from datetime import datetime, timedelta
 from enum import StrEnum
+from typing import TypeAlias
 
 from pydantic import Field, field_validator, model_validator
 
 from schemabridge.domain._base import FrozenDomainModel
+from schemabridge.domain.registry_changes import PreparedRegistryJoinProposal
+from schemabridge.domain.registry_model_changes import (
+    PreparedRegistryModelReplacementProposal,
+)
 from schemabridge.domain.registry_publication import (
     PublicationReadbackReceipt,
     PublishableRegistryVersion,
@@ -26,6 +31,16 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{2,199}$")
 _MAX_LEASE = timedelta(minutes=5)
 _MAX_RETRY_DELAY_SECONDS = 300
+
+
+# The historical M33 proposal intentionally remains the first member and keeps
+# its original, discriminator-free serialized shape.  New families must use a
+# distinct validated model so extra fields cannot be silently discarded.
+PreparedRegistryPublicationProposal: TypeAlias = (
+    PreparedSemanticOnboardingProposal
+    | PreparedRegistryJoinProposal
+    | PreparedRegistryModelReplacementProposal
+)
 
 
 class RegistryPublicationJobStatus(StrEnum):
@@ -160,7 +175,7 @@ class RegistryPublicationJob(FrozenDomainModel):
 
     id: str = Field(min_length=3, max_length=200)
     scope: SemanticRegistryScope
-    proposal: PreparedSemanticOnboardingProposal
+    proposal: PreparedRegistryPublicationProposal
     status: RegistryPublicationJobStatus = RegistryPublicationJobStatus.QUEUED
     submitted_by: str = Field(min_length=1, max_length=200)
     submitted_at: datetime
@@ -361,7 +376,7 @@ class RegistryPublicationEvent(FrozenDomainModel):
 
 
 def create_registry_publication_job(
-    proposal: PreparedSemanticOnboardingProposal,
+    proposal: PreparedRegistryPublicationProposal,
     *,
     submitted_by: str,
     submitted_at: datetime,
@@ -828,7 +843,7 @@ def registry_publication_job_id(scope: SemanticRegistryScope, target_version: in
 
 
 def registry_publication_request_fingerprint(
-    proposal: PreparedSemanticOnboardingProposal,
+    proposal: PreparedRegistryPublicationProposal,
     *,
     submitted_by: str,
 ) -> str:
@@ -915,6 +930,7 @@ def _fingerprint(payload: object) -> str:
 
 
 __all__ = [
+    "PreparedRegistryPublicationProposal",
     "RegistryPublicationEvent",
     "RegistryPublicationEventKind",
     "RegistryPublicationFailureCode",

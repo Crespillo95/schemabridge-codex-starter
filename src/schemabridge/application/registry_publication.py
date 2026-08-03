@@ -25,15 +25,13 @@ from schemabridge.domain.registry_publication import (
     RegistryPublicationAuthorizationConfirmation,
 )
 from schemabridge.domain.registry_publication_jobs import (
+    PreparedRegistryPublicationProposal,
     RegistryPublicationJob,
     RegistryPublicationJobStatus,
     create_registry_publication_job,
     registry_publication_request_fingerprint,
 )
-from schemabridge.domain.semantic_onboarding import (
-    PreparedSemanticOnboardingProposal,
-    SemanticOnboardingPermission,
-)
+from schemabridge.domain.semantic_onboarding import SemanticOnboardingPermission
 
 _IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9._~-]{16,128}$")
 _MAX_PUBLISHER_SESSION_AGE = timedelta(minutes=15)
@@ -298,7 +296,7 @@ def _load_proposal_for_principal(
     authorization: SemanticOnboardingAuthorizationPolicy,
     principal: AuthenticatedPrincipal,
     proposal_id: str,
-) -> PreparedSemanticOnboardingProposal | None:
+) -> PreparedRegistryPublicationProposal | None:
     matches = tuple(
         proposal
         for workspace_id in authorization.workspace_ids_for_principal(principal)

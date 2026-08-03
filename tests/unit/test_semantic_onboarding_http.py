@@ -580,14 +580,16 @@ def test_request_models_have_no_representable_actor_or_workspace_authority() -> 
         assert model.model_config["extra"] == "forbid"
 
 
-def test_api_composition_contains_no_source_llm_or_datahub_onboarding_dependency() -> None:
+def test_api_composition_contains_no_source_llm_or_datahub_writer_dependency() -> None:
     source = inspect.getsource(build_api_http_services)
 
     assert "PostgresSemanticOnboardingStore" in source
     assert "PostgresSemanticOnboardingCatalogEvidence" in source
     assert "AuthoritativeSemanticOnboardingRegistryBaseReader" in source
+    assert "PostgresRegistryChangeStore" in source
+    assert "PostgresExecutionTargetResolver" in source
     assert "schemabridge.adapters.datahub" not in source
     assert "build_registry_version_reader(" not in source
     assert "DataHubRegistry" not in source
     assert "IntentParser" not in source
-    assert "ExecutionTargetResolver" not in source
+    assert "RoutedPostgresQueryConnector" not in source
