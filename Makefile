@@ -648,7 +648,7 @@ registry-publisher:
 	  SCHEMABRIDGE_AUTH_MODE=local-demo \
 	  SCHEMABRIDGE_CONTROL_PLANE_MODE=postgres \
 	  SCHEMABRIDGE_CONTROL_PUBLISHER_DATABASE_URL='$(CONTROL_PUBLISHER_DATABASE_URL)' \
-	  SCHEMABRIDGE_REGISTRY_PUBLISHER_WRITER_ENV_PATH='$(abspath .local/datahub/writer.env)' \
+	  SCHEMABRIDGE_REGISTRY_PUBLISHER_WRITER_ENV_PATH='$(abspath .local/datahub/registry-publisher.env)' \
 	  $(BIN)/schemabridge-registry-publisher
 
 registry-publisher-once:
@@ -657,7 +657,7 @@ registry-publisher-once:
 	  SCHEMABRIDGE_AUTH_MODE=local-demo \
 	  SCHEMABRIDGE_CONTROL_PLANE_MODE=postgres \
 	  SCHEMABRIDGE_CONTROL_PUBLISHER_DATABASE_URL='$(CONTROL_PUBLISHER_DATABASE_URL)' \
-	  SCHEMABRIDGE_REGISTRY_PUBLISHER_WRITER_ENV_PATH='$(abspath .local/datahub/writer.env)' \
+	  SCHEMABRIDGE_REGISTRY_PUBLISHER_WRITER_ENV_PATH='$(abspath .local/datahub/registry-publisher.env)' \
 	  $(BIN)/schemabridge-registry-publisher --once
 
 registry-publisher-probe:
@@ -666,7 +666,7 @@ registry-publisher-probe:
 	  SCHEMABRIDGE_AUTH_MODE=local-demo \
 	  SCHEMABRIDGE_CONTROL_PLANE_MODE=postgres \
 	  SCHEMABRIDGE_CONTROL_PUBLISHER_DATABASE_URL='$(CONTROL_PUBLISHER_DATABASE_URL)' \
-	  SCHEMABRIDGE_REGISTRY_PUBLISHER_WRITER_ENV_PATH='$(abspath .local/datahub/writer.env)' \
+	  SCHEMABRIDGE_REGISTRY_PUBLISHER_WRITER_ENV_PATH='$(abspath .local/datahub/registry-publisher.env)' \
 	  $(BIN)/schemabridge-registry-publisher --probe-ready
 
 catalog:

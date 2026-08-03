@@ -71,6 +71,8 @@ def test_publisher_recipes_inject_only_its_dsn_and_local_writer_document() -> No
         assert "SCHEMABRIDGE_COMPONENT=publisher" in recipe
         assert "SCHEMABRIDGE_CONTROL_PUBLISHER_DATABASE_URL=" in recipe
         assert "SCHEMABRIDGE_REGISTRY_PUBLISHER_WRITER_ENV_PATH=" in recipe
+        assert ".local/datahub/registry-publisher.env" in recipe
+        assert ".local/datahub/writer.env" not in recipe
         assert "OPENAI" not in recipe
         assert "OIDC_" not in recipe
         assert "SEMANTIC_REGISTRY_READER" not in recipe

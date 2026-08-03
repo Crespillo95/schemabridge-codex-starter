@@ -74,6 +74,7 @@ pytestmark = pytest.mark.integration
 ROOT = Path(__file__).resolve().parents[2]
 MCP_CREDENTIALS = ROOT / ".local/datahub/mcp.env"
 WRITER_CREDENTIALS = ROOT / ".local/datahub/writer.env"
+PUBLISHER_CREDENTIALS = ROOT / ".local/datahub/registry-publisher.env"
 _M34_V2_PROPERTIES = {
     "schemabridge.registryFormatVersion",
     "schemabridge.registryId",
@@ -289,12 +290,9 @@ def test_registry_publish_cli_replay_is_idempotent_across_fresh_processes(
 
 
 def test_live_datahub_v2_publication_has_exact_opaque_authority_and_immutable_readback() -> None:
-    if not WRITER_CREDENTIALS.is_file() or not MCP_CREDENTIALS.is_file():
-        pytest.skip(
-            "DataHub reader/writer credentials are absent; run "
-            "make datahub-provision-mcp datahub-provision-writer"
-        )
-    writer_config = DataHubRegistryWriteConfig.from_env_file(WRITER_CREDENTIALS)
+    if not PUBLISHER_CREDENTIALS.is_file() or not MCP_CREDENTIALS.is_file():
+        pytest.skip("DataHub reader or document-only M34 publisher credentials are absent")
+    writer_config = DataHubRegistryWriteConfig.from_env_file(PUBLISHER_CREDENTIALS)
     reader_config = DataHubRegistryReadConfig.from_env_file(MCP_CREDENTIALS)
     scope = SemanticRegistryScope(
         workspace_id="workspace-m34-datahub-integration",

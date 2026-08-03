@@ -715,6 +715,19 @@ def test_legacy_publisher_tolerates_the_historical_target_grant(
     live_registry: GovernedSemanticRegistrySnapshot,
     approval: RegistryPublicationApproval,
 ) -> None:
+    legacy_target_closure = frozenset(
+        {
+            "EDIT_ENTITY",
+            "MANAGE_DOCUMENTS",
+            "canManageEntity",
+            "canEditProperties",
+            "canEditDescription",
+            "canEditTags",
+            "canEditGlossaryTerms",
+            "canEditOwners",
+            "canEditDomains",
+        }
+    )
     client = FakeRegistryWriteClient(
         identity_value=DataHubRegistryIdentity(
             actor_urn=WRITER_ACTOR,
@@ -726,7 +739,7 @@ def test_legacy_publisher_tolerates_the_historical_target_grant(
                     "manageStructuredProperties",
                 }
             ),
-            granted_target_edit_privileges=frozenset({"EDIT_ENTITY", "MANAGE_DOCUMENTS"}),
+            granted_target_edit_privileges=legacy_target_closure,
         )
     )
 
@@ -737,9 +750,7 @@ def test_legacy_publisher_tolerates_the_historical_target_grant(
 
     client.identity_value = replace(
         client.identity_value,
-        granted_target_edit_privileges=frozenset(
-            {"EDIT_ENTITY", "MANAGE_DOCUMENTS", "canEditProperties"}
-        ),
+        granted_target_edit_privileges=legacy_target_closure | {"canEditLineage"},
     )
     with pytest.raises(RegistryPublicationError) as raised:
         _publisher(client).publish(live_registry, approval)

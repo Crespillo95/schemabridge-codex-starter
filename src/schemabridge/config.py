@@ -264,7 +264,7 @@ class Settings(BaseSettings):
         alias="SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_VERSION",
     )
     registry_publisher_writer_env_path: Path = Field(
-        default=Path(".local/datahub/writer.env"),
+        default=Path(".local/datahub/registry-publisher.env"),
         alias="SCHEMABRIDGE_REGISTRY_PUBLISHER_WRITER_ENV_PATH",
         repr=False,
     )

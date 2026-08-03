@@ -86,9 +86,38 @@ def test_http_writer_identity_accepts_an_explicitly_absent_target(
     assert identity.granted_target_edit_privileges == frozenset()
 
 
-def test_http_writer_identity_requires_complete_privileges_for_an_existing_target(
+def test_http_writer_identity_reconstructs_and_requires_complete_target_privileges(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    complete_responses: Iterator[dict[str, Any]] = iter(
+        (
+            {
+                "me": {
+                    "corpUser": {"urn": "urn:li:corpuser:schemabridge-registry-writer"},
+                    "platformPrivileges": _PLATFORM_PRIVILEGES,
+                }
+            },
+            {
+                "document": {"privileges": {key: True for key in _TARGET_PRIVILEGES}},
+                "getGrantedPrivileges": {"privileges": ["EDIT_ENTITY", "MANAGE_DOCUMENTS"]},
+            },
+        )
+    )
+    monkeypatch.setattr(
+        DataHubHttpRegistryReadClient,
+        "_graphql",
+        lambda *_args, **_kwargs: next(complete_responses),
+    )
+
+    identity = DataHubHttpRegistryReadClient(
+        server="http://127.0.0.1:8080",
+        token="synthetic-writer-token",
+    ).identity("urn:li:document:schemabridge-registry-existing-v1")
+
+    assert identity.granted_target_edit_privileges == frozenset(
+        {*_TARGET_PRIVILEGES, "EDIT_ENTITY", "MANAGE_DOCUMENTS"}
+    )
+
     responses: Iterator[dict[str, Any]] = iter(
         (
             {

@@ -3660,6 +3660,10 @@ platform privileges and no target-edit grant. The stock local M22 writer can inh
 all-users privileges and is deliberately rejected by registry-v2 publication; tighten the DataHub
 policy rather than weakening the M34 check.
 
+Store that independently provisioned identity at
+`.local/datahub/registry-publisher.env`. The legacy `make datahub-provision-writer` command writes
+`.local/datahub/writer.env` for v1/writeback compatibility and must never be reused by M34.
+
 Readiness-only checks:
 
 ```bash
