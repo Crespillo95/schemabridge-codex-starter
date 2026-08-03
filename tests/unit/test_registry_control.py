@@ -515,19 +515,31 @@ def test_activation_approval_identity_changes_with_exact_publication_handoff(
     )
 
 
-def test_legacy_version_is_read_only_and_cannot_be_activated(
+def test_legacy_trust_or_strict_format_v1_is_read_only_and_cannot_be_activated(
     strict_versions: dict[int, GovernedRegistryVersion],
 ) -> None:
-    legacy = strict_versions[1].model_copy(update={"trust": RegistryVersionTrust.LEGACY_READ_ONLY})
-    store = MemoryControlStore()
-    versions = StubVersionReader({1: legacy})
+    legacy_trust = strict_versions[1].model_copy(
+        update={"trust": RegistryVersionTrust.LEGACY_READ_ONLY}
+    )
+    recorded = RecordedGovernedSemanticRegistry(MANIFEST_PATH, SCOPE).load().registry
+    registry_v1 = prepare_datahub_registry_version(recorded, SCOPE)
+    assert registry_v1.format_version == 1
+    strict_format_v1 = GovernedRegistryVersion(
+        snapshot=ScopedSemanticRegistrySnapshot(scope=SCOPE, registry=registry_v1),
+        publication_approval_id="publication-v1",
+        trust=RegistryVersionTrust.STRICT,
+    )
 
-    with pytest.raises(RegistryControlError) as raised:
-        PrepareRegistryActivation(store, versions, SCOPE).execute(1)
+    for version in (legacy_trust, strict_format_v1):
+        store = MemoryControlStore()
+        versions = StubVersionReader({1: version})
 
-    assert raised.value.code is RegistryControlErrorCode.LEGACY_VERSION
-    assert store.commit_calls == 0
-    assert store.active is None
+        with pytest.raises(RegistryControlError) as raised:
+            PrepareRegistryActivation(store, versions, SCOPE).execute(1)
+
+        assert raised.value.code is RegistryControlErrorCode.LEGACY_VERSION
+        assert store.commit_calls == 0
+        assert store.active is None
 
 
 def test_active_loader_uses_exact_pointer_and_exposes_generation_binding(

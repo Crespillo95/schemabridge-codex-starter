@@ -1786,6 +1786,10 @@ M29 final-byte remediation status on 2026-07-30:
   checked-in live v2 test must pass against the operated DataHub instance before production. M34
   supports additive models only; it does not add joins, replace/remove models, onboard in batch,
   prove high-volume queue/catalog performance, or activate automatically.
+- The retained M26 live acceptance publishes format-v1 replacement registries and is explicitly
+  skipped after M34 because v1 is read-only and cannot produce an `activation_ready` handoff. A
+  typed v2 replacement/remediation contract plus the document-only publisher is required before
+  that operated lifecycle can be re-enabled; a green CI run is not evidence that it exists.
 
 ## Next milestone
 

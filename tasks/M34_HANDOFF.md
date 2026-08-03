@@ -155,6 +155,9 @@ servers were closed cleanly.
   Snowflake, BigQuery and federated/cross-destination output are unsupported.
 - Registry authoring is initial/additive one-model only. New joins, replacement/removal and batch or
   incremental import are not implemented.
+- The historical M26 live acceptance that activates format-v1 replacement registries is now an
+  explicit superseded skip. M34 keeps v1 readable but never activation-ready; re-enabling that
+  lifecycle requires a typed v2 replacement contract and the dedicated document-only publisher.
 - A catalog may contain thousands of assets, but one query remains limited to three tables and two
   joins; M34 adds no high-volume queue/catalog or multi-tenant load proof.
 - Live-provider holdout quality, independent security testing, external IAM/TLS/secret rotation,

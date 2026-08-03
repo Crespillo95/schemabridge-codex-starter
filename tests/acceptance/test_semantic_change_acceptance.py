@@ -434,12 +434,19 @@ class _CountingRejections:
         return RejectedSourceReport(inspected_fields=fields, **safety)
 
 
-def test_real_datahub_postgres_change_lifecycle_is_exact_complete_and_bounded(
+@pytest.mark.skip(
+    reason=(
+        "Superseded by M34: this historical fixture publishes format-v1 registries; "
+        "forward activation now requires an exact v2 activation_ready handoff. "
+        "Retained as historical evidence; not M34 live evidence."
+    )
+)
+def test_legacy_datahub_postgres_change_lifecycle_requires_a_v2_replacement_contract(
     semantic_acceptance_database: _DatabaseUrls,
     tmp_path: Path,
     record_property: Callable[[str, object], None],
 ) -> None:
-    """Prove one complete baseline-to-remediation lifecycle at dynamic catalog scale."""
+    """Retain the pre-M34 replacement lifecycle until a typed v2 vertical exists."""
 
     if not DATAHUB_READER.is_file() or not DATAHUB_WRITER.is_file():
         pytest.skip("DataHub reader/writer credentials are required for M26 acceptance")

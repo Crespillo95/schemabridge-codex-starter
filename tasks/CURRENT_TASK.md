@@ -42,7 +42,9 @@ fresh approval of the complete assembled candidate, independent exact read-back,
 
 M34 closes bounded local publication/read-back and the activation-ready bridge only. Live DataHub
 evidence on these exact bytes, live-provider/holdout quality, multi-dialect output, independent
-security verification, operated SLO/scale evidence, M30 and M31 remain mandatory.
+security verification, a typed v2 replacement/remediation lifecycle, operated SLO/scale evidence,
+M30 and M31 remain mandatory. The superseded M26 format-v1 replacement acceptance is an explicit
+skip and is not live M34 evidence.
 
 ---
 
