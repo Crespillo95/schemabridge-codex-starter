@@ -366,7 +366,7 @@ SCALE_PREFLIGHT_REPORT_MARKDOWN ?= reports/m25-scale-preflight.md
 SCALE_REPORT_JSON ?= reports/m25-scale-report.json
 SCALE_REPORT_MARKDOWN ?= reports/m25-scale-report.md
 
-.PHONY: help bootstrap install check runtime-wheel-smoke supply-chain-lock supply-chain-static supply-chain-licenses m29-recovery-help m29-recovery-policy-check m30-readiness format lint type test coverage coverage-unit doctor evaluate submission-package submission-package-dev release-audit release-clean judge-build judge-smoke demo-up demo-down demo-reset demo-seed-check demo-reset-proof demo-health demo-query demo-compile demo-preview demo-guard demo-governed-plan demo-governed-preview demo-intent control-plane-up control-plane-down control-plane-reset control-plane-migrate control-plane-check api observer worker worker-once registry-publisher registry-publisher-once registry-publisher-probe catalog catalog-once semantic-reconciler semantic-reconciler-once semantic-reconciler-probe semantic-profile-worker semantic-profile-worker-once semantic-profile-worker-probe test-api-integration test-worker-integration test-intent test-scale-correctness benchmark-scale-preflight benchmark-scale test-integration test-acceptance datahub-version datahub-start datahub-health datahub-init-admin datahub-ingest datahub-provision-mcp datahub-provision-writer datahub-catalog-check datahub-registry-check datahub-restart datahub-reset datahub-stop datahub-mcp-check ui clean
+.PHONY: help bootstrap install check runtime-wheel-smoke supply-chain-lock supply-chain-static supply-chain-licenses m29-recovery-help m29-recovery-policy-check m30-readiness format lint type test test-performance coverage coverage-unit doctor evaluate submission-package submission-package-dev release-audit release-clean judge-build judge-smoke demo-up demo-down demo-reset demo-seed-check demo-reset-proof demo-health demo-query demo-compile demo-preview demo-guard demo-governed-plan demo-governed-preview demo-intent control-plane-up control-plane-down control-plane-reset control-plane-migrate control-plane-check api observer worker worker-once registry-publisher registry-publisher-once registry-publisher-probe catalog catalog-once semantic-reconciler semantic-reconciler-once semantic-reconciler-probe semantic-profile-worker semantic-profile-worker-once semantic-profile-worker-probe test-api-integration test-worker-integration test-intent test-scale-correctness benchmark-scale-preflight benchmark-scale test-integration test-acceptance datahub-version datahub-start datahub-health datahub-init-admin datahub-ingest datahub-provision-mcp datahub-provision-writer datahub-catalog-check datahub-registry-check datahub-restart datahub-reset datahub-stop datahub-mcp-check ui clean
 
 help:
 	@printf '%s\n' \
@@ -379,6 +379,7 @@ help:
 	  'make m29-recovery-help Show the safe M29 recovery operator commands' \
 	  'make m29-recovery-policy-check Validate the exact M29 recovery policy' \
 	  'make m30-readiness Materialize the explicit offline M30 NO-GO preflight' \
+	  'make test-performance Run the isolated service-free wall-clock scale smoke' \
 	  'make coverage    Run the >=80% full-suite coverage gate (services required)' \
 	  'make coverage-unit Report service-free unit coverage without release gating' \
 	  'make doctor      Verify the local starter environment' \
@@ -469,7 +470,11 @@ type:
 	$(BIN)/mypy src
 
 test:
-	$(BIN)/pytest -m 'not integration and not acceptance'
+	$(BIN)/pytest -m 'not integration and not acceptance and not performance'
+
+test-performance:
+	@PYTHONHASHSEED=0 $(BIN)/pytest -q -m performance \
+	  tests/unit/test_scale_harness.py::test_load_harness_records_latency_concurrency_pool_wait_and_zero_errors
 
 coverage:
 	@SCHEMABRIDGE_TEST_DATABASE_URL='$(DEMO_DATABASE_URL)' $(BIN)/pytest -m 'not performance' --cov=schemabridge --cov-report=term-missing
@@ -477,7 +482,9 @@ coverage:
 coverage-unit:
 	$(BIN)/pytest --cov=schemabridge --cov-report=term-missing --cov-fail-under=0 -m 'not integration and not acceptance and not performance'
 
-check: supply-chain-static lint type test
+check: supply-chain-static lint type
+	$(MAKE) test-performance
+	$(MAKE) test
 
 runtime-wheel-smoke:
 	$(BIN)/python scripts/smoke_runtime_wheel.py
@@ -773,7 +780,7 @@ test-intent:
 	$(BIN)/pytest -m acceptance -k natural_language
 
 test-scale-correctness:
-	@PYTHONHASHSEED=0 $(BIN)/pytest -q \
+	@PYTHONHASHSEED=0 $(BIN)/pytest -q -m 'not performance' \
 	  tests/unit/test_scale_harness.py \
 	  tests/unit/test_postgres_scale_reader.py
 	@PYTHONHASHSEED=0 $(BIN)/pytest -q -m scale tests/unit/test_lazy_synthetic_catalog.py

@@ -33,6 +33,7 @@ from scripts.benchmark_catalog_scale import (
 )
 
 MEASURED_AT = datetime(2026, 7, 23, 22, 30, tzinfo=UTC)
+QUALITY_SMOKE_READ_COUNT = 1_000
 
 
 @pytest.fixture(scope="module")
@@ -112,6 +113,7 @@ def test_correctness_report_covers_both_cardinalities_and_three_page_sizes(
     backend = report["backend"]
     assert isinstance(backend, dict)
     assert backend["indexed_database_read"] is False
+    assert backend["cache_context"] == "stateless-generated-pages"
     assert backend["pool_max_size_per_process"] is None
     environment = report["environment"]
     assert isinstance(environment, dict)
@@ -142,12 +144,12 @@ def test_correctness_report_covers_both_cardinalities_and_three_page_sizes(
 def test_load_harness_records_latency_concurrency_pool_wait_and_zero_errors() -> None:
     result = run_load(
         LazySyntheticScaleReader(),
-        read_count=64,
+        read_count=QUALITY_SMOKE_READ_COUNT,
         concurrency=4,
         page_size=17,
     )
 
-    assert result["read_count"] == 64
+    assert result["read_count"] == QUALITY_SMOKE_READ_COUNT
     assert result["warmup_read_count"] == 4
     assert result["warmup_included_in_latency"] is False
     assert result["concurrency"] == 4
@@ -156,6 +158,16 @@ def test_load_harness_records_latency_concurrency_pool_wait_and_zero_errors() ->
     assert cast(int, result["maximum_rows_read"]) <= 18
     assert cast(int, result["maximum_materialized_items"]) <= 17
     assert result["passed"] is True, result
+    observations = result["latency_observations"]
+    assert isinstance(observations, dict)
+    assert observations["count"] == QUALITY_SMOKE_READ_COUNT
+    assert observations["percentile_method"] == "nearest-rank"
+    assert (
+        0
+        <= observations["over_p99_budget_count"]
+        <= observations["over_p95_budget_count"]
+        <= QUALITY_SMOKE_READ_COUNT
+    )
     latency = result["latency_milliseconds"]
     assert isinstance(latency, dict)
     assert 0 <= latency["p50"] <= latency["p95"] <= latency["p99"] <= latency["maximum"]
@@ -177,8 +189,59 @@ def test_load_harness_records_latency_concurrency_pool_wait_and_zero_errors() ->
     }
 
 
+def test_make_check_isolates_wall_clock_smoke_in_a_fresh_pytest_process() -> None:
+    makefile = (Path(__file__).parents[2] / "Makefile").read_text(encoding="utf-8")
+
+    assert (
+        "test:\n\t$(BIN)/pytest -m 'not integration and not acceptance and not performance'\n"
+    ) in makefile
+    assert (
+        "test-performance:\n"
+        "\t@PYTHONHASHSEED=0 $(BIN)/pytest -q -m performance \\\n"
+        "\t  tests/unit/test_scale_harness.py::"
+        "test_load_harness_records_latency_concurrency_pool_wait_and_zero_errors\n"
+    ) in makefile
+    assert (
+        "check: supply-chain-static lint type\n\t$(MAKE) test-performance\n\t$(MAKE) test\n"
+    ) in makefile
+    correctness_target = makefile.split("test-scale-correctness:\n", 1)[1].split(
+        "\nbenchmark-scale-preflight:", 1
+    )[0]
+    assert "$(BIN)/pytest -q -m 'not performance'" in correctness_target
+
+
+def test_quality_sample_makes_declared_tail_percentiles_meaningful() -> None:
+    baseline = 10.0
+    transient = 400.0
+
+    assert percentile(([baseline] * 60) + ([transient] * 4), 0.95) == transient
+    quality_sample = ([baseline] * (QUALITY_SMOKE_READ_COUNT - 4)) + ([transient] * 4)
+    assert percentile(quality_sample, 0.95) == baseline
+    assert percentile(quality_sample, 0.99) == baseline
+    assert percentile(([baseline] * 990) + ([transient] * 10), 0.99) == baseline
+    assert percentile(([baseline] * 989) + ([transient] * 11), 0.99) == transient
+    assert percentile(([baseline] * 950) + ([transient] * 50), 0.95) == baseline
+    assert percentile(([baseline] * 949) + ([transient] * 51), 0.95) == transient
+
+
+def test_markdown_remains_compatible_with_tracked_format_v2_scale_evidence() -> None:
+    report_path = Path(__file__).parents[2] / "reports" / "m25-scale-report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+
+    assert report["format_version"] == 2
+    markdown = render_markdown(report)
+    assert (
+        "Unmeasured per-worker preconditioning reads: `not_recorded`; "
+        "included in reported latency: `not_recorded`." in markdown
+    )
+    assert (
+        "Timed observations / percentile method / over p95 budget / over p99 budget: "
+        "`5000` / `nearest-rank` / `not_recorded` / `not_recorded`." in markdown
+    )
+
+
 @pytest.mark.scale
-def test_load_harness_warms_each_executor_worker_before_timed_reads(
+def test_load_harness_preconditions_each_executor_worker_before_timed_reads(
     correctness_report: dict[str, object],
 ) -> None:
     class _CountingReader:
@@ -218,7 +281,10 @@ def test_load_harness_warms_each_executor_worker_before_timed_reads(
     assert len(set(reader.thread_ids[:2])) == 2
     assert set(reader.thread_ids[:2]) == set(reader.thread_ids[2:])
     markdown = render_markdown(correctness_report | {"load": result})
-    assert "Unmeasured warmup reads: `2`; included in reported latency: `False`." in markdown
+    assert (
+        "Unmeasured per-worker preconditioning reads: `2`; included in reported latency: `False`."
+        in markdown
+    )
 
 
 def test_load_harness_rejects_an_invalid_warmup_before_starting_workers() -> None:
@@ -413,6 +479,9 @@ def test_percentile_uses_deterministic_nearest_rank() -> None:
     assert percentile(observations, 0.50) == 3.0
     assert percentile(observations, 0.95) == 5.0
     assert percentile(observations, 0.99) == 5.0
+    hosted_smoke_positions = tuple(float(value) for value in range(1, 1_001))
+    assert percentile(hosted_smoke_positions, 0.95) == 950.0
+    assert percentile(hosted_smoke_positions, 0.99) == 990.0
     with pytest.raises(ScaleHarnessError):
         percentile([], 0.95)
 

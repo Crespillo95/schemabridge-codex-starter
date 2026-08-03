@@ -170,18 +170,36 @@ The local implementation gate passes 3,931 tests with 246 explicit deselections;
 validates migrations 1–15 and all entrypoints. Independent post-remediation review reports P0=0,
 P1=0 and P2=0. None of those local facts satisfies an external M30 control.
 
-Phase 0 commit `c7e72cc97e4226b2d953f5c1e8ef55178a1598f5` is published on
-`agent/ignore-node-modules` and draft PR #1; GitGuardian and the supply-chain job pass. Hosted run
-`30811612188` is associated with that branch head but checked out PR merge ref
-`01933509e22759886349451dc1e3a66751453ef2`, so it is not exact tagged-main candidate evidence. Its
-quality job passed 3,930 tests before the unchanged 250 ms p95 warm-cache gate failed at
-393.774 ms; p99 was 417.752 ms, maximum latency was 417.752 ms and no load errors occurred. The
-four-latency outlier pattern is consistent with a cold first read on each of four executor workers
-after only one main-thread warmup. The corrective bytes warm each worker in the same executor pool
-before timing, retain the 250/500 ms limits, and pass a second full local `make check`: 3,931 passed,
-246 deselected in 1,235.97 seconds. At this pre-commit evidence snapshot, the corrective commit and
-hosted rerun had not yet been created; `postgres-integration` from run `30811612188` remained in
-progress. Their later GitHub status must be inspected separately rather than self-asserted here.
+Phase 0 commit `c7e72cc97e4226b2d953f5c1e8ef55178a1598f5` and warmup commit
+`3f57a2ea89220ff0c68ac58f0f8e668069e93f81` are published on
+`agent/ignore-node-modules` and draft PR #1. Run `30816314566` checked out PR merge ref
+`04402da8327f08ccc29799a6df4b4f2e9645dc90`, so it is not exact tagged-main candidate evidence.
+GitGuardian and supply-chain passed. Quality passed 3,930 other tests and recorded zero load
+errors, but the 64-read smoke failed only p95: p50/p95/p99/max was
+26.420/330.102/355.132/355.132 ms against unchanged 250/500 ms limits. Its
+`postgres-integration` job passed in 1 h 37 min 59 s; the run is red only because of quality.
+
+The second hosted correlated tail remained after every executor worker was preconditioned,
+refuting the earlier cold-worker explanation without proving GC, GIL, scheduler or product
+causality. At 64 samples with concurrency four, nearest-rank p95 is the fourth-largest observation
+and p99 is the maximum, so a tail compatible with the synchronized four-worker launch can control
+both claimed percentiles. D131 retains the limits and preconditioning, isolates the exact
+performance node in a fresh service-free Pytest process and increases the synthetic quality sample
+to 1,000 reads: at least 51 observations over 250 ms fail p95 and at least 11 over 500 ms fail
+p99. Four correlated transients are only 0.4%; no sample is discarded and reports add sanitized
+tail counts. Coverage and correctness-only targets exclude the wall-clock node. The prior
+`3f57a2e` bytes passed local `make check` with 3,931 tests and 246 deselections in 1,235.07 seconds.
+On the current D131 bytes, the exact isolated
+1,000-read node passes in 2.72 seconds; a direct run records p50/p95/p99/max
+9.775/10.761/12.288/19.260 ms, all observations accounted for and zero over both budgets. The 23
+non-performance harness tests include tracked-format-v2 rendering compatibility. Combined,
+scale/release/evaluation tests pass 42, and `make test-scale-correctness` passes 29 tests with 1
+deselection followed by 8 tests with 4 deselections. Final `make check` passes the isolated node
+plus 3,933 functional tests with 247 explicit deselections in 943.82 seconds; supply-chain, release
+audit, Ruff and mypy pass. Only the commit-bound hosted rerun remains pending at this snapshot. The
+explicit 5,000-read
+concurrency-16 PostgreSQL benchmark remains the authoritative operated gate, and
+production/release remain NO-GO.
 
 Initial commit `09c3a2e0f47a7fbadb5297fa6bc4f9aca0d21950` and its 12-commit history pass
 the exact secret scan and are published on draft PR #1. Hosted run `30765372081` passed quality,

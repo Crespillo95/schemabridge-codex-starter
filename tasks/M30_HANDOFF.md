@@ -7,7 +7,8 @@
 - Recommended operator decision: accept the fail-closed preparation vertical; retain M30,
   commercial, production and release NO-GO
 - Published implementation commit: `c7e72cc97e4226b2d953f5c1e8ef55178a1598f5`
-- Corrective commit message: `fix: warm every scale benchmark worker`
+- Published warmup commit: `3f57a2ea89220ff0c68ac58f0f8e668069e93f81`
+- Final corrective commit message: `fix: isolate scale percentile gate`
 
 ## Implemented
 
@@ -35,9 +36,11 @@
   adapters.
 - `scripts/m30_readiness.py` and `Makefile`: operator command.
 - `src/schemabridge/bootstrap.py`: composition-root builders used by the operator command.
-- `scripts/benchmark_catalog_scale.py` and `tests/unit/test_scale_harness.py`: explicit unmeasured
-  warmup per executor worker for the warm-cache/concurrency latency contract exposed by hosted CI,
-  without relaxing its 250/500 ms budgets.
+- `scripts/benchmark_catalog_scale.py`, `Makefile` and `tests/unit/test_scale_harness.py`: explicit
+  unmeasured preconditioning per executor worker plus an exact fresh-process, 1,000-read synthetic
+  percentile gate, without relaxing its 250/500 ms budgets. Reports identify nearest-rank and
+  disclose exact tail counts; correctness and coverage targets exclude the wall-clock node. The
+  5,000-read PostgreSQL benchmark remains authoritative operated evidence.
 - `tests/unit/test_m30_readiness.py`, `tests/acceptance/test_m30_readiness_acceptance.py` and
   `tests/m30_readiness_support.py`: focused and observable regressions.
 - M30/commercial/runbook/test/state/decision documentation: accurate Phase 0/no-GO boundary.
@@ -55,30 +58,43 @@
 | `make m30-readiness` | pass with explicit NO-GO | Pre-commit run: four repository failures and 24 external controls missing; zero network/database/DataHub/source actions |
 | `make check` (initial attempt) | intentionally interrupted | 2,513 passed and 246 deselected before stopping to fix the independent-review P1 |
 | `make check` | pass | 3,931 passed, 246 deselected in 1,096.17 s; supply-chain, release audit, Ruff and mypy passed |
-| `make check` (post-hosted per-worker remediation) | pass | 3,931 passed, 246 deselected in 1,235.97 s; unchanged 250/500 ms scale budgets passed |
+| `make check` (post-hosted per-worker remediation) | pass | 3,931 passed, 246 deselected in 1,235.07 s; unchanged 250/500 ms scale budgets passed |
+| `make test-performance` (D131 focused bytes) | pass | Exact fresh 1,000-read node passed in 2.72 s |
+| `.venv/bin/pytest -q -m 'not performance' tests/unit/test_scale_harness.py` | pass | 23 passed, 1 deselected in 3.63 s; validates isolation, stateless metadata, v2 rendering compatibility, tail diagnostics and percentile boundaries |
+| Direct 1,000-read diagnostic | pass | p50/p95/p99/max 9.775/10.761/12.288/19.260 ms; zero observations over 250/500; all 1,000 observations accounted for |
+| `.venv/bin/pytest -q tests/unit/test_scale_harness.py tests/unit/test_release_audit.py tests/unit/test_evaluation.py` | pass | 42 passed in 7.25 s |
+| `make test-scale-correctness` | pass | 29 passed and 1 deselected, then 8 passed and 4 deselected; correctness report generated |
+| `make check` (D131 final bytes) | pass | Exact performance node passed, then 3,933 functional tests passed with 247 deselected in 943.82 s; supply-chain, release audit, Ruff and mypy passed |
+| `make check` (concurrent D131 attempt) | discarded, externally terminated | The isolated gate passed, but a second pre-existing `make check` contended with the functional suite; the tree then changed and the captured session received SIGTERM 15. This run is not final-byte evidence |
 | `make runtime-wheel-smoke` | pass | Installed wheel validated migrations 1–15 and every runtime entrypoint |
 | `git diff --check` | pass | Repeated on the final documentation bytes before commit |
 
 ## Hosted publication evidence
 
-- Commit `c7e72cc97e4226b2d953f5c1e8ef55178a1598f5` is published on
+- Commits `c7e72cc97e4226b2d953f5c1e8ef55178a1598f5` and
+  `3f57a2ea89220ff0c68ac58f0f8e668069e93f81` are published on
   `agent/ignore-node-modules` and draft PR #1. GitGuardian passed.
-- GitHub Actions run `30811612188` is branch-associated with that commit, but its checkout and
-  artifact subject is PR merge ref `01933509e22759886349451dc1e3a66751453ef2`; it is not an exact
-  tagged-main candidate result.
-- `supply-chain` passed. `quality` passed 3,930 tests and then failed the unchanged warm-cache
-  performance gate: p95 393.774 ms exceeded 250 ms; p99 417.752 ms remained below 500 ms; maximum
-  latency was 417.752 ms and the load recorded zero errors. The four-latency outlier pattern is
-  consistent with one cold first read on each executor worker after a single main-thread warmup.
-- The current correction warms every executor worker inside the same pool before timing. Its full
-  local `make check` passes. At this pre-commit evidence snapshot, its commit-bound hosted run had
-  not yet been created; the existing `postgres-integration` job was still running coverage. The
-  later corrective run must be judged from GitHub rather than inferred from these local bytes.
+- Run `30816314566` is branch-associated with `3f57a2e` but checked out PR merge ref
+  `04402da8327f08ccc29799a6df4b4f2e9645dc90`; it is not an exact tagged-main candidate result.
+  Supply-chain passed and PostgreSQL integration passed in 1 h 37 min 59 s.
+- Quality passed 3,930 other tests with zero load errors, then the 64-read smoke failed only p95:
+  p50/p95/p99/max was 26.420/330.102/355.132/355.132 ms against unchanged 250/500 ms limits. The
+  correlated tail remained after all four executor workers were preconditioned, refuting the
+  earlier cold-worker explanation without proving GC, GIL, scheduler or product causality.
+- At 64 nearest-rank samples, a tail compatible with the synchronized four-worker launch can occupy
+  6.25%: p95 is the fourth-largest value and p99 is the maximum. D131 runs only the exact
+  performance node in a fresh process and raises the synthetic sample to 1,000 reads. At least 51
+  values over 250 ms fail p95 and at least 11 over 500 ms fail p99. Four correlated transients are
+  only 0.4%; no value is discarded and reports expose both tail counts. The commit-bound hosted
+  rerun for these bytes must be judged from GitHub rather than inferred from local evidence.
 
 ## Automated test results
 
-- Focused tests: PASS — 49 M30 tests and 39 scale/release/evaluation tests passed.
-- `make check`: PASS — 3,931 passed and 246 explicitly deselected.
+- Focused D131 tests: PASS — the exact 1,000-read node and 23 non-performance scale-harness tests
+  passed; a direct diagnostic accounted for all 1,000 timed observations and the tracked v2 report
+  renders without requiring newly added fields.
+- D131 final-byte `make check`: PASS — the isolated performance node passed, followed by 3,933
+  functional tests with 247 explicit deselections; all static/type gates passed.
 - Integration tests: not required for the offline preflight; it deliberately performs no service
   call.
 - Acceptance tests: PASS — one clean synthetic candidate remains NO-GO with every external gate
@@ -114,21 +130,26 @@ network/database/DataHub/source actions=0
   frozen; the preflight cannot expand it.
 - Independent final re-review after remediation: P0=0, P1=0 and P2=0. It specifically reproduced
   fail-closed deep YAML, exact 15-source identity, descendant-safe Git timeout, real unmeasured
-  per-worker warmup, gitlink rejection and the JSON bundle commit-marker boundary.
+  per-worker preconditioning, gitlink rejection and the JSON bundle commit-marker boundary.
 
 ## Decisions made
 
 - Decision: an offline preflight may pass repository controls only and can never return release GO.
 - Reason: prevent local fixtures, self-asserted JSON or ephemeral PR merge subjects from becoming
   false operated/commercial evidence.
-- Logged in: D130.
+- Decision: a declared percentile gate must use a meaningful sample and its own fresh process while
+  retaining the exact latency budgets.
+- Reason: with 64 concurrency-four observations, a correlated tail compatible with synchronized
+  launch can control p95/p99; the two hosted results refute cold-worker causality but do not prove
+  a runtime or product cause.
+- Logged in: D130 and D131.
 
 ## Known limitations or unverified items
 
 - No exact clean tagged `main` candidate has been frozen.
 - Hosted quality/PostgreSQL/supply-chain evidence must be regenerated for the final candidate
   subject. The current supply-chain artifact is bound to a PR merge ref, and the quality result
-  predates the per-worker warmup correction.
+  predates the D131 fresh-process/sample correction.
 - The 1,000-case blind corpus, target environment, independent pentest, browser/accessibility,
   scale/soak, legal/service review and owner signatures do not exist as accepted evidence.
 - Phase 0 does not yet ingest or cryptographically verify external receipts; it deliberately keeps

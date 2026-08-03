@@ -183,7 +183,7 @@ class LazySyntheticScaleReader:
             indexed_database_read=False,
             pool_max_size=None,
             replica_count=1,
-            cache_context="warm-after-correctness",
+            cache_context="stateless-generated-pages",
         )
 
     def read_page(
@@ -507,6 +507,12 @@ def run_load(
         raise ScaleHarnessError("scale load did not account for every read")
     p95 = percentile(latencies, 0.95)
     p99 = percentile(latencies, 0.99)
+    latency_observations = {
+        "count": len(latencies),
+        "percentile_method": "nearest-rank",
+        "over_p95_budget_count": sum(latency > MAX_P95_MILLISECONDS for latency in latencies),
+        "over_p99_budget_count": sum(latency > MAX_P99_MILLISECONDS for latency in latencies),
+    }
     regression_checks = _load_regression_checks(
         error_count=error_count,
         p95_milliseconds=p95,
@@ -528,6 +534,7 @@ def run_load(
         "maximum_materialized_items": maximum_materialized_items,
         "elapsed_seconds": round(elapsed_seconds, 6),
         "reads_per_second": round(read_count / elapsed_seconds, 3),
+        "latency_observations": latency_observations,
         "latency_milliseconds": {
             "p50": round(percentile(latencies, 0.50), 3),
             "p95": round(p95, 3),
@@ -626,7 +633,7 @@ def _load_warmup_worker(
     page_size: int,
     barrier: threading.Barrier,
 ) -> None:
-    """Warm one real read on each executor worker without measuring it."""
+    """Precondition one real read on each executor worker without measuring it."""
 
     barrier.wait(timeout=30)
     try:
@@ -1178,6 +1185,19 @@ def render_markdown(report: Mapping[str, object]) -> str:
         lines.append("- Not run in correctness mode.")
     else:
         latency = cast(Mapping[str, object], load["latency_milliseconds"])
+        raw_latency_observations = load.get("latency_observations")
+        latency_observations = (
+            cast(Mapping[str, object], raw_latency_observations)
+            if isinstance(raw_latency_observations, Mapping)
+            else {
+                "count": load["read_count"],
+                "percentile_method": "nearest-rank",
+                "over_p95_budget_count": "not_recorded",
+                "over_p99_budget_count": "not_recorded",
+            }
+        )
+        warmup_read_count = load.get("warmup_read_count", "not_recorded")
+        warmup_included_in_latency = load.get("warmup_included_in_latency", "not_recorded")
         pool_wait = cast(Mapping[str, object], load["pool_wait_milliseconds"])
         lines.extend(
             [
@@ -1186,13 +1206,21 @@ def render_markdown(report: Mapping[str, object]) -> str:
                     f"`{load['concurrency']}` / `{load['page_size']}`."
                 ),
                 (
-                    f"- Unmeasured warmup reads: `{load['warmup_read_count']}`; included in "
-                    f"reported latency: `{load['warmup_included_in_latency']}`."
+                    "- Unmeasured per-worker preconditioning reads: "
+                    f"`{warmup_read_count}`; included in reported latency: "
+                    f"`{warmup_included_in_latency}`."
                 ),
                 f"- Unexpected errors: `{load['error_count']}`.",
                 (
                     f"- Latency p50 / p95 / p99 / max: `{latency['p50']}` / "
                     f"`{latency['p95']}` / `{latency['p99']}` / `{latency['maximum']}` ms."
+                ),
+                (
+                    "- Timed observations / percentile method / over p95 budget / over p99 "
+                    f"budget: `{latency_observations['count']}` / "
+                    f"`{latency_observations['percentile_method']}` / "
+                    f"`{latency_observations['over_p95_budget_count']}` / "
+                    f"`{latency_observations['over_p99_budget_count']}`."
                 ),
                 (
                     f"- Pool wait: `{pool_wait['status']}`; observations "

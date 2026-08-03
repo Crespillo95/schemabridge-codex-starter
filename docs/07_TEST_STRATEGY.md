@@ -643,16 +643,25 @@ p95, p99, pool wait, cold/warm state, and database/process settings. The local r
 are zero unexpected errors, p95 at or below 250 ms, and p99 at or below 500 ms. These figures are
 not production availability or capacity claims.
 
-The short wall-clock smoke remains mandatory in the hosted service-free quality job with those
+The service-free wall-clock regression remains mandatory in the hosted quality job with those
 limits unchanged; release clean-room likewise runs `make check` before starting project services.
-It performs and discloses one explicit unmeasured page warmup per worker in the same executor pool
-before starting the 64 timed reads, so the test matches its declared warm-cache/concurrency profile
-instead of charging each worker's first-use model construction to p95.
-It carries the `performance` marker and coverage runs deselect that marker so the measurement does
-not inherit pytest-cov or active DataHub/PostgreSQL service-job contention. The pure deterministic
+`make check` invokes the exact `performance` node in a dedicated fresh Pytest process and then
+starts the functional suite in a different process. Coverage and correctness-only targets deselect
+that marker, so the measurement does not inherit a long-lived test heap, pytest-cov, or active
+DataHub/PostgreSQL service contention.
+
+The smoke performs and discloses one explicit unmeasured page preconditioning read per worker in
+the same executor pool before 1,000 timed reads at concurrency four. The synthetic reader
+regenerates every page and reports `stateless-generated-pages`; preconditioning is not described
+as a cache hit. With the former 64-read nearest-rank sample, a correlated tail compatible with the
+synchronized four-worker launch occupied 6.25% of observations: p95 was the fourth-largest value
+and p99 was the maximum. With 1,000 reads, nearest-rank p95 is observation 950 and fails when at
+least 51 observations exceed 250 ms; p99 is observation 990 and fails when at least 11 observations
+exceed 500 ms. Four correlated transients are only 0.4%; no observation is discarded, and the
+report records the exact counts over both budgets plus maximum latency. The pure deterministic
 regression gate remains selected by coverage and proves the exact error, percentile, row, and
-materialization boundaries; a failure prints three-decimal sanitized metrics and the exact failed
-checks. The authoritative operated check remains the explicit 5,000-read PostgreSQL benchmark
+materialization boundaries. This synthetic check is preflight evidence, not a production SLO. The
+authoritative operated check remains the explicit 5,000-read concurrency-16 PostgreSQL benchmark
 above.
 
 Acceptance must also execute an approved one-, two-, and three-table plan against the large
