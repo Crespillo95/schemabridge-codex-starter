@@ -29,6 +29,7 @@ RAW_QUEUE_IDENTIFIERS = {
     "execution_jobs": "job_id",
     "catalog_refresh_runs": "refresh_id",
     "semantic_join_profile_jobs": "job_id",
+    "registry_publication_jobs": "job_id",
     "semantic_change_scan_requests": "scan_id",
 }
 
@@ -88,7 +89,7 @@ def observer_database() -> Iterator[str]:
             migrator_dsn,
             MIGRATIONS,
         ).migrate()
-        assert migrated.inspection.current_version == 13
+        assert migrated.inspection.current_version == 14
         yield _role_dsn("schemabridge_observer", database)
     finally:
         with psycopg.connect(_admin_dsn(), autocommit=True) as connection:
@@ -257,11 +258,12 @@ def test_observer_reads_only_bounded_operational_aggregates(
             """
         ).fetchone()
 
-    assert migration_count == (13,)
+    assert migration_count == (14,)
     assert [row[0] for row in aggregates] == [
         "catalog",
         "execution",
         "profile",
+        "publication",
         "reconciliation",
     ]
     assert all(

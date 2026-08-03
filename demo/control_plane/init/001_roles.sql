@@ -42,6 +42,19 @@ CREATE ROLE schemabridge_worker
   NOINHERIT
   PASSWORD 'schemabridge_worker';
 
+CREATE ROLE schemabridge_publisher
+  LOGIN
+  NOSUPERUSER
+  NOCREATEDB
+  NOCREATEROLE
+  NOREPLICATION
+  NOBYPASSRLS
+  NOINHERIT
+  PASSWORD 'schemabridge_publisher';
+
+ALTER ROLE schemabridge_publisher
+  SET statement_timeout = '30s';
+
 CREATE ROLE schemabridge_catalog
   LOGIN
   NOSUPERUSER
@@ -84,6 +97,7 @@ GRANT CONNECT ON DATABASE schemabridge_control
      schemabridge_reconciler,
      schemabridge_api,
      schemabridge_worker,
+     schemabridge_publisher,
      schemabridge_catalog,
      schemabridge_observer,
      schemabridge_backup;

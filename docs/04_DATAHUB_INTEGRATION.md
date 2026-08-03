@@ -331,3 +331,33 @@ dependencies. A cross-scope recipe, a recipe without the required scope binding,
 whose references have no exact current correspondence makes coverage incomplete. Legacy
 intent-only documents remain outside the active managed namespace and require the existing
 governed republishing flow; they are never silently rewritten into another scope.
+
+## M34 immutable registry-v2 publication
+
+M34 adds a dedicated DataHub writer/read-back path for a complete registry-v2 document. The
+publisher accepts only a pure candidate assembled from an immutable M33 proposal and an explicit
+empty or strict-v2 base. Each physical binding retains the exact observed dataset URN; the
+document's `relatedAssets` is the canonical sorted set of those URNs and is verified independently
+after the write. Dataset display names, platform defaults and `schema.table` reconstruction are
+not authority.
+
+The complete candidate exists before a human can authorize it. The short-lived authorization
+binds candidate/registry fingerprints, target URN, source proposal and active decisions. The
+adapter first verifies the configured writer actor and exact bounded privilege contract, observes
+the immutable target, writes only when absent, and re-reads the closed document, approval, audit
+and related assets. Exact existing bytes return `already_current` with the approval actually
+observed in the document. Different content is a conflict and is never overwritten. An expired
+authorization can recover an existing exact target but cannot create a missing one.
+
+The API and normal web/worker processes never receive this credential. Managed publisher
+composition resolves a separate exact-version remote writer document for each operation and drops
+it afterward. Publication records `activation_ready` only after exact read-back and leaves the
+PostgreSQL active pointer unchanged; M23 activation is a separate approval/CAS boundary.
+
+M34 requires the observed mutating platform-privilege set to equal exactly
+`{manageDocuments}` and requires zero target-edit grants. The broader residual privileges tolerated
+by the historical local M22 writer (`generatePersonalAccessTokens`, `manageGlossaries` or
+`manageStructuredProperties`) are not accepted by the registry-v2 publisher or its base reader.
+The stock local DataHub policy therefore remains useful for v1 compatibility evidence but is not a
+commercial M34 writer policy; an operated environment must remove those residual grants before the
+live v2 test can pass.

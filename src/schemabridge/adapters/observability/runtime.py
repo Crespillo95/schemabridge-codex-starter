@@ -37,10 +37,13 @@ _SOURCE_CAPABILITY_BY_SERVICE = {
 _QUEUE_EVENT_BY_SERVICE = {
     "catalog": ("catalog.refresh", "catalog"),
     "profile": ("profile.run", "profile"),
+    "publisher": ("registry.publication", "publication"),
     "reconciler": ("reconciliation.run", "reconciliation"),
     "worker": ("job.execution", "execution"),
 }
-_READINESS_SERVICES = frozenset({"api", "catalog", "observer", "profile", "reconciler", "worker"})
+_READINESS_SERVICES = frozenset(
+    {"api", "catalog", "observer", "profile", "publisher", "reconciler", "worker"}
+)
 _EVENT_SERVICES = {
     "audit.verify": frozenset({"observer", "reconciler"}),
     "backup.run": frozenset({"backup"}),
@@ -50,10 +53,11 @@ _EVENT_SERVICES = {
     "job.execution": frozenset({"worker"}),
     "profile.run": frozenset({"profile"}),
     "queue.transition": frozenset({"catalog", "profile", "reconciler", "worker"}),
+    "registry.publication": frozenset({"publisher"}),
     "reconciliation.run": frozenset({"reconciler"}),
     "release.policy": frozenset({"migrator"}),
     "restore.drill": frozenset({"backup"}),
-    "secret.resolve": frozenset({"catalog", "profile", "web", "worker"}),
+    "secret.resolve": frozenset({"catalog", "profile", "publisher", "web", "worker"}),
     "service.health": frozenset(
         {
             "api",
@@ -62,6 +66,7 @@ _EVENT_SERVICES = {
             "migrator",
             "observer",
             "profile",
+            "publisher",
             "reconciler",
             "web",
             "worker",

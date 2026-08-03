@@ -12,11 +12,16 @@ from pydantic import ValidationError
 import schemabridge.adapters.semantic_registry.remote_secrets as remote_module
 import schemabridge.bootstrap as bootstrap_module
 from schemabridge.adapters.connectors.remote_secrets import ConnectorSecretCapability
-from schemabridge.adapters.semantic_registry.datahub import DataHubRegistryReadConfig
+from schemabridge.adapters.semantic_registry.datahub import (
+    DataHubRegistryReadConfig,
+    DataHubRegistryWriteConfig,
+)
 from schemabridge.adapters.semantic_registry.remote_secrets import (
+    RemoteDataHubObservedSemanticRegistryPublisher,
     RemoteDataHubQueryRecipeInventory,
     RemoteDataHubRegistryVersionReader,
     VaultKvV2DataHubRegistryCredentialResolver,
+    VaultKvV2DataHubRegistryWriterCredentialResolver,
 )
 from schemabridge.application.ports.connector_secrets import (
     ConnectorSecretErrorCode,
@@ -26,6 +31,8 @@ from schemabridge.application.ports.connector_secrets import (
 from schemabridge.application.ports.planning import (
     PlanningPortError,
     PlanningPortErrorCode,
+    RegistryPublicationError,
+    RegistryPublicationErrorCode,
 )
 from schemabridge.bootstrap import (
     build_registry_version_reader,
@@ -66,6 +73,19 @@ class _Credentials:
         )
 
 
+@dataclass
+class _WriterCredentials:
+    calls: int = 0
+
+    def resolve(self) -> DataHubRegistryWriteConfig:
+        self.calls += 1
+        return DataHubRegistryWriteConfig(
+            server="https://datahub.example.test",
+            token="operation-scoped-writer-token",
+            actor_urn="urn:li:corpuser:registry-publisher",
+        )
+
+
 def _document() -> dict[str, object]:
     return {
         "format_version": 1,
@@ -80,6 +100,26 @@ def _resolver(backend: _Backend) -> VaultKvV2DataHubRegistryCredentialResolver:
         backend=backend,
         reference=OpaqueConnectorSecretRef("registry.reader.primary"),
         version=73,
+    )
+
+
+def _writer_document() -> dict[str, object]:
+    return {
+        "format_version": 1,
+        "kind": "datahub_registry_writer",
+        "server": "https://datahub.example.test/",
+        "token": "synthetic-registry-writer-token",
+        "actor_urn": "urn:li:corpuser:registry-publisher",
+    }
+
+
+def _writer_resolver(
+    backend: _Backend,
+) -> VaultKvV2DataHubRegistryWriterCredentialResolver:
+    return VaultKvV2DataHubRegistryWriterCredentialResolver(
+        backend=backend,
+        reference=OpaqueConnectorSecretRef("registry.writer.primary"),
+        version=91,
     )
 
 
@@ -130,6 +170,71 @@ def test_registry_provider_failure_is_sanitized() -> None:
 
     assert raised.value.code is PlanningPortErrorCode.CONTEXT_UNAVAILABLE
     assert str(raised.value) == "DataHub registry reader credential is unavailable"
+
+
+def test_registry_writer_credential_is_exact_versioned_closed_and_sanitized() -> None:
+    backend = _Backend(
+        _writer_document(),
+        capability=ConnectorSecretCapability.REGISTRY_PUBLISHER,
+    )
+    resolver = _writer_resolver(backend)
+
+    config = resolver.resolve()
+
+    assert config.server == "https://datahub.example.test"
+    assert config.actor_urn == "urn:li:corpuser:registry-publisher"
+    assert backend.calls[0][1] == 91
+    assert "synthetic-registry-writer-token" not in repr(config)
+    assert "registry.writer.primary" not in repr(resolver)
+
+    invalid = _writer_document()
+    invalid["unexpected"] = "value"
+    with pytest.raises(RegistryPublicationError) as malformed:
+        _writer_resolver(
+            _Backend(invalid, capability=ConnectorSecretCapability.REGISTRY_PUBLISHER)
+        ).resolve()
+    assert malformed.value.code is RegistryPublicationErrorCode.CATALOG_UNAVAILABLE
+    assert "synthetic-registry-writer-token" not in str(malformed.value)
+
+    with pytest.raises(RegistryPublicationError) as unavailable:
+        _writer_resolver(
+            _Backend(
+                _writer_document(),
+                capability=ConnectorSecretCapability.REGISTRY_PUBLISHER,
+                failure=True,
+            )
+        ).resolve()
+    assert unavailable.value.code is RegistryPublicationErrorCode.CATALOG_UNAVAILABLE
+    assert str(unavailable.value) == "DataHub registry writer credential is unavailable"
+
+
+def test_registry_publisher_resolves_fresh_writer_credentials_per_operation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    credentials = _WriterCredentials()
+    tokens: list[str] = []
+    expected = object()
+
+    class _Publisher:
+        def __init__(self, *, config: DataHubRegistryWriteConfig) -> None:
+            tokens.append(config.token)
+
+        def observe(self, *args: object, **kwargs: object) -> object:
+            del args, kwargs
+            return expected
+
+        def publish(self, *args: object, **kwargs: object) -> object:
+            del args, kwargs
+            return expected
+
+    monkeypatch.setattr(remote_module, "DataHubObservedSemanticRegistryPublisher", _Publisher)
+    publisher = RemoteDataHubObservedSemanticRegistryPublisher(credentials)
+
+    assert publisher.observe(object(), object(), observed_at=object()) is expected  # type: ignore[arg-type]
+    assert publisher.publish(object(), object(), observed_at=object()) is expected  # type: ignore[arg-type]
+    assert credentials.calls == 2
+    assert tokens == ["operation-scoped-writer-token"] * 2
+    assert "operation-scoped-writer-token" not in repr(publisher)
 
 
 def test_version_reader_resolves_fresh_credentials_for_each_operation(

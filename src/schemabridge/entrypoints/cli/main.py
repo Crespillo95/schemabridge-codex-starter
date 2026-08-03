@@ -450,6 +450,9 @@ def control_plane_check(
             "migrator": build_control_plane_migrator(credential_kind="migrator").require_current(),
             "api": build_control_plane_migrator(credential_kind="api").require_current(),
             "worker": build_control_plane_migrator(credential_kind="worker").require_current(),
+            "publisher": build_control_plane_migrator(
+                credential_kind="publisher"
+            ).require_current(),
             "catalog": build_control_plane_migrator(credential_kind="catalog").require_current(),
             "observer": build_control_plane_migrator(credential_kind="observer").require_current(),
             "backup": build_control_plane_migrator(credential_kind="backup").require_current(),

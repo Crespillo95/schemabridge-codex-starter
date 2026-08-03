@@ -119,6 +119,25 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
+  name: schemabridge-publisher
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/name: schemabridge-publisher
+    app.kubernetes.io/part-of: schemabridge
+    app.kubernetes.io/component: publisher
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: schemabridge-publisher
+  ports:
+    - name: metrics
+      port: 9464
+      targetPort: metrics
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
   name: schemabridge-reconciler
   namespace: schemabridge-system
   labels:

@@ -15,6 +15,7 @@ OperationalEvent: TypeAlias = Literal[
     "job.execution",
     "profile.run",
     "queue.transition",
+    "registry.publication",
     "reconciliation.run",
     "release.policy",
     "restore.drill",

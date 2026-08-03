@@ -1361,3 +1361,23 @@ deselected. The reference standalone SQL SHA-256 is
 clean. The in-app browser list was empty, so the browser matrix above remains a documented
 operator manual test and is not labeled PASS. This does not weaken the automated Streamlit
 acceptance (`3/3`) or create a production/live-provider claim.
+
+## M34 publication test matrix
+
+M34 requires four independent evidence layers:
+
+1. pure registry-v2 assembly/authorization and queue-transition tests, including zero joins,
+   additive preservation, opaque observed URNs, tampering, fencing, cancellation, retry and
+   dead-letter behavior;
+2. DataHub adapter tests for the exact document-only writer grant (including rejection of every
+   legacy residual mutation privilege), absent/existing/conflicting targets, expired recovery,
+   closed document/read-back, approval/audit identity and related-asset tampering;
+3. fresh PostgreSQL v14 integration for target reservation, idempotency, roles, claims/heartbeats,
+   process restart, activation-ready handoff, catalog drift and atomic M23 activation/rollback;
+4. authenticated HTTP, isolated-runtime/manifests, Streamlit acceptance and Codex in-app-browser
+   evidence with no automatic activation or sensitive response fields.
+
+The exact required files are listed in `plans/M34_GOVERNED_REGISTRY_PUBLICATION.md`. Real DataHub
+integration is separately credential-gated; a skip caused by absent external credentials must be
+reported and cannot become production evidence. The full `make check`, runtime-wheel smoke,
+deployment validator and `git diff --check` run on final bytes before local acceptance.

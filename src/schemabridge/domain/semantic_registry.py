@@ -11,9 +11,13 @@ from enum import StrEnum
 from pydantic import Field, field_validator, model_validator
 
 from schemabridge.domain._base import FrozenDomainModel
+from schemabridge.domain.catalog_inventory import CatalogConnectionId, CatalogFieldLocator
+from schemabridge.domain.concepts import LogicalFieldRef
 from schemabridge.domain.decisions import ApprovalStatus
+from schemabridge.domain.fields import PhysicalFieldRef
 from schemabridge.domain.joins import JoinContract
 from schemabridge.domain.mappings import ColumnMapping
+from schemabridge.domain.physical_types import PhysicalValueType as PhysicalValueType
 from schemabridge.domain.publication_audit import (
     PublicationAuditOutcome,
     PublicationFamily,
@@ -28,7 +32,9 @@ _MAX_MODELS = 100
 _MAX_FIELDS = 1_000
 _MAX_MAPPINGS = 2_000
 _MAX_CONTRACTS = 500
+_MAX_RELATED_ASSETS = 256
 _FINGERPRINT_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_DATAHUB_DATASET_URN_PREFIX = "urn:li:dataset:"
 
 
 class RegistryPublicationConfirmation(StrEnum):
@@ -41,20 +47,6 @@ class RegistryPublicationStatus(StrEnum):
     FAILED = "failed"
 
 
-class PhysicalValueType(StrEnum):
-    STRING = "string"
-    INTEGER = "integer"
-    FLOAT = "float"
-    DECIMAL = "decimal"
-    BOOLEAN = "boolean"
-    DATE = "date"
-    TIMESTAMP = "timestamp"
-    BINARY = "binary"
-    STRUCT = "struct"
-    ARRAY = "array"
-    UNKNOWN = "unknown"
-
-
 class RegistryArtifactKind(StrEnum):
     LOGICAL_MODELS = "logical_models"
     PHYSICAL_MAPPINGS = "physical_mappings"
@@ -64,7 +56,7 @@ class RegistryArtifactKind(StrEnum):
 class RegistryArtifactProvenance(FrozenDomainModel):
     kind: RegistryArtifactKind
     source: str = Field(min_length=1, max_length=240)
-    decision_ids: tuple[str, ...] = Field(min_length=1, max_length=2_000)
+    decision_ids: tuple[str, ...] = Field(default=(), max_length=2_000)
 
     @field_validator("source")
     @classmethod
@@ -82,6 +74,75 @@ class RegistryArtifactProvenance(FrozenDomainModel):
         if len(values) != len(set(values)) or any(not value.strip() for value in values):
             raise ValueError("registry provenance decisions must be unique and nonblank")
         return values
+
+
+class GovernedPhysicalBinding(FrozenDomainModel):
+    """Exact retained catalog authority for one active physical mapping.
+
+    The DataHub URN is copied from the catalog locator.  It is never inferred from the
+    schema-qualified physical name.
+    """
+
+    workspace_id: str = Field(min_length=3, max_length=200)
+    connection_id: CatalogConnectionId
+    catalog_scope: str = Field(min_length=3, max_length=120)
+    catalog_generation: int = Field(ge=1)
+    catalog_generation_fingerprint: str
+    locator: CatalogFieldLocator
+    asset_metadata_fingerprint: str
+    field_metadata_fingerprint: str
+    logical_field: LogicalFieldRef
+    physical_field: PhysicalFieldRef
+    physical_type: PhysicalValueType
+    observed_datahub_asset_urn: str = Field(min_length=3, max_length=500)
+    source_proposal_id: str = Field(min_length=3, max_length=200)
+    source_proposal_fingerprint: str
+
+    @field_validator(
+        "catalog_generation_fingerprint",
+        "asset_metadata_fingerprint",
+        "field_metadata_fingerprint",
+        "source_proposal_fingerprint",
+    )
+    @classmethod
+    def fingerprints_must_be_sha256(cls, value: str) -> str:
+        if _FINGERPRINT_PATTERN.fullmatch(value) is None:
+            raise ValueError("physical binding fingerprint must be lowercase SHA-256")
+        return value
+
+    @field_validator("workspace_id", "source_proposal_id")
+    @classmethod
+    def text_must_not_be_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("physical binding text must not be blank")
+        return value
+
+    @field_validator("catalog_scope")
+    @classmethod
+    def catalog_scope_must_be_inert(cls, value: str) -> str:
+        if _SCOPE_PATTERN.fullmatch(value) is None:
+            raise ValueError("physical binding catalog scope must be inert")
+        return value
+
+    @model_validator(mode="after")
+    def authority_must_be_observed_and_exact(self) -> GovernedPhysicalBinding:
+        asset = self.locator.asset
+        field_path = self.locator.field_path
+        if (
+            asset.workspace_id != self.workspace_id
+            or asset.connection_id != self.connection_id
+            or len(field_path) != 1
+            or self.physical_field.root.rsplit(".", 1)[-1] != field_path[0]
+            or self.observed_datahub_asset_urn != asset.asset_id.root
+            or not self.observed_datahub_asset_urn.startswith(_DATAHUB_DATASET_URN_PREFIX)
+            or self.physical_type is PhysicalValueType.UNKNOWN
+        ):
+            raise ValueError("physical binding does not match its exact catalog observation")
+        return self
+
+    @property
+    def mapping_identity(self) -> tuple[str, str]:
+        return self.logical_field.root, self.physical_field.root
 
 
 class GovernedFieldMapping(FrozenDomainModel):
@@ -184,7 +245,7 @@ def semantic_registry_scope_fingerprint(scope: SemanticRegistryScope) -> str:
 class GovernedSemanticRegistrySnapshot(FrozenDomainModel):
     """One complete approved registry revision loaded atomically."""
 
-    format_version: int = Field(default=1, ge=1, le=1)
+    format_version: int = Field(default=1, ge=1, le=2)
     registry_id: str = Field(min_length=3, max_length=80)
     version: int = Field(ge=1)
     source: str = Field(min_length=1, max_length=240)
@@ -193,6 +254,10 @@ class GovernedSemanticRegistrySnapshot(FrozenDomainModel):
     mapping_set: GovernedMappingRegistry
     join_contracts: GovernedJoinRegistry
     provenance: tuple[RegistryArtifactProvenance, ...] = Field(min_length=3, max_length=12)
+    physical_bindings: tuple[GovernedPhysicalBinding, ...] = Field(
+        default=(),
+        max_length=_MAX_MAPPINGS,
+    )
 
     @field_validator("registry_id")
     @classmethod
@@ -312,12 +377,47 @@ class GovernedSemanticRegistrySnapshot(FrozenDomainModel):
         }
         provenance_by_kind = {item.kind: set(item.decision_ids) for item in self.provenance}
         if (
-            provenance_by_kind[RegistryArtifactKind.PHYSICAL_MAPPINGS] != mapping_decisions
+            not provenance_by_kind[RegistryArtifactKind.LOGICAL_MODELS]
+            or provenance_by_kind[RegistryArtifactKind.PHYSICAL_MAPPINGS] != mapping_decisions
             or provenance_by_kind[RegistryArtifactKind.JOIN_CONTRACTS] != join_decisions
         ):
             raise ValueError(
                 "semantic registry provenance must exactly match active mapping and join decisions"
             )
+        if self.format_version == 1:
+            if self.physical_bindings:
+                raise ValueError("registry format v1 cannot carry v2 physical bindings")
+            return self
+
+        binding_index = {binding.mapping_identity: binding for binding in self.physical_bindings}
+        mapping_identities = {
+            (item.mapping.logical_field.root, item.mapping.physical_field.root) for item in mappings
+        }
+        if (
+            len(binding_index) != len(self.physical_bindings)
+            or set(binding_index) != mapping_identities
+        ):
+            raise ValueError(
+                "registry v2 physical bindings must cover every active mapping exactly"
+            )
+        workspaces = {binding.workspace_id for binding in self.physical_bindings}
+        connections = {binding.connection_id for binding in self.physical_bindings}
+        related_assets = {binding.observed_datahub_asset_urn for binding in self.physical_bindings}
+        if (
+            len(workspaces) != 1
+            or len(connections) != 1
+            or len(related_assets) > _MAX_RELATED_ASSETS
+            or any(
+                binding.catalog_scope != self.catalog_scope for binding in self.physical_bindings
+            )
+        ):
+            raise ValueError("registry v2 physical authority is cross-scope or exceeds its bound")
+        for governed in mappings:
+            binding = binding_index[
+                (governed.mapping.logical_field.root, governed.mapping.physical_field.root)
+            ]
+            if binding.physical_type is not governed.physical_type:
+                raise ValueError("registry v2 physical binding type differs from its mapping")
         return self
 
     @property
@@ -604,8 +704,12 @@ def validate_registry_publication_approval(
 def governed_semantic_registry_fingerprint(
     registry: GovernedSemanticRegistrySnapshot,
 ) -> str:
+    payload = registry.model_dump(mode="json")
+    if registry.format_version == 1:
+        # Preserve the accepted M21/M22 v1 fingerprints and historical DataHub documents.
+        payload.pop("physical_bindings", None)
     encoded = json.dumps(
-        registry.model_dump(mode="json"),
+        payload,
         sort_keys=True,
         separators=(",", ":"),
     ).encode()

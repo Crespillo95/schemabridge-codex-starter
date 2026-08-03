@@ -40,6 +40,17 @@ from schemabridge.domain.catalog_inventory import (
 )
 from schemabridge.domain.concepts import LogicalModelRef
 from schemabridge.domain.decisions import DecisionAction
+from schemabridge.domain.physical_types import PhysicalValueType
+from schemabridge.domain.registry_publication import (
+    PublicationReadbackReceipt,
+    PublishableRegistryVersion,
+    RegistryPublicationAuthorization,
+    RegistryPublicationAuthorizationConfirmation,
+)
+from schemabridge.domain.registry_publication_jobs import (
+    RegistryPublicationJob,
+    RegistryPublicationJobStatus,
+)
 from schemabridge.domain.resolution import MAX_REJECTED_SOURCE_TOTAL
 from schemabridge.domain.semantic_change import (
     SemanticChangeKind,
@@ -67,7 +78,7 @@ from schemabridge.domain.semantic_onboarding import (
     SemanticOnboardingPreparation,
     SemanticOnboardingStatus,
 )
-from schemabridge.domain.semantic_registry import PhysicalValueType, SemanticRegistryScope
+from schemabridge.domain.semantic_registry import SemanticRegistryScope
 
 
 class _StrictApiModel(BaseModel):
@@ -168,6 +179,109 @@ class ExecutionJobResponse(_StrictApiModel):
 
 class ExecutionJobSubmissionResponse(_StrictApiModel):
     job: ExecutionJobResponse
+    replayed: bool
+
+
+class RegistryPublicationSubmissionRequest(_StrictApiModel):
+    """Reserve one exact immutable M33 proposal for publication."""
+
+    proposal_id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{2,199}$")
+    confirmed_proposal_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class RegistryPublicationAuthorizationRequest(_StrictApiModel):
+    """Fresh explicit approval of the complete assembled registry candidate."""
+
+    expected_revision: int = Field(ge=1)
+    confirmed_candidate_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    confirmation: RegistryPublicationAuthorizationConfirmation
+
+
+class RegistryPublicationCancellationRequest(_StrictApiModel):
+    """Optimistic cooperative cancellation of one publication job."""
+
+    expected_revision: int = Field(ge=1)
+
+
+class RegistryPublicationAuthorizationResponse(_StrictApiModel):
+    """Public approval projection without session internals."""
+
+    authorization_id: str = Field(min_length=3, max_length=200)
+    candidate_id: str = Field(min_length=3, max_length=200)
+    candidate_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    registry_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    target: str = Field(min_length=3, max_length=500)
+    actor_id: str = Field(min_length=1, max_length=200)
+    approved_at: datetime
+    expires_at: datetime
+    confirmation: RegistryPublicationAuthorizationConfirmation
+
+    @classmethod
+    def from_domain(cls, value: RegistryPublicationAuthorization) -> Self:
+        return cls(
+            authorization_id=value.id,
+            candidate_id=value.candidate_id,
+            candidate_fingerprint=value.candidate_fingerprint,
+            registry_fingerprint=value.registry_fingerprint,
+            target=value.target,
+            actor_id=value.actor_id,
+            approved_at=value.approved_at,
+            expires_at=value.expires_at,
+            confirmation=value.confirmation,
+        )
+
+
+class RegistryPublicationJobResponse(_StrictApiModel):
+    """Tenant-safe state without lease, idempotency, request, or credential material."""
+
+    job_id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{2,199}$")
+    scope: SemanticRegistryScope
+    status: RegistryPublicationJobStatus
+    revision: int = Field(ge=1)
+    attempt_count: int = Field(ge=0, le=10)
+    max_attempts: int = Field(ge=1, le=10)
+    proposal_id: str = Field(min_length=3, max_length=200)
+    proposal_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    target_registry_version: int = Field(ge=1)
+    candidate: PublishableRegistryVersion | None
+    authorization: RegistryPublicationAuthorizationResponse | None
+    receipt: PublicationReadbackReceipt | None
+    failure_code: str | None = Field(
+        default=None,
+        pattern=r"^[a-z][a-z0-9_]{1,63}$",
+    )
+    submitted_at: datetime
+    updated_at: datetime
+    cancel_requested_at: datetime | None
+
+    @classmethod
+    def from_domain(cls, value: RegistryPublicationJob) -> Self:
+        return cls(
+            job_id=value.id,
+            scope=value.scope,
+            status=value.status,
+            revision=value.revision,
+            attempt_count=value.attempts,
+            max_attempts=value.max_attempts,
+            proposal_id=value.proposal.id,
+            proposal_fingerprint=value.proposal.fingerprint,
+            target_registry_version=value.proposal.target_registry_version,
+            candidate=value.candidate,
+            authorization=(
+                None
+                if value.authorization is None
+                else RegistryPublicationAuthorizationResponse.from_domain(value.authorization)
+            ),
+            receipt=value.receipt,
+            failure_code=(value.failure_code.value if value.failure_code is not None else None),
+            submitted_at=value.submitted_at,
+            updated_at=value.updated_at,
+            cancel_requested_at=value.cancel_requested_at,
+        )
+
+
+class RegistryPublicationSubmissionResponse(_StrictApiModel):
+    job: RegistryPublicationJobResponse
     replayed: bool
 
 

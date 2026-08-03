@@ -24,6 +24,7 @@ EXPECTED_CONTROL_PLANE_MIGRATIONS: tuple[tuple[int, str], ...] = (
     (11, "connector_secret_versions"),
     (12, "backup_identity"),
     (13, "semantic_onboarding"),
+    (14, "registry_publication"),
 )
 EXPECTED_RUNTIME_ENTRYPOINTS: tuple[tuple[str, str], ...] = (
     ("schemabridge", "schemabridge.entrypoints.cli.main:app"),
@@ -36,6 +37,10 @@ EXPECTED_RUNTIME_ENTRYPOINTS: tuple[tuple[str, str], ...] = (
         "schemabridge.entrypoints.connector_route.main:main",
     ),
     ("schemabridge-observer", "schemabridge.entrypoints.observer.main:main"),
+    (
+        "schemabridge-registry-publisher",
+        "schemabridge.entrypoints.registry_publisher.main:main",
+    ),
     (
         "schemabridge-semantic-change",
         "schemabridge.entrypoints.semantic_change.main:main",
@@ -56,6 +61,7 @@ HELP_CAPABLE_RUNTIME_COMMANDS: tuple[str, ...] = (
     "schemabridge-ai-policy",
     "schemabridge-catalog",
     "schemabridge-connector-route",
+    "schemabridge-registry-publisher",
     "schemabridge-semantic-change",
     "schemabridge-semantic-profile-worker",
     "schemabridge-semantic-reconciler",
@@ -198,7 +204,7 @@ def main() -> int:
                 text=True,
                 timeout=30,
             )
-    print("Installed runtime wheel validated migrations 1-12 and all runtime entrypoints.")
+    print("Installed runtime wheel validated migrations 1-14 and all runtime entrypoints.")
     return 0
 
 

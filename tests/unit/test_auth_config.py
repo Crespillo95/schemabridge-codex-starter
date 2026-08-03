@@ -715,7 +715,7 @@ def test_checked_in_environment_example_is_a_valid_secret_free_development_profi
 
     assert settings.runtime_profile == "development"
     assert settings.runtime_component == "web"
-    assert settings.control_plane_schema_version == 13
+    assert settings.control_plane_schema_version == 14
     assert settings.connector_secret_mode == "local"
     assert settings.openai_api_key is None
     assert settings.datahub_gms_token is None

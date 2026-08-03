@@ -1,41 +1,56 @@
 # Current task
 
-- Current milestone: M33 — Generic governed semantic onboarding
+- Current milestone: M34 — Governed registry publication and activation handoff
 - Status: complete; accepted locally
-- Prompt: `prompts/M33_GENERIC_SEMANTIC_ONBOARDING.md`
-- Plan: `plans/M33_GENERIC_SEMANTIC_ONBOARDING.md`
-- ADR: `docs/adr/0016-generic-semantic-onboarding.md`
-- Handoff: `tasks/M33_HANDOFF.md`
+- Prompt: `prompts/M34_GOVERNED_REGISTRY_PUBLICATION.md`
+- Plan: `plans/M34_GOVERNED_REGISTRY_PUBLICATION.md`
+- ADR: `docs/adr/0017-governed-registry-publication.md`
+- Handoff: `tasks/M34_HANDOFF.md`
 - Production/release GO: **NO**
 
 ## Objective delivered
 
-Allow an authenticated tenant to create a semantic onboarding draft from an exact retained catalog
-generation, record explicit model/mapping decisions, and prepare one immutable audited
-`ready_for_publication` proposal without editing repository fixtures or performing an external
-write. M33 deliberately stops before publication and activation.
+Publish one exact M33 `ready_for_publication` proposal as an immutable DataHub registry-v2
+document through a tenant-bound durable queue and isolated writer identity. Publication requires a
+fresh approval of the complete assembled candidate, independent exact read-back, and finishes at
+`activation_ready`; a separate M23 approval/CAS path performs activation.
 
 ## Final evidence and retained boundaries
 
-- Exact authenticated preflight, workspace/connection/generation/vector/locator/fingerprint/type
-  binding, schema-v13 storage, CAS and append-only idempotency pass locally.
-- Confidence/name similarity never approve; a steward decides every semantic fact and a distinct
-  publisher prepares the immutable handoff.
-- Identity rotation preserves only verified historical workspace/actor pairs; ambiguous lineage
-  and cross-coordinate replay fail closed.
-- 225 independently reviewed unit cases, 7 PostgreSQL integrations, 2 acceptance cases, Ruff,
-  mypy and `git diff --check` pass; independent review reports P0=0/P1=0.
-- Codex internal-browser desktop and 390×844 acceptance passes with no overflow or console error,
-  zero SQL/external writes and no publication, activation or execution control.
-- Signed backup/restore covers all 67 schema-v13 control-plane tables under a bounded 128-table
-  evidence contract; exact excess fails closed and the backup role remains read-only.
-- `make check` passes 3,685 tests with 233 deselections after the hosted-integration correction;
-  the exact final repeat is recorded in the handoff.
+- Registry v2 preserves exact workspace, connection, catalog generation/vector, physical locator,
+  opaque observed DataHub URN and metadata fingerprints for every active mapping.
+- Schema v14 reserves one target, stores bounded payloads/events, uses database-time leases,
+  capability digests, fencing, retry/dead-letter and a pre-write cooperative cancellation boundary.
+- API can submit, inspect, authorize and cancel but has no writer secret; the publisher has no
+  source/LLM/OIDC/activation credential and cannot update active pointers.
+- DataHub success requires exact typed read-back of candidate, authorization, audit and observed
+  related assets. An absent target is explicit; ambiguity, altered content and partial privilege
+  responses fail closed.
+- M23 loads only an exact `activation_ready` v2 handoff and atomically rechecks retained catalog
+  authority under the workspace lock before pointer CAS. Rollback/reconciliation remain separate.
+- Required M34 matrix passes 118 tests with 5 explicit live-DataHub skips; fresh PostgreSQL
+  publication/M23/observer regressions pass 17 tests and deployment/runtime tests pass 215.
+- Internal-browser evidence covers the exact queued → approval → activation-ready path with one
+  immutable write, one version, opaque URN, unchanged pointer and no browser errors. One advanced
+  M32 Spanish request also produced a twice-guarded 106-line standalone PostgreSQL query without
+  execution.
+- The final full gate passes supply-chain/release policy, Ruff, mypy over 343 source files and
+  3,778 unit tests with 238 explicit deselections. Independent review and exact commands are
+  recorded in `tasks/M34_HANDOFF.md`.
 
 ## Commercial status
 
-M33 closes generic semantic authoring locally only. M34 dedicated publication/readback plus M23
-activation, M30 evaluation/security verification, and M31 operated pilot/GA remain mandatory.
+M34 closes bounded local publication/read-back and the activation-ready bridge only. Live DataHub
+evidence on these exact bytes, live-provider/holdout quality, multi-dialect output, independent
+security verification, operated SLO/scale evidence, M30 and M31 remain mandatory.
+
+---
+
+## Previous milestone snapshot — M33
+
+M33 remains accepted locally under D126. It supplies the exact tenant/catalog-bound,
+`ready_for_publication` proposal consumed by M34 and still performs no external write or
+activation.
 
 ---
 

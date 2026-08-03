@@ -28,6 +28,7 @@ def _snapshot() -> OperationalSnapshot:
             QueueOperationalSnapshot(OperationalQueue.EXECUTION, 7, 45.5),
             QueueOperationalSnapshot(OperationalQueue.CATALOG, 2, 3.0),
             QueueOperationalSnapshot(OperationalQueue.PROFILE, 0, 0.0),
+            QueueOperationalSnapshot(OperationalQueue.PUBLICATION, 3, 6.0),
             QueueOperationalSnapshot(OperationalQueue.RECONCILIATION, 1, 8.25),
         )
     )
@@ -79,6 +80,7 @@ class _Cursor:
                 ("execution", 7, 45.5),
                 ("catalog", 2, 3.0),
                 ("profile", 0, 0.0),
+                ("publication", 3, 6.0),
                 ("reconciliation", 1, 8.25),
             ]
         )
@@ -136,6 +138,7 @@ def test_snapshot_contract_requires_exact_canonical_queue_set() -> None:
                 QueueOperationalSnapshot(OperationalQueue.CATALOG, 1, 0.0),
                 QueueOperationalSnapshot(OperationalQueue.EXECUTION, 1, 0.0),
                 QueueOperationalSnapshot(OperationalQueue.PROFILE, 1, 0.0),
+                QueueOperationalSnapshot(OperationalQueue.PUBLICATION, 1, 0.0),
                 QueueOperationalSnapshot(OperationalQueue.RECONCILIATION, 1, 0.0),
             )
         )
@@ -167,7 +170,7 @@ def test_use_case_publishes_only_closed_metric_names_and_queue_labels() -> None:
 
     assert result == _snapshot()
     assert reader.calls == 1
-    assert len(metrics.samples) == 8
+    assert len(metrics.samples) == 10
     assert {name for name, _labels, _value in metrics.samples} == {
         "schemabridge_queue_depth",
         "schemabridge_queue_oldest_age_seconds",
@@ -296,6 +299,7 @@ def test_postgres_reader_enforces_read_only_timeout_and_exact_aggregates() -> No
                 ("execution", 1, 1.0),
                 ("catalog", 1, 1.0),
                 ("profile", 1, 1.0),
+                ("publication", 1, 1.0),
                 ("unknown", 1, 1.0),
             ]
         ),

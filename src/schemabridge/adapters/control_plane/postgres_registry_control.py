@@ -25,6 +25,8 @@ from schemabridge.application.ports.registry_control import (
 from schemabridge.domain.registry_control import (
     ActiveRegistryPointer,
     ControlAuditChainVerification,
+    RegistryActivationAction,
+    RegistryActivationReadyHandoff,
     RegistryActivationTransition,
     RegistryControlCommit,
     RegistryProjectionOutboxItem,
@@ -43,6 +45,7 @@ class PostgresRegistryControlStore:
     audit_signing_keys: Mapping[str, bytes] = field(repr=False)
     active_audit_key_version: str
     schema: str = "schemabridge_control"
+    catalog_stale_after_seconds: int = 900
     _database: _ControlDatabase = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -56,6 +59,8 @@ class PostgresRegistryControlStore:
             for version, key in self.audit_signing_keys.items()
         ):
             raise ValueError("control audit signing key configuration is invalid")
+        if not 60 <= self.catalog_stale_after_seconds <= 2_592_000:
+            raise ValueError("registry activation catalog stale threshold is invalid")
         object.__setattr__(self, "_database", database)
 
     @property
@@ -85,6 +90,27 @@ class PostgresRegistryControlStore:
             raise
         except (psycopg.Error, ValidationError, TypeError, ValueError) as error:
             raise _store_unavailable("active registry pointer read failed") from error
+
+    def load_activation_ready_handoff(
+        self,
+        scope: SemanticRegistryScope,
+        version: int,
+    ) -> RegistryActivationReadyHandoff | None:
+        """Read bounded M34 authority; the SECURITY DEFINER function never returns payload JSON."""
+
+        if isinstance(version, bool) or version < 1:
+            raise ValueError("registry activation target version is invalid")
+        try:
+            with self._db.connect() as connection:
+                return self._load_activation_ready_handoff(
+                    connection,
+                    scope,
+                    version,
+                )
+        except RegistryControlError:
+            raise
+        except (psycopg.Error, ValidationError, TypeError, ValueError) as error:
+            raise _store_unavailable("activation-ready publication read failed") from error
 
     def list_transitions(
         self,
@@ -142,6 +168,7 @@ class PostgresRegistryControlStore:
                         RegistryControlErrorCode.CAS_CONFLICT,
                         "active semantic registry changed; prepare a new activation",
                     )
+                self._require_activation_ready_handoff(connection, transition)
                 self._insert_transition(connection, transitions, transition)
                 self._write_pointer(connection, pointers, transition)
                 self._insert_outbox(connection, outboxes, outbox)
@@ -478,6 +505,79 @@ class PostgresRegistryControlStore:
             _scope_params(scope),
         ).fetchone()
         return None if row is None else _pointer_from_row(scope, row)
+
+    def _load_activation_ready_handoff(
+        self,
+        connection: psycopg.Connection[Any],
+        scope: SemanticRegistryScope,
+        version: int,
+    ) -> RegistryActivationReadyHandoff | None:
+        row = connection.execute(
+            sql.SQL(
+                """
+                SELECT job_id, source_proposal_id, source_proposal_fingerprint,
+                       candidate_id, candidate_fingerprint, registry_fingerprint,
+                       registry_target, attempt_authorization_id,
+                       observed_authorization_id, catalog_authority_fingerprint,
+                       observed_at
+                FROM {}.load_registry_activation_ready_handoff(%s, %s, %s, %s, %s)
+                """
+            ).format(sql.Identifier(self.schema)),
+            (
+                scope.workspace_id,
+                scope.catalog_scope,
+                scope.registry_id,
+                version,
+                self.catalog_stale_after_seconds,
+            ),
+        ).fetchone()
+        if row is None:
+            return None
+        return RegistryActivationReadyHandoff.create(
+            job_id=str(row[0]),
+            scope=scope,
+            source_proposal_id=str(row[1]),
+            source_proposal_fingerprint=str(row[2]),
+            candidate_id=str(row[3]),
+            candidate_fingerprint=str(row[4]),
+            target_registry_version=version,
+            target_registry_fingerprint=str(row[5]),
+            target_registry_urn=str(row[6]),
+            attempt_authorization_id=str(row[7]),
+            observed_authorization_id=str(row[8]),
+            catalog_authority_fingerprint=str(row[9]),
+            observed_at=row[10],
+        )
+
+    def _require_activation_ready_handoff(
+        self,
+        connection: psycopg.Connection[Any],
+        transition: RegistryActivationTransition,
+    ) -> None:
+        proposal = transition.approval.proposal
+        if proposal.action is RegistryActivationAction.ROLLBACK:
+            return
+        expected = proposal.activation_ready_handoff
+        if expected is None:
+            raise RegistryControlError(
+                RegistryControlErrorCode.ACTIVATION_NOT_READY,
+                "forward activation requires an exact activation-ready publication",
+            )
+        observed = self._load_activation_ready_handoff(
+            connection,
+            proposal.scope,
+            proposal.target_registry_version,
+        )
+        if observed is None:
+            raise RegistryControlError(
+                RegistryControlErrorCode.ACTIVATION_NOT_READY,
+                "activation-ready publication or current catalog authority is unavailable",
+            )
+        if observed != expected:
+            raise RegistryControlError(
+                RegistryControlErrorCode.ACTIVATION_HANDOFF_MISMATCH,
+                "activation-ready publication or catalog authority changed after approval",
+            )
 
     def _insert_transition(
         self,

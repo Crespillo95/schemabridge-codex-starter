@@ -52,10 +52,11 @@ _SERVICES = (
     "catalog",
     "observer",
     "profile",
+    "publisher",
     "reconciler",
     "worker",
 )
-_QUEUES = ("execution", "catalog", "profile", "reconciliation")
+_QUEUES = ("execution", "catalog", "profile", "publication", "reconciliation")
 _OUTCOMES = ("success", "error", "denied")
 _DURATION_BUCKETS = (0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
 
@@ -229,7 +230,7 @@ COMPOSED_OPERATIONAL_METRIC_PRODUCERS = (
     ComposedMetricProducer(
         "schemabridge_job_transitions_total",
         "runtime_telemetry",
-        ("catalog", "profile", "reconciler", "worker"),
+        ("catalog", "profile", "publisher", "reconciler", "worker"),
     ),
     ComposedMetricProducer(
         "schemabridge_source_operations_total",
@@ -239,7 +240,7 @@ COMPOSED_OPERATIONAL_METRIC_PRODUCERS = (
     ComposedMetricProducer(
         "schemabridge_process_ready",
         "runtime_telemetry",
-        ("api", "catalog", "observer", "profile", "reconciler", "worker"),
+        ("api", "catalog", "observer", "profile", "publisher", "reconciler", "worker"),
     ),
 )
 COMPOSED_OPERATIONAL_METRIC_NAMES = frozenset(

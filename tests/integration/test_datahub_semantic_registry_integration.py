@@ -5,16 +5,28 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 
 import psycopg
 import pytest
+from tests.unit.test_registry_publication_v2 import (
+    NOW as M34_NOW,
+)
+from tests.unit.test_registry_publication_v2 import (
+    OPAQUE_ORDERS_URN,
+    _authorization,
+    _proposal,
+)
 
 from schemabridge.adapters.semantic_registry.datahub import (
     DataHubGovernedSemanticRegistry,
     DataHubHttpRegistryReadClient,
+    DataHubObservedSemanticRegistryPublisher,
+    DataHubRegistryReadConfig,
+    DataHubRegistryWriteConfig,
+    DataHubWriterRegistryVersionReader,
 )
 from schemabridge.adapters.storage.publication_audit import SqlitePublicationAuditStore
 from schemabridge.application.governed_execution import (
@@ -34,6 +46,8 @@ from schemabridge.application.guided_requests import (
 from schemabridge.application.ports.planning import (
     PlanningPortError,
     PlanningPortErrorCode,
+    RegistryPublicationError,
+    RegistryPublicationErrorCode,
 )
 from schemabridge.bootstrap import (
     build_governed_request_executor,
@@ -42,9 +56,16 @@ from schemabridge.bootstrap import (
     build_streamlit_principal,
 )
 from schemabridge.config import Settings
-from schemabridge.domain.publication_audit import PublicationAuditOutcome
+from schemabridge.domain.publication_audit import (
+    PublicationAuditOutcome,
+    PublicationFamily,
+    PublicationTargetAuditRecord,
+)
+from schemabridge.domain.registry_control import RegistryVersionTrust
+from schemabridge.domain.registry_publication import assemble_publishable_registry_version
 from schemabridge.domain.semantic_registry import (
     ScopedSemanticRegistrySnapshot,
+    SemanticRegistryScope,
     datahub_registry_document_urn,
     semantic_registry_decision_ids,
 )
@@ -53,6 +74,19 @@ pytestmark = pytest.mark.integration
 ROOT = Path(__file__).resolve().parents[2]
 MCP_CREDENTIALS = ROOT / ".local/datahub/mcp.env"
 WRITER_CREDENTIALS = ROOT / ".local/datahub/writer.env"
+_M34_V2_PROPERTIES = {
+    "schemabridge.registryFormatVersion",
+    "schemabridge.registryId",
+    "schemabridge.registryVersion",
+    "schemabridge.registryCatalogScope",
+    "schemabridge.registryWorkspaceDigest",
+    "schemabridge.registryFingerprint",
+    "schemabridge.registryDecisionIds",
+    "schemabridge.registrySnapshot",
+    "schemabridge.registryPublicationCandidate",
+    "schemabridge.registryPublicationAuthorization",
+    "schemabridge.registryPublicationAudit",
+}
 
 
 @pytest.fixture
@@ -252,6 +286,147 @@ def test_registry_publish_cli_replay_is_idempotent_across_fresh_processes(
         PublicationAuditOutcome.ALREADY_CURRENT,
         PublicationAuditOutcome.ALREADY_CURRENT,
     ]
+
+
+def test_live_datahub_v2_publication_has_exact_opaque_authority_and_immutable_readback() -> None:
+    if not WRITER_CREDENTIALS.is_file() or not MCP_CREDENTIALS.is_file():
+        pytest.skip(
+            "DataHub reader/writer credentials are absent; run "
+            "make datahub-provision-mcp datahub-provision-writer"
+        )
+    writer_config = DataHubRegistryWriteConfig.from_env_file(WRITER_CREDENTIALS)
+    reader_config = DataHubRegistryReadConfig.from_env_file(MCP_CREDENTIALS)
+    scope = SemanticRegistryScope(
+        workspace_id="workspace-m34-datahub-integration",
+        catalog_scope="postgres.m34-integration",
+        registry_id="m34_datahub_integration",
+    )
+    proposal = _proposal(
+        scope=scope,
+        proposal_id="proposal-m34-datahub-integration-v1",
+        draft_id="draft-m34-datahub-integration-v1",
+        model_decision="decision-model-m34-datahub-integration-v1",
+        mapping_decision="decision-mapping-m34-datahub-integration-v1",
+        observed_urn=OPAQUE_ORDERS_URN,
+        asset_id=OPAQUE_ORDERS_URN,
+    )
+    candidate = assemble_publishable_registry_version(proposal, base=None)
+    authorization = _authorization(
+        candidate,
+        actor="publisher-m34-datahub-integration",
+        approved_at=M34_NOW,
+    )
+
+    publisher = DataHubObservedSemanticRegistryPublisher(config=writer_config)
+    try:
+        first = publisher.publish(candidate, authorization, observed_at=M34_NOW)
+    except RegistryPublicationError as error:
+        if error.code is RegistryPublicationErrorCode.CATALOG_UNAVAILABLE:
+            pytest.skip("Local DataHub is unavailable; run make datahub-start")
+        raise
+
+    assert first.status in {"published", "already_current"}
+    assert first.receipt is not None
+    assert first.receipt.observed_authorization_id == authorization.id
+    assert first.receipt.related_asset_urns == (OPAQUE_ORDERS_URN,)
+    assert candidate.registry.physical_bindings[0].observed_datahub_asset_urn == OPAQUE_ORDERS_URN
+    assert "sales.orders" not in OPAQUE_ORDERS_URN
+
+    independent = DataHubObservedSemanticRegistryPublisher(config=writer_config).observe(
+        candidate,
+        authorization,
+        observed_at=M34_NOW + timedelta(seconds=1),
+    )
+    assert independent.status == "already_current"
+    assert independent.receipt is not None
+    assert independent.receipt.observed_authorization_id == authorization.id
+    assert independent.receipt.related_asset_urns == (OPAQUE_ORDERS_URN,)
+
+    strict = DataHubWriterRegistryVersionReader(config=writer_config).load_version(scope, 1)
+    assert strict.trust is RegistryVersionTrust.STRICT
+    assert strict.publication_approval_id == authorization.id
+    assert strict.snapshot.registry == candidate.registry
+    try:
+        reader_snapshot = DataHubGovernedSemanticRegistry(
+            config=reader_config,
+            _scope=scope,
+            version=1,
+        ).load()
+    except PlanningPortError as error:
+        if error.code is PlanningPortErrorCode.CONTEXT_UNAVAILABLE:
+            pytest.skip("Local DataHub is unavailable; run make datahub-start")
+        raise
+    assert reader_snapshot.registry == candidate.registry
+
+    client = DataHubHttpRegistryReadClient(writer_config.server, writer_config.token)
+    before_retry = client.get_document(candidate.target)
+    assert before_retry is not None
+    assert before_retry.removed is False
+    assert before_retry.related_asset_urns == (OPAQUE_ORDERS_URN,)
+    assert set(before_retry.custom_properties) == _M34_V2_PROPERTIES
+    properties = before_retry.custom_properties
+    assert json.loads(properties["schemabridge.registrySnapshot"]) == (
+        candidate.registry.model_dump(mode="json")
+    )
+    assert json.loads(properties["schemabridge.registryPublicationCandidate"]) == (
+        candidate.manifest.model_dump(mode="json")
+    )
+    assert json.loads(properties["schemabridge.registryPublicationAuthorization"]) == (
+        authorization.model_dump(mode="json")
+    )
+    audit = PublicationTargetAuditRecord.model_validate(
+        json.loads(properties["schemabridge.registryPublicationAudit"])
+    )
+    assert audit.family is PublicationFamily.REGISTRY
+    assert audit.operation == "versioned_document_v2"
+    assert audit.target == candidate.target
+    assert audit.approval_id == authorization.id
+    assert audit.actor == authorization.actor_id
+    assert audit.approved_at == authorization.approved_at
+    assert audit.new_fingerprint == candidate.registry.fingerprint
+    assert audit.outcome is PublicationAuditOutcome.SUCCEEDED
+    assert audit.decision_ids == candidate.active_decision_ids
+    assert audit.reason_code is None
+
+    retry = DataHubObservedSemanticRegistryPublisher(config=writer_config).publish(
+        candidate,
+        authorization,
+        observed_at=M34_NOW + timedelta(seconds=2),
+    )
+    assert retry.status == "already_current"
+    assert retry.receipt is not None
+    assert retry.receipt.observed_authorization_id == authorization.id
+    assert client.get_document(candidate.target) == before_retry
+
+    conflicting_urn = "urn:li:dataset:(urn:li:dataPlatform:postgres,opaque-conflict-4d61,PROD)"
+    conflicting = assemble_publishable_registry_version(
+        _proposal(
+            scope=scope,
+            model_id="Invoice",
+            logical_field="Invoice.invoice_id",
+            physical_field="billing.invoices.invoice_id",
+            proposal_id="proposal-m34-datahub-conflict-v1",
+            draft_id="draft-m34-datahub-conflict-v1",
+            model_decision="decision-model-m34-datahub-conflict-v1",
+            mapping_decision="decision-mapping-m34-datahub-conflict-v1",
+            observed_urn=conflicting_urn,
+            asset_id=conflicting_urn,
+        ),
+        base=None,
+    )
+    conflicting_authorization = _authorization(
+        conflicting,
+        actor="publisher-m34-datahub-integration",
+        approved_at=M34_NOW,
+    )
+    with pytest.raises(RegistryPublicationError) as conflict:
+        DataHubObservedSemanticRegistryPublisher(config=writer_config).publish(
+            conflicting,
+            conflicting_authorization,
+            observed_at=M34_NOW + timedelta(seconds=3),
+        )
+    assert conflict.value.code is RegistryPublicationErrorCode.CONFLICT
+    assert client.get_document(candidate.target) == before_retry
 
 
 def test_datahub_only_north_star_is_guarded_and_executes_read_only(

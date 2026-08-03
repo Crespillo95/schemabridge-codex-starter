@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Protocol
 from urllib.parse import urlsplit
 
@@ -14,7 +15,10 @@ from schemabridge.adapters.datahub.recipe_inventory import (
 )
 from schemabridge.adapters.semantic_registry.datahub import (
     DataHubGovernedSemanticRegistry,
+    DataHubObservedSemanticRegistryPublisher,
     DataHubRegistryReadConfig,
+    DataHubRegistryWriteConfig,
+    DataHubWriterRegistryVersionReader,
 )
 from schemabridge.adapters.semantic_registry.datahub_control import (
     DataHubRegistryVersionReader,
@@ -27,6 +31,8 @@ from schemabridge.application.ports.planning import (
     GovernedSemanticRegistryPort,
     PlanningPortError,
     PlanningPortErrorCode,
+    RegistryPublicationError,
+    RegistryPublicationErrorCode,
 )
 from schemabridge.application.ports.registry_control import RegistryVersionReadPort
 from schemabridge.application.ports.semantic_dependency_sources import (
@@ -34,6 +40,11 @@ from schemabridge.application.ports.semantic_dependency_sources import (
     SemanticDependencySourcePage,
 )
 from schemabridge.domain.registry_control import GovernedRegistryVersion
+from schemabridge.domain.registry_publication import (
+    ObservedRegistryPublicationResult,
+    PublishableRegistryVersion,
+    RegistryPublicationAuthorization,
+)
 from schemabridge.domain.semantic_registry import (
     ScopedSemanticRegistrySnapshot,
     SemanticRegistryScope,
@@ -42,6 +53,7 @@ from schemabridge.domain.semantic_registry import (
 _MAX_SERVER_BYTES = 2 * 1024
 _MAX_TOKEN_BYTES = 16 * 1024
 _DOCUMENT_KEYS = frozenset({"format_version", "kind", "server", "token"})
+_WRITER_DOCUMENT_KEYS = frozenset({"format_version", "kind", "server", "token", "actor_urn"})
 
 
 class ExactVersionDocumentReader(Protocol):
@@ -65,6 +77,13 @@ class DataHubRegistryCredentialResolver(Protocol):
 
     def resolve(self) -> DataHubRegistryReadConfig:
         """Return one transient validated reader configuration."""
+
+
+class DataHubRegistryWriterCredentialResolver(Protocol):
+    """Resolve DataHub writer material for one bounded publication operation."""
+
+    def resolve(self) -> DataHubRegistryWriteConfig:
+        """Return one transient validated writer configuration."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +137,58 @@ class VaultKvV2DataHubRegistryCredentialResolver:
             ) from error
 
 
+@dataclass(frozen=True, slots=True)
+class VaultKvV2DataHubRegistryWriterCredentialResolver:
+    """Resolve a closed writer document from one immutable provider version."""
+
+    backend: ExactVersionDocumentReader = field(repr=False)
+    reference: OpaqueConnectorSecretRef = field(repr=False)
+    version: int
+
+    def __post_init__(self) -> None:
+        if (
+            self.backend.capability is not ConnectorSecretCapability.REGISTRY_PUBLISHER
+            or not isinstance(self.reference, OpaqueConnectorSecretRef)
+            or type(self.version) is not int
+            or self.version < 1
+        ):
+            raise ValueError("remote semantic registry writer configuration is invalid")
+
+    def resolve(self) -> DataHubRegistryWriteConfig:
+        try:
+            document = self.backend.read_document(
+                self.reference,
+                version=self.version,
+            )
+            if (
+                set(document) != _WRITER_DOCUMENT_KEYS
+                or type(document["format_version"]) is not int
+                or document["format_version"] != 1
+                or document["kind"] != "datahub_registry_writer"
+                or not isinstance(document["server"], str)
+                or not isinstance(document["token"], str)
+                or not isinstance(document["actor_urn"], str)
+            ):
+                raise ValueError
+            return DataHubRegistryWriteConfig(
+                server=_validated_server(document["server"]),
+                token=_validated_token(document["token"]),
+                actor_urn=_validated_actor_urn(document["actor_urn"]),
+            )
+        except RegistryPublicationError:
+            raise
+        except ConnectorSecretResolutionError as error:
+            raise RegistryPublicationError(
+                RegistryPublicationErrorCode.CATALOG_UNAVAILABLE,
+                "DataHub registry writer credential is unavailable",
+            ) from error
+        except (KeyError, TypeError, ValueError) as error:
+            raise RegistryPublicationError(
+                RegistryPublicationErrorCode.CATALOG_UNAVAILABLE,
+                "DataHub registry writer credential is invalid",
+            ) from error
+
+
 @dataclass(slots=True)
 class RemoteDataHubRegistryVersionReader(RegistryVersionReadPort):
     """Resolve and discard the bearer around one exact registry-version read."""
@@ -131,6 +202,56 @@ class RemoteDataHubRegistryVersionReader(RegistryVersionReadPort):
     ) -> GovernedRegistryVersion:
         config = self.credentials.resolve()
         return DataHubRegistryVersionReader(config=config).load_version(scope, version)
+
+
+@dataclass(slots=True)
+class RemoteDataHubWriterRegistryVersionReader(RegistryVersionReadPort):
+    """Resolve the publisher writer bearer around one strict v2 base read."""
+
+    credentials: DataHubRegistryWriterCredentialResolver = field(repr=False)
+
+    def load_version(
+        self,
+        scope: SemanticRegistryScope,
+        version: int,
+    ) -> GovernedRegistryVersion:
+        config = self.credentials.resolve()
+        return DataHubWriterRegistryVersionReader(config=config).load_version(scope, version)
+
+
+@dataclass(slots=True)
+class RemoteDataHubObservedSemanticRegistryPublisher:
+    """Resolve and discard the writer bearer around one exact target operation."""
+
+    credentials: DataHubRegistryWriterCredentialResolver = field(repr=False)
+
+    def observe(
+        self,
+        candidate: PublishableRegistryVersion,
+        authorization: RegistryPublicationAuthorization,
+        *,
+        observed_at: datetime,
+    ) -> ObservedRegistryPublicationResult:
+        config = self.credentials.resolve()
+        return DataHubObservedSemanticRegistryPublisher(config=config).observe(
+            candidate,
+            authorization,
+            observed_at=observed_at,
+        )
+
+    def publish(
+        self,
+        candidate: PublishableRegistryVersion,
+        authorization: RegistryPublicationAuthorization,
+        *,
+        observed_at: datetime,
+    ) -> ObservedRegistryPublicationResult:
+        config = self.credentials.resolve()
+        return DataHubObservedSemanticRegistryPublisher(config=config).publish(
+            candidate,
+            authorization,
+            observed_at=observed_at,
+        )
 
 
 @dataclass(slots=True)
@@ -214,10 +335,25 @@ def _validated_token(value: str) -> str:
     return value
 
 
+def _validated_actor_urn(value: str) -> str:
+    if (
+        not value.startswith("urn:li:corpuser:")
+        or value.strip() != value
+        or len(value.encode("utf-8")) > 500
+        or any(ord(character) < 0x20 or ord(character) == 0x7F for character in value)
+    ):
+        raise ValueError
+    return value
+
+
 __all__ = [
     "DataHubRegistryCredentialResolver",
+    "DataHubRegistryWriterCredentialResolver",
     "RemoteDataHubGovernedSemanticRegistry",
+    "RemoteDataHubObservedSemanticRegistryPublisher",
     "RemoteDataHubQueryRecipeInventory",
     "RemoteDataHubRegistryVersionReader",
+    "RemoteDataHubWriterRegistryVersionReader",
     "VaultKvV2DataHubRegistryCredentialResolver",
+    "VaultKvV2DataHubRegistryWriterCredentialResolver",
 ]

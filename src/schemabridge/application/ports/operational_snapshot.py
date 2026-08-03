@@ -18,6 +18,7 @@ class OperationalQueue(StrEnum):
     EXECUTION = "execution"
     CATALOG = "catalog"
     PROFILE = "profile"
+    PUBLICATION = "publication"
     RECONCILIATION = "reconciliation"
 
 
@@ -57,7 +58,7 @@ class QueueOperationalSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class OperationalSnapshot:
-    """The exact four aggregate queue observations in canonical order."""
+    """The exact five aggregate queue observations in canonical order."""
 
     queues: tuple[QueueOperationalSnapshot, ...]
 

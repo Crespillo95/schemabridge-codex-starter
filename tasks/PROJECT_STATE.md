@@ -1,6 +1,6 @@
 # Project state
 
-Last updated: 2026-08-02
+Last updated: 2026-08-03
 
 ## Accepted milestone
 
@@ -83,6 +83,39 @@ still capped at 64. The corrected bounded contract accepts all 67, rejects 129 a
 128, preserves the read-only backup posture and passes the final 3,685-test quality gate plus all
 11 control-plane PostgreSQL cases. M33 adds no source, DataHub, LLM, compiler, preview or activation
 authority. M34/M30/M31 and all operated external release controls keep production/release **NO-GO**.
+
+M34 is complete and accepted locally under D128. One exact M33 proposal now moves through a
+tenant-bound schema-v14 reservation, fenced preparation lease, approval of the complete candidate,
+an isolated DataHub writer, exact independent read-back, and a terminal `activation_ready`
+handoff. Registry format v2 retains the exact workspace, connection, generation/vector, locator,
+opaque observed dataset URN, physical type and metadata fingerprints for every active mapping;
+names and platform defaults never create authority.
+
+The API can submit, inspect, authorize and cancel but cannot resolve the DataHub writer secret. The
+publisher process has its own PostgreSQL role, exact-version writer binding, probes, metrics,
+ServiceMonitor, NetworkPolicy and publication queue aggregate, but no source, LLM, OIDC or active
+pointer capability. A pre-write database heartbeat observes cooperative cancellation. Once the
+write boundary is crossed, exact read-back wins over a cancellation label. M23 accepts only the
+strict v2 `activation_ready` handoff and rechecks catalog authority atomically before its separate
+approved CAS; rollback and reconciliation retain their prior contracts.
+
+The required M34 matrix passes 118 tests with 5 explicit live-DataHub skips because local reader
+and writer credentials are absent. Fresh schema-v14 PostgreSQL publication, full M23, recipe and
+operational-observer regressions pass 17 tests; deployment/runtime/metrics tests pass 215; the
+installable wheel covers migrations 1–14 and every runtime entrypoint. The exact commit candidate
+passes supply-chain/release policy, Ruff, mypy over 343 source files and the full 3,778-test unit
+gate with 238 explicit deselections. Codex internal-browser
+evidence passes the exact queued → leased → awaiting-approval → approved → leased →
+activation-ready path with one immutable write, one opaque related asset and an unchanged active
+pointer. A separate advanced M32 Spanish path produced a reviewed 106-line standalone PostgreSQL
+statement with two CTEs, joins, `COUNT DISTINCT`, `HAVING`, ranking, percentage and running sum,
+while remaining `executed=false`. The final full-gate and independent-review evidence is recorded
+in `tasks/M34_HANDOFF.md`.
+
+M34 does not establish a production or commercial GO. The exact live DataHub v2 integration is
+checked in but not exercised locally; live-provider holdout quality, other SQL dialects and target
+engines, batch onboarding, large-catalog/load evidence, external IAM/TLS/secret rotation,
+independent security review, operated SLOs, legal/privacy controls, M30 and M31 all remain open.
 
 Initial commit `09c3a2e0f47a7fbadb5297fa6bc4f9aca0d21950` and its 12-commit history pass
 the exact secret scan and are published on draft PR #1. Hosted run `30765372081` passed quality,
@@ -1737,9 +1770,10 @@ M29 final-byte remediation status on 2026-07-30:
   a live-provider holdout or universal natural-language/SQL accuracy claim. Output is PostgreSQL
   for the same governed database/context; physical-only fields stay in M27
   `needs_mapping_review`, and unsupported SQL families produce no SQL.
-- The M32 automated Streamlit acceptance passes, but the final manual desktop/mobile browser
-  matrix was not run because the in-app browser list was empty. Viewport, focus, overflow,
-  browser-console, DOM hostile-input, and real download interaction remain operator checks.
+- The M32 automated Streamlit acceptance passes. Its original full manual desktop/mobile matrix
+  was not run because the in-app browser list was empty; on 2026-08-03 one advanced desktop path
+  was later verified manually with empty browser logs. Mobile, hostile-input, download and the
+  remaining matrix still require operator checks.
 - M33 stops at a non-executable handoff. It has no generic join onboarding, incremental/batch
   authoring, historical audit cursor, operated per-tenant quota, publication/readback or
   activation. `parse_date` is deliberately rejected until shape/calendar validation is total.
@@ -1748,6 +1782,10 @@ M29 final-byte remediation status on 2026-07-30:
 - Source/catalog/type identity changes intentionally make prior catalog evidence non-executable
   until a fresh generation is promoted. Operators must plan this fail-closed refresh window; no
   automated cross-system cutover or distributed transaction is claimed.
+- M34's local DataHub tests use fakes because the exact reader/writer credentials were absent. The
+  checked-in live v2 test must pass against the operated DataHub instance before production. M34
+  supports additive models only; it does not add joins, replace/remove models, onboard in batch,
+  prove high-volume queue/catalog performance, or activate automatically.
 
 ## Next milestone
 
@@ -1778,9 +1816,13 @@ databases, M30 production evaluation/security verification, and M31 pilot/GA rem
 M33 — generic governed semantic onboarding — is complete and accepted locally under D126. Its
 exact preflight, tenant-bound schema-v13 persistence, explicit decisions, identity-lineage replay,
 distinct-publisher handoff, focused/PostgreSQL/acceptance tests, independent P0/P1=0 review, final
-quality gate and Codex internal-browser desktop/mobile matrix pass. M34 is next and must add the
-dedicated publication/readback worker plus the separate activation bridge; production/release
-remain NO-GO.
+quality gate and Codex internal-browser desktop/mobile matrix pass.
+M34 — governed registry publication and activation-ready handoff — is complete and accepted
+locally under D128. Its schema-v14 queue, isolated writer/readback, v2 physical authority,
+cooperative cancellation boundary, publication observability, exact M23 handoff, focused/fresh
+PostgreSQL/deployment/wheel/browser gates and independent review are recorded in
+`tasks/M34_HANDOFF.md`. M30 remains blocked on live evaluation/security inputs and an exact hosted
+M34 rerun; production/release remain NO-GO.
 M17/M18 release work remains independently blocked on a reviewed clean commit, strict
 `make release-clean`, exact-commit deployment, public/incognito and cold-start evidence, final
 media/links/checksums, and external reviewer sign-off.

@@ -12,7 +12,7 @@ from typing import Generic, TypeVar
 from pydantic import ConfigDict, Field, RootModel, field_validator, model_validator
 
 from schemabridge.domain._base import FrozenDomainModel
-from schemabridge.domain.semantic_registry import PhysicalValueType
+from schemabridge.domain.physical_types import PhysicalValueType
 
 MAX_INVENTORY_PAGE_SIZE = 50
 MAX_INVENTORY_CURSOR_BYTES = 1_024

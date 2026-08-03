@@ -208,8 +208,8 @@ def onboarding_catalog(
         previous = PostgresControlPlaneMigrator(urls.migrator, v12_migrations).migrate()
         assert previous.inspection.current_version == 12
         migrated = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert migrated.applied_versions == (13,)
-        assert migrated.inspection.current_version == 13
+        assert migrated.applied_versions == (13, 14)
+        assert migrated.inspection.current_version == 14
         workspace_id = f"workspace-m33-{uuid4().hex[:12]}"
         connection_id = CatalogConnectionId("warehouse-m33")
         catalog_scope = "postgres.production"

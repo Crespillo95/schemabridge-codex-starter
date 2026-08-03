@@ -8,16 +8,17 @@ been operated. The checked-in overlay is deliberately blocked by obvious `.inval
 The base defines:
 
 - one restricted production namespace with quota and default container limits;
-- separate service accounts for web, API, execution, catalog, profile, reconciliation, migration,
-  backup, and observation, all with automatic API-token mounts disabled;
-- seven existing long-running commands only: the `schemabridge-web` Streamlit wrapper, API,
-  execution worker, catalog indexer, aggregate profile worker, semantic reconciler, and the
-  bounded HTTP observer;
+- separate service accounts for web, API, execution, catalog, profile, reconciliation, registry
+  publication, migration, backup, and observation, all with automatic API-token mounts disabled;
+- eight long-running commands: the `schemabridge-web` Streamlit wrapper, API, execution worker,
+  catalog indexer, aggregate profile worker, semantic reconciler, isolated registry publisher,
+  and bounded HTTP observer;
 - an explicitly planning-only web runtime: execution and publication are disabled, its connector
   identity is preflight-only, and it receives no source-execution or DataHub-writer credential;
 - explicit 600-second, `schemabridge-secret-manager` audience tokens for web preflight/registry,
-  execution/registry, catalog, profile/registry, and reconciliation/registry; API and observer
-  receive neither the projected token nor the remote secret ConfigMap;
+  execution/registry, catalog, profile/registry, reconciliation/registry, and the publisher's
+  separate registry-writer capability; API and observer receive neither the projected token nor
+  the remote secret ConfigMap;
 - exact `secretKeyRef` allowlists for separately provisioned, immutable, version-named runtime
   Secrets; no referenced Secret object or value is defined in this repository;
 - no Kubernetes `Secret`, application `Role`, `RoleBinding`, `ClusterRole`, or
@@ -31,7 +32,7 @@ The base defines:
 - an hourly, non-overlapping, deadline-bounded `schemabridge-backup` CronJob that uses only the
   dedicated read-only control-plane role and an externally provisioned backup PVC; and
 - stable-job ServiceMonitor contracts for the observer plus the internal metrics listeners of API,
-  worker, catalog, profile, and reconciler. The API business listener on `8520` does not expose
+  worker, catalog, profile, reconciler, and publisher. The API business listener on `8520` does not expose
   `/metrics`; every process exporter is separately bounded on `9464`; plus one `PrometheusRule`
   containing only the six alert contracts backed by composed metric producers.
 
@@ -49,13 +50,15 @@ Before validation, replace every placeholder with:
 - the exact registry name and lowercase SHA-256 digest for the single reviewed frozen runtime image
   used by API, background processes, and web;
 - one approved HTTPS Vault/OpenBao-compatible endpoint and exact KV-v2 mount;
-- four distinct closed connector roles for preflight, execution, catalog, and profile, plus four
-  distinct registry-reader roles for web, execution, profile, and reconciliation; each workload
-  that has both capabilities must use different roles;
-- one opaque registry-reader binding reference and its exact immutable provider version;
+- four distinct closed connector roles for preflight, execution, catalog, and profile, four
+  distinct registry-reader roles for web, execution, profile, and reconciliation, plus one
+  publisher-only registry-writer role; each workload that has two capabilities must use different
+  roles;
+- separate opaque registry-reader and registry-writer binding references with exact immutable
+  provider versions; the writer actor and grants must match the bounded publication contract;
 - the governed semantic registry ID/scope, approved OIDC issuer/provider, separate web/API
   audiences, approved tenant allowlist, and exact API/web hostnames;
-- eight distinct immutable external Secret names following
+- nine distinct immutable external Secret names following
   `schemabridge-external-<component>-v<positive-version>`;
 - one external encrypted backup PVC named `schemabridge-backup-store-v1`, backed by provider
   retention/immutability controls that are validated outside this repository;
@@ -63,8 +66,8 @@ Before validation, replace every placeholder with:
 - approved non-wildcard web/API hostnames; and
 - the names of two independently managed TLS certificate Secrets.
 
-The namespace Secret quota is exactly `13`: eight immutable component runtime Secrets plus two
-managed ingress TLS Secrets form the ten-object steady-state baseline. The remaining three slots
+The namespace Secret quota is exactly `14`: nine immutable component runtime Secrets plus two
+managed ingress TLS Secrets form the eleven-object steady-state baseline. The remaining three slots
 permit one ordered runtime-secret replacement and both TLS certificate replacements to coexist
 during rotation. This is capacity headroom only; it does not permit checked-in Secret objects,
 in-place mutation, parallel bulk rotation, or sharing one Secret across component identities.
@@ -83,6 +86,7 @@ exact external references:
 | catalog | `control-catalog-dsn` |
 | profile worker | `control-worker-dsn` |
 | reconciler | `control-reconciler-dsn`, `control-audit-signing-key` |
+| registry publisher | `control-publisher-dsn` |
 | observer | `control-observer-dsn` |
 | backup | `control-backup-dsn`, `control-audit-signing-key` |
 
@@ -113,19 +117,21 @@ synthetic selector, and infers no workload, queue, secret, backup, release, or t
 
 The web ConfigMap must retain `SCHEMABRIDGE_JUDGE_EXECUTION=disabled` and
 `SCHEMABRIDGE_PUBLICATION_MODE=disabled`. Query Studio may plan, compile, validate, and preflight
-governed requests, but this release does not wire Streamlit to the authenticated execution-job API
-and does not implement a durable publication approval queue/publisher worker. The browser must
-therefore show both actions as unavailable. Setting either mode to `live`, `recorded`, or `fake`
-for the production web runtime is rejected.
+governed requests, but Streamlit is not wired to the authenticated execution or registry-
+publication APIs. M34 publication is available only through the tenant-bound API and isolated
+publisher process; these legacy Streamlit mutation modes remain unavailable. Setting either mode
+to `live`, `recorded`, or `fake` for the production web runtime is rejected.
 
 Every control DSN must use `sslmode=verify-full` (or the release-approved equivalent accepted by
 `Settings`) and identify
-`sslrootcert=/var/run/secrets/schemabridge/trust/ca.crt`. All seven pods mount that public trust
-bundle read-only, and the backup pod template mounts it as well. Remote-secret readers reuse the
+`sslrootcert=/var/run/secrets/schemabridge/trust/ca.crt`. All eight long-running pods mount that
+public trust bundle read-only, and the backup pod template mounts it as well. Remote-secret readers reuse the
 same mounted trust path for the HTTPS resolver.
 Web, worker, profile, and reconciler resolve the exact registry-reader document through distinct
 provider roles; only the source-reading workloads also receive a separate connector capability.
-API and observer keep the trust mount without receiving secret-manager identity.
+The publisher resolves a different exact-version registry-writer document through the dedicated
+`registry-publisher` capability and receives neither a reader binding nor source authority. API
+and observer keep the trust mount without receiving secret-manager identity.
 The observer DSN username must be exactly `schemabridge_observer`; the backup DSN username must be
 exactly `schemabridge_backup`.
 
@@ -142,7 +148,7 @@ identity, bind and bounded HTTP/metrics settings, log level, and the documented 
 pool settings. Its DSN is supplied exclusively by the observer's versioned external
 `secretKeyRef`; no credential is present in ConfigMap data.
 
-All six metrics targets — API, worker, catalog, profile, reconciler, and observer — admit
+All seven metrics targets — API, worker, catalog, profile, reconciler, publisher, and observer — admit
 `/metrics` scraping only from one Prometheus pod identity,
 `app.kubernetes.io/name=prometheus`, in the `observability` namespace and always on port `9464`.
 This gives one operated Prometheus stack access to every signal used by the fail-closed alert
@@ -165,7 +171,7 @@ python deploy/kubernetes/m29/validate_rendered.py rendered-m29.yaml
 kubectl apply --server-side --dry-run=server -f rendered-m29.yaml
 ```
 
-The local validator accepts only the closed 63-resource contract and emits stable codes without
+The local validator accepts only the closed 70-resource contract and emits stable codes without
 echoing manifest content. It rejects unresolved placeholders, mutable images, default identities,
 automatic or long-lived tokens, wrong audiences, connector identity on API/reconciler, missing or
 cross-component external Secret references, embedded Secret values/resources, application

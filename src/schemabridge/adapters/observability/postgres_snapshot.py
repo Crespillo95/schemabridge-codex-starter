@@ -40,8 +40,9 @@ ORDER BY CASE queue
     WHEN 'execution' THEN 1
     WHEN 'catalog' THEN 2
     WHEN 'profile' THEN 3
-    WHEN 'reconciliation' THEN 4
-    ELSE 5
+    WHEN 'publication' THEN 4
+    WHEN 'reconciliation' THEN 5
+    ELSE 6
 END
 """
 
@@ -70,7 +71,7 @@ class PostgresOperationalSnapshotReader:
             raise ValueError("operational snapshot statement timeout is invalid")
 
     def read(self) -> OperationalSnapshot:
-        """Return only the four approved aggregates, never queue records."""
+        """Return only the five approved aggregates, never queue records."""
 
         try:
             with self.pool.connection() as connection:

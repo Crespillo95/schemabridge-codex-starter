@@ -16,15 +16,15 @@ import yaml
 
 MAX_MANIFEST_BYTES: Final = 4 * 1024 * 1024
 NAMESPACE: Final = "schemabridge-system"
-REQUIRED_SECRET_OBJECTS: Final = 10
-SECRET_OBJECT_QUOTA: Final = 13
+REQUIRED_SECRET_OBJECTS: Final = 11
+SECRET_OBJECT_QUOTA: Final = 14
 ZERO_DIGEST: Final = "0" * 64
 IMAGE_PATTERN: Final = re.compile(r"^[a-z0-9][a-z0-9._:/-]*@sha256:[0-9a-f]{64}$")
 SAFE_NAME_PATTERN: Final = re.compile(r"^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?$")
 KV_MOUNT_PATTERN: Final = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
 OPAQUE_BINDING_PATTERN: Final = re.compile(r"^[a-z][a-z0-9._:-]{2,199}$")
 EXTERNAL_SECRET_NAME_PATTERN: Final = re.compile(
-    r"^schemabridge-external-(web|api|worker|catalog|profile|reconciler|observer|backup)"
+    r"^schemabridge-external-(web|api|worker|publisher|catalog|profile|reconciler|observer|backup)"
     r"-v[1-9][0-9]*$"
 )
 ACTIVE_ALERT_RULES_PATH: Final = (
@@ -37,14 +37,16 @@ PLACEHOLDER_PATTERNS: Final = (
     re.compile(rf"sha256:{ZERO_DIGEST}"),
 )
 RUNTIME_COMPONENTS: Final = frozenset(
-    {"web", "api", "worker", "catalog", "profile", "reconciler", "observer"}
+    {"web", "api", "worker", "publisher", "catalog", "profile", "reconciler", "observer"}
 )
 REMOTE_SECRET_COMPONENTS: Final = frozenset({"web", "worker", "catalog", "profile"})
 REGISTRY_SECRET_COMPONENTS: Final = frozenset({"web", "worker", "profile", "reconciler"})
 REMOTE_IDENTITY_COMPONENTS: Final = frozenset(
-    {*REMOTE_SECRET_COMPONENTS, *REGISTRY_SECRET_COMPONENTS}
+    {*REMOTE_SECRET_COMPONENTS, *REGISTRY_SECRET_COMPONENTS, "publisher"}
 )
-BACKGROUND_METRICS_COMPONENTS: Final = frozenset({"worker", "catalog", "profile", "reconciler"})
+BACKGROUND_METRICS_COMPONENTS: Final = frozenset(
+    {"worker", "publisher", "catalog", "profile", "reconciler"}
+)
 PROCESS_METRICS_COMPONENTS: Final = frozenset({"api", *BACKGROUND_METRICS_COMPONENTS})
 SCRAPED_METRICS_COMPONENTS: Final = frozenset({"observer", *PROCESS_METRICS_COMPONENTS})
 IDENTITY_COMPONENTS: Final = frozenset(
@@ -65,6 +67,7 @@ EXPECTED_CAPABILITIES: Final = {
         "source-execution",
         "datahub-registry",
     },
+    "publisher": {"secret-manager", "control-publisher", "datahub-registry-writer"},
     "catalog": {"secret-manager", "control-catalog", "datahub-catalog"},
     "profile": {"secret-manager", "control-worker", "source-profile", "datahub-registry"},
     "reconciler": {"secret-manager", "control-reconciler", "datahub-registry"},
@@ -76,6 +79,7 @@ EXPECTED_COMMANDS: Final = {
     "web": ["schemabridge-web"],
     "api": ["schemabridge-api"],
     "worker": ["schemabridge-worker"],
+    "publisher": ["schemabridge-registry-publisher"],
     "catalog": ["schemabridge-catalog"],
     "profile": ["schemabridge-semantic-profile-worker"],
     "reconciler": ["schemabridge-semantic-reconciler"],
@@ -97,6 +101,9 @@ EXPECTED_SECRET_ENV: Final = {
     },
     "worker": {
         "SCHEMABRIDGE_CONTROL_WORKER_DATABASE_URL": "control-worker-dsn",
+    },
+    "publisher": {
+        "SCHEMABRIDGE_CONTROL_PUBLISHER_DATABASE_URL": "control-publisher-dsn",
     },
     "catalog": {
         "SCHEMABRIDGE_CONTROL_CATALOG_DATABASE_URL": "control-catalog-dsn",
@@ -120,6 +127,7 @@ EXPECTED_FIELD_ENV: Final = {
     "web": {},
     "api": {},
     "worker": {"SCHEMABRIDGE_WORKER_ID": "metadata.name"},
+    "publisher": {"SCHEMABRIDGE_REGISTRY_PUBLISHER_ID": "metadata.name"},
     "catalog": {"SCHEMABRIDGE_CATALOG_INDEXER_ID": "metadata.name"},
     "profile": {"SCHEMABRIDGE_WORKER_ID": "metadata.name"},
     "reconciler": {"SCHEMABRIDGE_SEMANTIC_RECONCILER_ID": "metadata.name"},
@@ -161,6 +169,13 @@ REGISTRY_SECRET_CONFIG_KEYS: Final = frozenset(
         "SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_ROLE",
         "SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_BINDING_REF",
         "SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_VERSION",
+    }
+)
+REGISTRY_PUBLISHER_SECRET_CONFIG_KEYS: Final = frozenset(
+    {
+        "SCHEMABRIDGE_REGISTRY_PUBLISHER_SECRET_ROLE",
+        "SCHEMABRIDGE_REGISTRY_PUBLISHER_SECRET_BINDING_REF",
+        "SCHEMABRIDGE_REGISTRY_PUBLISHER_SECRET_VERSION",
     }
 )
 PROCESS_METRICS_CONFIG_KEYS: Final = frozenset(
@@ -225,6 +240,20 @@ EXPECTED_COMPONENT_CONFIG_KEYS: Final = {
         "SCHEMABRIDGE_WORKER_HEARTBEAT_SECONDS",
         "SCHEMABRIDGE_WORKER_POLL_INTERVAL_MS",
     },
+    "publisher": {
+        "SCHEMABRIDGE_ENVIRONMENT",
+        "SCHEMABRIDGE_COMPONENT",
+        "SCHEMABRIDGE_AUTH_MODE",
+        "SCHEMABRIDGE_CONTROL_PLANE_MODE",
+        "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA",
+        "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION",
+        "SCHEMABRIDGE_REGISTRY_PUBLISHER_LEASE_SECONDS",
+        "SCHEMABRIDGE_REGISTRY_PUBLISHER_HEARTBEAT_SECONDS",
+        "SCHEMABRIDGE_REGISTRY_PUBLISHER_POLL_INTERVAL_MS",
+        "SCHEMABRIDGE_CATALOG_STALE_AFTER_SECONDS",
+    }
+    | REGISTRY_PUBLISHER_SECRET_CONFIG_KEYS
+    | PROCESS_METRICS_CONFIG_KEYS,
     "catalog": COMMON_MANAGED_CONFIG_KEYS
     | REMOTE_COMPONENT_CONFIG_KEYS
     | PROCESS_METRICS_CONFIG_KEYS
@@ -497,6 +526,8 @@ def _check_container_security(
             errors.add("missing_probe")
     if component == "web":
         _check_web_probe_contract(container, errors)
+    if component == "publisher":
+        _check_publisher_probe_contract(container, errors)
     pre_stop = _mapping(_mapping(container.get("lifecycle")).get("preStop"))
     if not pre_stop:
         errors.add("missing_graceful_drain")
@@ -520,6 +551,20 @@ def _check_web_probe_contract(
         "scheme": "HTTP",
     } or set(liveness) & mechanisms != {"httpGet"}:
         errors.add("web_probe_contract")
+
+
+def _check_publisher_probe_contract(
+    container: Mapping[str, Any],
+    errors: set[str],
+) -> None:
+    mechanisms = {"exec", "httpGet", "tcpSocket", "grpc"}
+    expected_command = ["schemabridge-registry-publisher", "--probe-ready"]
+    for probe_name in ("startupProbe", "readinessProbe"):
+        probe = _mapping(container.get(probe_name))
+        if _mapping(probe.get("exec")).get("command") != expected_command or set(
+            probe
+        ) & mechanisms != {"exec"}:
+            errors.add("publisher_probe_contract")
 
 
 def _check_identity_projection(
@@ -727,6 +772,7 @@ def _check_deployments(
                 "schemabridge.io/secret-capability": {
                     "web": "preflight",
                     "worker": "execution",
+                    "publisher": "registry-publisher",
                     "catalog": "catalog",
                     "profile": "profile",
                     "reconciler": "registry",
@@ -825,7 +871,7 @@ def _check_backup_environment(
         "SCHEMABRIDGE_AUTH_MODE": "local-demo",
         "SCHEMABRIDGE_CONTROL_PLANE_MODE": "postgres",
         "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA": "schemabridge_control",
-        "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION": "13",
+        "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION": "14",
         "SCHEMABRIDGE_CONTROL_AUDIT_KEY_VERSION": "v1",
     }
     expected_secrets = EXPECTED_SECRET_ENV["backup"]
@@ -1190,6 +1236,8 @@ def _check_config(
     roles: set[str] = set()
     registry_bindings: set[str] = set()
     registry_versions: set[str] = set()
+    publisher_binding: str | None = None
+    publisher_version: str | None = None
     for component in RUNTIME_COMPONENTS:
         data = _mapping(_mapping(config_maps.get(f"schemabridge-{component}-config")).get("data"))
         if set(data) != EXPECTED_COMPONENT_CONFIG_KEYS[component]:
@@ -1200,7 +1248,7 @@ def _check_config(
                 "SCHEMABRIDGE_COMPONENT": "observer",
                 "SCHEMABRIDGE_CONTROL_PLANE_MODE": "postgres",
                 "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA": "schemabridge_control",
-                "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION": "13",
+                "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION": "14",
                 "SCHEMABRIDGE_LOG_LEVEL": "INFO",
                 "SCHEMABRIDGE_OBSERVER_BIND_HOST": "0.0.0.0",
                 "SCHEMABRIDGE_OBSERVER_PORT": "9464",
@@ -1219,6 +1267,48 @@ def _check_config(
             }
             if data != expected_observer_config:
                 errors.add("component_config")
+            continue
+        if component == "publisher":
+            expected_publisher_config = {
+                "SCHEMABRIDGE_ENVIRONMENT": "production",
+                "SCHEMABRIDGE_COMPONENT": "publisher",
+                "SCHEMABRIDGE_AUTH_MODE": "local-demo",
+                "SCHEMABRIDGE_CONTROL_PLANE_MODE": "postgres",
+                "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA": "schemabridge_control",
+                "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION": "14",
+                "SCHEMABRIDGE_REGISTRY_PUBLISHER_LEASE_SECONDS": "60",
+                "SCHEMABRIDGE_REGISTRY_PUBLISHER_HEARTBEAT_SECONDS": "20",
+                "SCHEMABRIDGE_REGISTRY_PUBLISHER_POLL_INTERVAL_MS": "500",
+                "SCHEMABRIDGE_CATALOG_STALE_AFTER_SECONDS": "900",
+                "SCHEMABRIDGE_PROCESS_METRICS_BIND_HOST": "0.0.0.0",
+                "SCHEMABRIDGE_PROCESS_METRICS_PORT": "9464",
+                "SCHEMABRIDGE_PROCESS_METRICS_MAX_RESPONSE_BYTES": "65536",
+            }
+            if any(data.get(key) != value for key, value in expected_publisher_config.items()):
+                errors.add("component_config")
+            publisher_role = data.get("SCHEMABRIDGE_REGISTRY_PUBLISHER_SECRET_ROLE")
+            publisher_binding = data.get("SCHEMABRIDGE_REGISTRY_PUBLISHER_SECRET_BINDING_REF")
+            publisher_version = data.get("SCHEMABRIDGE_REGISTRY_PUBLISHER_SECRET_VERSION")
+            if (
+                not isinstance(publisher_role, str)
+                or SAFE_NAME_PATTERN.fullmatch(publisher_role) is None
+                or publisher_role in roles
+            ):
+                errors.add("publisher_secret_role")
+            else:
+                roles.add(publisher_role)
+            if (
+                not isinstance(publisher_binding, str)
+                or OPAQUE_BINDING_PATTERN.fullmatch(publisher_binding) is None
+            ):
+                errors.add("publisher_secret_binding")
+            if (
+                not isinstance(publisher_version, str)
+                or not publisher_version.isascii()
+                or not publisher_version.isdigit()
+                or int(publisher_version) < 1
+            ):
+                errors.add("publisher_secret_version")
             continue
         expected_runtime_component = "worker" if component == "profile" else component
         if (
@@ -1303,6 +1393,10 @@ def _check_config(
         errors.add("registry_secret_binding")
     if len(registry_versions) != 1:
         errors.add("registry_secret_version")
+    if publisher_binding is None or publisher_binding in registry_bindings:
+        errors.add("publisher_secret_binding")
+    if publisher_version is None:
+        errors.add("publisher_secret_version")
     trust = _mapping(_mapping(config_maps.get("schemabridge-trust-bundle")).get("data"))
     ca_pem = trust.get("ca.crt")
     if (
@@ -1489,6 +1583,7 @@ def _check_ingress_and_services(
         "schemabridge-api",
         "schemabridge-observer",
         "schemabridge-worker",
+        "schemabridge-publisher",
         "schemabridge-catalog",
         "schemabridge-profile",
         "schemabridge-reconciler",
@@ -1582,6 +1677,7 @@ def _check_resilience(
         }
         <= set(quota_hard)
         or quota_hard.get("persistentvolumeclaims") != "4"
+        or quota_hard.get("services") != "9"
     ):
         errors.add("namespace_resource_bounds")
     if (

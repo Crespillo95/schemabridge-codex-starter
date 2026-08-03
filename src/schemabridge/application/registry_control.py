@@ -21,6 +21,7 @@ from schemabridge.domain.registry_control import (
     RegistryActivationApproval,
     RegistryActivationConfirmation,
     RegistryActivationProposal,
+    RegistryActivationReadyHandoff,
     RegistryActivationTransition,
     RegistryControlCommit,
     RegistryProjectionOutboxItem,
@@ -61,11 +62,13 @@ class PrepareRegistryActivation:
     def execute(self, target_version: int) -> RegistryActivationProposal:
         current = _load_active_pointer(self.store, self.scope)
         target = _load_strict_version(self.versions, self.scope, target_version)
+        handoff = _load_activation_ready_handoff(self.store, target)
         _ensure_not_already_active(current, target)
         return _proposal(
             action=RegistryActivationAction.ACTIVATE,
             current=current,
             target=target,
+            activation_ready_handoff=handoff,
         )
 
 
@@ -209,6 +212,13 @@ class CommitRegistryActivation:
                 RegistryControlErrorCode.VERSION_INVALID,
                 "activation target changed after approval",
             )
+        if not replaying and proposal.action is RegistryActivationAction.ACTIVATE:
+            observed_handoff = _load_activation_ready_handoff(self.store, target)
+            if observed_handoff != proposal.activation_ready_handoff:
+                raise RegistryControlError(
+                    RegistryControlErrorCode.ACTIVATION_HANDOFF_MISMATCH,
+                    "activation-ready publication or catalog authority changed after approval",
+                )
         try:
             previous_pointer = (
                 _load_proposal_previous_pointer(self.store, proposal) if replaying else current
@@ -718,6 +728,7 @@ def _proposal(
     current: ActiveRegistryPointer | None,
     target: GovernedRegistryVersion,
     rollback_transition_id: str | None = None,
+    activation_ready_handoff: RegistryActivationReadyHandoff | None = None,
 ) -> RegistryActivationProposal:
     registry = target.snapshot.registry
     return RegistryActivationProposal(
@@ -734,6 +745,7 @@ def _proposal(
             registry.version,
         ),
         target_publication_approval_id=target.publication_approval_id,
+        activation_ready_handoff=activation_ready_handoff,
         decision_ids=semantic_registry_decision_ids(registry),
         rollback_transition_id=rollback_transition_id,
     )
@@ -763,6 +775,52 @@ def _load_strict_version(
         raise RegistryControlError(
             RegistryControlErrorCode.LEGACY_VERSION,
             "legacy registry versions are read-only and cannot be active",
+        )
+    return validated
+
+
+def _load_activation_ready_handoff(
+    store: RegistryControlStorePort,
+    target: GovernedRegistryVersion,
+) -> RegistryActivationReadyHandoff:
+    scope = target.snapshot.scope
+    registry = target.snapshot.registry
+    if registry.format_version != 2:
+        raise RegistryControlError(
+            RegistryControlErrorCode.LEGACY_VERSION,
+            "only an exact registry v2 publication can become activation-ready",
+        )
+    loaded = store.load_activation_ready_handoff(scope, registry.version)
+    if loaded is None:
+        raise RegistryControlError(
+            RegistryControlErrorCode.ACTIVATION_NOT_READY,
+            "an exact activation-ready publication with current catalog authority is required",
+        )
+    try:
+        validated = RegistryActivationReadyHandoff.model_validate(
+            loaded.model_dump(mode="python", warnings=False)
+        )
+    except (AttributeError, TypeError, ValueError) as error:
+        raise RegistryControlError(
+            RegistryControlErrorCode.ACTIVATION_HANDOFF_MISMATCH,
+            "activation-ready publication authority returned an invalid handoff",
+        ) from error
+    if (
+        validated != loaded
+        or validated.scope != scope
+        or validated.target_registry_version != registry.version
+        or validated.target_registry_fingerprint != registry.fingerprint
+        or validated.target_registry_urn != datahub_registry_document_urn(scope, registry.version)
+        or validated.observed_authorization_id != target.publication_approval_id
+        or not any(
+            binding.source_proposal_id == validated.source_proposal_id
+            and binding.source_proposal_fingerprint == validated.source_proposal_fingerprint
+            for binding in registry.physical_bindings
+        )
+    ):
+        raise RegistryControlError(
+            RegistryControlErrorCode.ACTIVATION_HANDOFF_MISMATCH,
+            "activation-ready publication does not match the exact immutable registry version",
         )
     return validated
 

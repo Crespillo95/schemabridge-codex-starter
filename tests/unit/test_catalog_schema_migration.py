@@ -402,7 +402,7 @@ def test_v4_disable_persists_one_terminal_idempotency_digest() -> None:
     ) in sql
 
 
-def test_eight_control_roles_are_non_privileged_non_inheriting_and_connected() -> None:
+def test_nine_control_roles_are_non_privileged_non_inheriting_and_connected() -> None:
     roles = ROLES.read_text(encoding="utf-8")
     expected_roles = (
         "schemabridge_migrator",
@@ -410,6 +410,7 @@ def test_eight_control_roles_are_non_privileged_non_inheriting_and_connected() -
         "schemabridge_reconciler",
         "schemabridge_api",
         "schemabridge_worker",
+        "schemabridge_publisher",
         "schemabridge_catalog",
         "schemabridge_observer",
         "schemabridge_backup",
@@ -423,3 +424,4 @@ def test_eight_control_roles_are_non_privileged_non_inheriting_and_connected() -
     for role in expected_roles:
         assert f"CREATE ROLE {role}" in roles
         assert role in roles.split("GRANT CONNECT ON DATABASE schemabridge_control", maxsplit=1)[1]
+    assert "ALTER ROLE schemabridge_publisher\n  SET statement_timeout = '30s';" in roles

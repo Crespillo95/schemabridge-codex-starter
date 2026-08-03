@@ -8,7 +8,7 @@ request into deterministic PostgreSQL, independently validates the final SQL AST
 standalone query to copy into another PostgreSQL client. A bounded read-only preview is optional;
 approved semantic context can be written back to DataHub through its separate approval path.
 
-> Release status (2026-08-02): the public repository and Apache-2.0 license are verified. The
+> Release status (2026-08-03): the public repository and Apache-2.0 license are verified. The
 > recorded judge image passes local build/smoke tests, but no public demo URL, public video, clean
 > release commit, tag, operated production cluster, or production SLO is claimed. The generated
 > M18 manifest remains development evidence until those operator steps are complete. M20–M29 are
@@ -16,9 +16,10 @@ approved semantic context can be written back to DataHub through its separate ap
 > every external production/release gate remain open. M32—the bounded simple/advanced
 > natural-language to copyable PostgreSQL capability described below—is accepted locally for its
 > deterministic/synthetic scope. M33 is accepted locally for tenant-bound server-derived semantic
-> onboarding through an immutable `ready_for_publication` handoff; it performs no external
-> publication or activation.
-> M34, live-provider evaluation, independent security verification, an operated pilot, and every
+> onboarding through an immutable `ready_for_publication` handoff. M34 is accepted locally for
+> queued, approval-gated publication of an exact registry-v2 document, independent DataHub
+> read-back, and a separate activation-ready handoff; the publisher cannot activate a registry.
+> Live-provider evaluation, independent security verification, an operated pilot, and every
 > production/release control remain open. No error-free, all-SQL-dialects, or production claim is
 > made. The exact support matrix and adoption gates are in the
 > [commercial usage plan](docs/19_COMMERCIAL_USAGE.md).

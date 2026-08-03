@@ -83,16 +83,18 @@ This inventory requirement does not relax query safety. Catalogs may contain tho
 while one compiled request remains subject to its governed per-query table/join maximum, allowlist,
 fanout checks, result limit, and timeout.
 
-M26–M29 are complete and accepted locally within their recorded scopes. M32 and M33 are also
-accepted locally for their bounded deterministic/synthetic scopes in
+M26–M29 are complete and accepted locally within their recorded scopes. M32, M33 and M34 are also
+accepted locally for their bounded deterministic/synthetic scopes. M32, documented in
 `plans/M32_ADVANCED_COPYABLE_SQL.md`: it traverses the complete approved logical registry,
 constructs a bounded 3-model/12-field/2-join closure, selects v1/v2 by typed representability, and
 makes twice-guarded standalone PostgreSQL the primary result with zero execution by default. Its
 live-provider/holdout evidence remains open. M33 adds exact tenant/catalog preflight, explicit
 semantic review, durable tenant-bound CAS/idempotency and an immutable non-executable handoff; its
-manual desktop/mobile browser path passes locally. M34 publication/readback remains next. M30/M31
-retain their separate production-evaluation/security and pilot/GA roles. Neither local acceptance,
-these capabilities, nor queue position is a global production/release GO.
+manual desktop/mobile browser path passes locally. M34 adds the isolated fenced publisher,
+post-assembly approval, immutable DataHub-v2 read-back and an exact activation-ready bridge into
+the separate M23 approval/CAS path. M30/M31 retain their separate production-evaluation/security
+and pilot/GA roles. Neither local acceptance, these capabilities, nor queue position is a global
+production/release GO.
 
 ## Dependency graph
 

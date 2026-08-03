@@ -18,6 +18,7 @@ RuntimeLoggingService: TypeAlias = Literal[
     "migrator",
     "observer",
     "profile",
+    "publisher",
     "reconciler",
     "web",
     "worker",

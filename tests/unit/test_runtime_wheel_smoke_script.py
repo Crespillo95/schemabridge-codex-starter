@@ -51,6 +51,7 @@ def test_runtime_wheel_contract_matches_every_current_packaged_asset() -> None:
         (11, "connector_secret_versions"),
         (12, "backup_identity"),
         (13, "semantic_onboarding"),
+        (14, "registry_publication"),
     )
     migration_files = sorted((root / "migrations" / "control_plane").glob("*.sql"))
     assert (
@@ -62,11 +63,16 @@ def test_runtime_wheel_contract_matches_every_current_packaged_asset() -> None:
     assert ("schemabridge-observer", "schemabridge.entrypoints.observer.main:main") in (
         EXPECTED_RUNTIME_ENTRYPOINTS
     )
+    assert (
+        "schemabridge-registry-publisher",
+        "schemabridge.entrypoints.registry_publisher.main:main",
+    ) in EXPECTED_RUNTIME_ENTRYPOINTS
     assert HELP_CAPABLE_RUNTIME_COMMANDS == (
         "schemabridge",
         "schemabridge-ai-policy",
         "schemabridge-catalog",
         "schemabridge-connector-route",
+        "schemabridge-registry-publisher",
         "schemabridge-semantic-change",
         "schemabridge-semantic-profile-worker",
         "schemabridge-semantic-reconciler",
@@ -97,7 +103,7 @@ def test_runtime_wheel_contract_matches_every_current_packaged_asset() -> None:
         (
             "migration addition",
             EXPECTED_CONTROL_PLANE_MIGRATIONS,
-            (*EXPECTED_CONTROL_PLANE_MIGRATIONS, (13, "unexpected")),
+            (*EXPECTED_CONTROL_PLANE_MIGRATIONS, (15, "unexpected")),
         ),
         (
             "entrypoint deletion",

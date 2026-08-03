@@ -10,6 +10,10 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from tests.integration.registry_publication_support import (
+    M34PublicationFixture,
+    PublishedVersionReader,
+)
 from tests.unit.test_recipe_migration import (
     _approval,
     _bind_to_pointer,
@@ -32,19 +36,16 @@ from schemabridge.application.query_recipes import (
     PrepareStoredStaleQueryRecipeMigration,
     PublishStaleQueryRecipeMigration,
 )
-from schemabridge.application.registry_control import PrepareRegistryActivationApproval
+from schemabridge.application.registry_control import (
+    CommitRegistryActivation,
+    PrepareRegistryActivation,
+    PrepareRegistryActivationApproval,
+)
 from schemabridge.domain.recipes import RecipePublicationStatus
 from schemabridge.domain.registry_control import (
-    RegistryActivationAction,
     RegistryActivationConfirmation,
-    RegistryActivationProposal,
-    build_registry_activation_transition,
-    build_registry_projection_outbox,
 )
-from schemabridge.domain.semantic_registry import (
-    SemanticRegistryScope,
-    datahub_registry_document_urn,
-)
+from schemabridge.domain.semantic_registry import SemanticRegistryScope
 
 pytestmark = pytest.mark.integration
 
@@ -55,6 +56,11 @@ RUNTIME_DSN = (
 )
 MIGRATOR_DSN = (
     "postgresql://schemabridge_migrator:schemabridge_migrator@127.0.0.1:55434/schemabridge_control"
+)
+API_DSN = "postgresql://schemabridge_api:schemabridge_api@127.0.0.1:55434/schemabridge_control"
+PUBLISHER_DSN = (
+    "postgresql://schemabridge_publisher:schemabridge_publisher"
+    "@127.0.0.1:55434/schemabridge_control"
 )
 AUDIT_KEYS = {"v1": b"control-audit-key-0123456789-abcdef"}
 NOW = datetime(2026, 7, 23, 19, 0, tzinfo=UTC)
@@ -105,19 +111,33 @@ def test_postgres_stored_migration_preserves_history_and_stale_retry_writes_noth
         f"recipe-replacement-{namespace[:12]}",
     )
     assert replacement_workflow.resolved_plan is not None
-
-    proposal = RegistryActivationProposal(
-        action=RegistryActivationAction.ACTIVATE,
-        scope=scope,
-        expected_generation=0,
-        target_registry_version=replacement_workflow.resolved_plan.context_version,
-        target_registry_fingerprint=replacement_workflow.resolved_plan.context_fingerprint,
-        target_registry_urn=datahub_registry_document_urn(
-            scope,
-            replacement_workflow.resolved_plan.context_version,
-        ),
-        target_publication_approval_id=f"recipe-publication-{namespace}",
-        decision_ids=(f"recipe-decision-{namespace}",),
+    registry_store = PostgresRegistryControlStore(
+        _dsn("SCHEMABRIDGE_TEST_CONTROL_DATABASE_URL", RUNTIME_DSN),
+        AUDIT_KEYS,
+        "v1",
+    )
+    publication = M34PublicationFixture(
+        _dsn("SCHEMABRIDGE_TEST_CONTROL_MIGRATOR_DATABASE_URL", MIGRATOR_DSN),
+        _dsn("SCHEMABRIDGE_TEST_CONTROL_API_DATABASE_URL", API_DSN),
+        _dsn("SCHEMABRIDGE_TEST_CONTROL_PUBLISHER_DATABASE_URL", PUBLISHER_DSN),
+        scope,
+        max_versions=1,
+    )
+    governed = publication.publish_next(None)
+    versions = PublishedVersionReader()
+    versions.add(governed)
+    replacement_workflow = replacement_workflow.model_copy(
+        update={
+            "resolved_plan": replacement_workflow.resolved_plan.model_copy(
+                update={
+                    "context_version": governed.snapshot.registry.version,
+                    "context_fingerprint": governed.snapshot.registry.fingerprint,
+                }
+            )
+        }
+    )
+    proposal = PrepareRegistryActivation(registry_store, versions, scope).execute(
+        governed.snapshot.registry.version
     )
     approval = PrepareRegistryActivationApproval().execute(
         proposal,
@@ -125,22 +145,12 @@ def test_postgres_stored_migration_preserves_history_and_stale_retry_writes_noth
         approved_at=NOW,
         confirmation=RegistryActivationConfirmation.ACTIVATE_APPROVED_REGISTRY_VERSION,
     )
-    transition = build_registry_activation_transition(
+    committed = CommitRegistryActivation(registry_store, versions).execute(
         proposal,
         approval,
-        previous_pointer=None,
         committed_at=NOW + timedelta(seconds=1),
     )
-    registry_store = PostgresRegistryControlStore(
-        _dsn("SCHEMABRIDGE_TEST_CONTROL_DATABASE_URL", RUNTIME_DSN),
-        AUDIT_KEYS,
-        "v1",
-    )
-    registry_store.commit_transition(
-        transition,
-        build_registry_projection_outbox(transition),
-    )
-    active_pointer = transition.active_pointer
+    active_pointer = committed.transition.active_pointer
     bound_workflow = _bind_to_pointer(replacement_workflow, active_pointer)
     workflow_store = PostgresWorkflowDraftStore(
         _dsn("SCHEMABRIDGE_TEST_CONTROL_DATABASE_URL", RUNTIME_DSN),

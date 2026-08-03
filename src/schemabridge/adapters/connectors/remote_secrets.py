@@ -98,6 +98,7 @@ class ConnectorSecretCapability(StrEnum):
     CATALOG = "catalog"
     PROFILE = "profile"
     REGISTRY = "registry"
+    REGISTRY_PUBLISHER = "registry-publisher"
 
 
 class WorkloadIdentitySource(Protocol):

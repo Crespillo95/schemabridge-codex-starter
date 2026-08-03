@@ -23,6 +23,7 @@ RuntimeComponent: TypeAlias = Literal[
     "web",
     "api",
     "worker",
+    "publisher",
     "catalog",
     "reconciler",
     "observer",
@@ -262,6 +263,32 @@ class Settings(BaseSettings):
         ge=1,
         alias="SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_VERSION",
     )
+    registry_publisher_writer_env_path: Path = Field(
+        default=Path(".local/datahub/writer.env"),
+        alias="SCHEMABRIDGE_REGISTRY_PUBLISHER_WRITER_ENV_PATH",
+        repr=False,
+    )
+    registry_publisher_secret_role: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=63,
+        pattern=r"^[a-z][a-z0-9_-]{0,62}$",
+        alias="SCHEMABRIDGE_REGISTRY_PUBLISHER_SECRET_ROLE",
+        repr=False,
+    )
+    registry_publisher_secret_binding_ref: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=200,
+        pattern=r"^[a-z][a-z0-9._:-]{2,199}$",
+        alias="SCHEMABRIDGE_REGISTRY_PUBLISHER_SECRET_BINDING_REF",
+        repr=False,
+    )
+    registry_publisher_secret_version: int | None = Field(
+        default=None,
+        ge=1,
+        alias="SCHEMABRIDGE_REGISTRY_PUBLISHER_SECRET_VERSION",
+    )
     control_plane_kind: ControlPlaneMode = Field(
         default="local",
         alias="SCHEMABRIDGE_CONTROL_PLANE_MODE",
@@ -285,6 +312,10 @@ class Settings(BaseSettings):
     control_worker_database_url: SecretStr | None = Field(
         default=None,
         alias="SCHEMABRIDGE_CONTROL_WORKER_DATABASE_URL",
+    )
+    control_publisher_database_url: SecretStr | None = Field(
+        default=None,
+        alias="SCHEMABRIDGE_CONTROL_PUBLISHER_DATABASE_URL",
     )
     control_catalog_database_url: SecretStr | None = Field(
         default=None,
@@ -310,7 +341,7 @@ class Settings(BaseSettings):
         alias="SCHEMABRIDGE_CONTROL_PLANE_SCHEMA",
     )
     control_plane_schema_version: int = Field(
-        default=13,
+        default=14,
         ge=1,
         le=10_000,
         alias="SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION",
@@ -616,6 +647,31 @@ class Settings(BaseSettings):
         le=10_000,
         alias="SCHEMABRIDGE_WORKER_POLL_INTERVAL_MS",
     )
+    registry_publisher_id: str = Field(
+        default="registry-publisher-local",
+        min_length=3,
+        max_length=120,
+        pattern=r"^[a-z0-9][a-z0-9_-]{2,119}$",
+        alias="SCHEMABRIDGE_REGISTRY_PUBLISHER_ID",
+    )
+    registry_publisher_lease_seconds: int = Field(
+        default=60,
+        ge=5,
+        le=300,
+        alias="SCHEMABRIDGE_REGISTRY_PUBLISHER_LEASE_SECONDS",
+    )
+    registry_publisher_heartbeat_seconds: int = Field(
+        default=20,
+        ge=1,
+        le=120,
+        alias="SCHEMABRIDGE_REGISTRY_PUBLISHER_HEARTBEAT_SECONDS",
+    )
+    registry_publisher_poll_interval_ms: int = Field(
+        default=500,
+        ge=50,
+        le=10_000,
+        alias="SCHEMABRIDGE_REGISTRY_PUBLISHER_POLL_INTERVAL_MS",
+    )
     semantic_profile_max_attempts: int = Field(
         default=5,
         ge=1,
@@ -797,13 +853,29 @@ class Settings(BaseSettings):
         if (
             self.environment in {"staging", "production"}
             and self.runtime_component
-            not in {"worker", "catalog", "reconciler", "observer", "backup", "operator"}
+            not in {
+                "worker",
+                "publisher",
+                "catalog",
+                "reconciler",
+                "observer",
+                "backup",
+                "operator",
+            }
             and self.auth_mode != "oidc"
         ):
             raise ValueError(f"{self.environment} requires SCHEMABRIDGE_AUTH_MODE=oidc")
         if (
             self.runtime_component
-            in {"worker", "catalog", "reconciler", "observer", "backup", "operator"}
+            in {
+                "worker",
+                "publisher",
+                "catalog",
+                "reconciler",
+                "observer",
+                "backup",
+                "operator",
+            }
             and self.auth_mode != "local-demo"
         ):
             raise ValueError(
@@ -1034,6 +1106,10 @@ class Settings(BaseSettings):
             raise ValueError("SCHEMABRIDGE_API_OIDC_ALGORITHMS cannot contain duplicates")
         if self.worker_heartbeat_seconds * 2 >= self.worker_lease_seconds:
             raise ValueError("worker heartbeat must be less than half of the configured lease")
+        if self.registry_publisher_heartbeat_seconds * 2 >= self.registry_publisher_lease_seconds:
+            raise ValueError(
+                "registry publisher heartbeat must be less than half of the configured lease"
+            )
         minimum_query_lease = (self.statement_timeout_ms + 999) // 1_000 + 5
         if self.worker_lease_seconds < minimum_query_lease:
             raise ValueError("worker lease must exceed the maximum source statement timeout")
@@ -1115,7 +1191,15 @@ class Settings(BaseSettings):
             raise ValueError("active semantic registry selection requires PostgreSQL control plane")
         if (
             self.runtime_component
-            in {"api", "worker", "catalog", "reconciler", "observer", "backup"}
+            in {
+                "api",
+                "worker",
+                "publisher",
+                "catalog",
+                "reconciler",
+                "observer",
+                "backup",
+            }
             and not postgres
         ):
             raise ValueError(
@@ -1144,6 +1228,11 @@ class Settings(BaseSettings):
                 "worker database",
                 "SCHEMABRIDGE_CONTROL_WORKER_DATABASE_URL",
                 self.control_worker_database_url,
+            ),
+            "publisher": (
+                "publisher database",
+                "SCHEMABRIDGE_CONTROL_PUBLISHER_DATABASE_URL",
+                self.control_publisher_database_url,
             ),
             "catalog": (
                 "catalog database",
@@ -1182,10 +1271,12 @@ class Settings(BaseSettings):
         requires_registry_secret = (
             managed and active and self.runtime_component in {"web", "worker", "reconciler"}
         )
+        requires_publisher_secret = managed and self.runtime_component == "publisher"
         self._validate_connector_secret_configuration(
             managed=managed,
             required=requires_connector_secrets,
             registry_required=requires_registry_secret,
+            publisher_required=requires_publisher_secret,
         )
         if self.control_plane_schema != CONTROL_PLANE_SCHEMA:
             raise ValueError(
@@ -1210,6 +1301,13 @@ class Settings(BaseSettings):
             and unquote(control_username or "") != "schemabridge_backup"
         ):
             raise ValueError("backup control database URL must use the schemabridge_backup role")
+        if (
+            self.runtime_component == "publisher"
+            and unquote(control_username or "") != "schemabridge_publisher"
+        ):
+            raise ValueError(
+                "publisher control database URL must use the schemabridge_publisher role"
+            )
         control_users = {control_username}
         for label, operator_url in (
             ("runtime database", self.control_database_url),
@@ -1217,6 +1315,7 @@ class Settings(BaseSettings):
             ("migrator database", self.control_migrator_database_url),
             ("API database", self.control_api_database_url),
             ("worker database", self.control_worker_database_url),
+            ("publisher database", self.control_publisher_database_url),
             ("catalog database", self.control_catalog_database_url),
             ("observer database", self.control_observer_database_url),
             ("backup database", self.control_backup_database_url),
@@ -1261,7 +1360,7 @@ class Settings(BaseSettings):
 
         if self.runtime_component == "catalog":
             self._validate_catalog_configuration(managed=managed)
-        if self.runtime_component in {"api", "worker", "catalog", "observer"}:
+        if self.runtime_component in {"api", "worker", "publisher", "catalog", "observer"}:
             self._reject_cross_component_credentials()
             return
         if self.runtime_component == "backup":
@@ -1327,6 +1426,7 @@ class Settings(BaseSettings):
         managed: bool,
         required: bool,
         registry_required: bool,
+        publisher_required: bool,
     ) -> None:
         common_remote_values = (
             self.connector_secret_provider_url,
@@ -1345,6 +1445,11 @@ class Settings(BaseSettings):
             self.semantic_registry_secret_binding_ref,
             self.semantic_registry_secret_version,
         )
+        publisher_remote_values = (
+            self.registry_publisher_secret_role,
+            self.registry_publisher_secret_binding_ref,
+            self.registry_publisher_secret_version,
+        )
         if self.connector_secret_mode == "local":
             if any(
                 value is not None
@@ -1352,6 +1457,7 @@ class Settings(BaseSettings):
                     *common_remote_values,
                     *connector_remote_values,
                     *registry_remote_values,
+                    *publisher_remote_values,
                 )
             ):
                 raise ValueError(
@@ -1368,10 +1474,12 @@ class Settings(BaseSettings):
                 raise ValueError("managed connector routing requires remote exact-version secrets")
             if managed and registry_required:
                 raise ValueError("managed semantic registry requires remote exact-version secrets")
+            if managed and publisher_required:
+                raise ValueError("managed registry publisher requires remote exact-version secrets")
             return
         if self.connector_secret_directory is not None:
             raise ValueError("remote connector secret mode forbids a local secret directory")
-        if not required and not registry_required:
+        if not required and not registry_required and not publisher_required:
             raise ValueError(
                 "remote connector secret configuration is forbidden for this component"
             )
@@ -1386,6 +1494,12 @@ class Settings(BaseSettings):
         if not registry_required and any(value is not None for value in registry_remote_values):
             raise ValueError(
                 "remote semantic registry secret configuration is forbidden for this component"
+            )
+        if publisher_required and any(value is None for value in publisher_remote_values):
+            raise ValueError("remote registry publisher secret configuration is incomplete")
+        if not publisher_required and any(value is not None for value in publisher_remote_values):
+            raise ValueError(
+                "remote registry publisher secret configuration is forbidden for this component"
             )
         if (
             required
@@ -1421,6 +1535,7 @@ class Settings(BaseSettings):
         allowed_capabilities = {
             "web": {"preflight"},
             "worker": {"execution", "profile"},
+            "publisher": set(),
             "catalog": {"catalog"},
             "api": set(),
             "reconciler": set(),
@@ -1443,6 +1558,7 @@ class Settings(BaseSettings):
                 self.control_restore_database_url,
                 self.control_api_database_url,
                 self.control_worker_database_url,
+                self.control_publisher_database_url,
                 self.control_catalog_database_url,
                 self.control_observer_database_url,
                 self.control_backup_database_url,
@@ -1458,6 +1574,46 @@ class Settings(BaseSettings):
             if any(value is not None for value in web_forbidden):
                 raise ValueError("web component received a forbidden cross-component credential")
             return
+        if self.runtime_component == "publisher":
+            publisher_forbidden: tuple[object | None, ...] = (
+                self.control_database_url,
+                self.control_reconciler_database_url,
+                self.control_migrator_database_url,
+                self.control_restore_database_url,
+                self.control_api_database_url,
+                self.control_worker_database_url,
+                self.control_catalog_database_url,
+                self.control_observer_database_url,
+                self.control_backup_database_url,
+                self.control_operator_actor_id,
+                self.control_operator_roles or None,
+                self.openai_api_key,
+                self.query_studio_signing_key,
+                self.control_audit_signing_key,
+                self.identity_migration_key,
+                self.database_url,
+                self.datahub_gms_token,
+                self.oidc_issuer,
+                self.oidc_audience,
+                self.oidc_provider,
+                self.oidc_allowed_groups or None,
+                self.oidc_allowed_tenants or None,
+                self.pseudonymization_key,
+                self.api_local_bearer_token,
+                self.api_oidc_jwks_url,
+                self.inventory_cursor_signing_key,
+                self.connector_secret_directory,
+                self.connector_secret_role,
+                self.connector_secret_capability,
+                self.semantic_registry_secret_role,
+                self.semantic_registry_secret_binding_ref,
+                self.semantic_registry_secret_version,
+            )
+            if any(value is not None for value in publisher_forbidden):
+                raise ValueError(
+                    "publisher component received a forbidden cross-component credential"
+                )
+            return
         if self.runtime_component == "observer":
             observer_forbidden: tuple[object | None, ...] = (
                 self.control_database_url,
@@ -1466,6 +1622,7 @@ class Settings(BaseSettings):
                 self.control_restore_database_url,
                 self.control_api_database_url,
                 self.control_worker_database_url,
+                self.control_publisher_database_url,
                 self.control_catalog_database_url,
                 self.control_backup_database_url,
                 self.control_operator_actor_id,
@@ -1507,6 +1664,7 @@ class Settings(BaseSettings):
                 self.control_restore_database_url,
                 self.control_api_database_url,
                 self.control_worker_database_url,
+                self.control_publisher_database_url,
                 self.control_catalog_database_url,
                 self.control_observer_database_url,
                 self.control_backup_database_url,
@@ -1539,6 +1697,7 @@ class Settings(BaseSettings):
                 self.control_restore_database_url,
                 self.control_api_database_url,
                 self.control_worker_database_url,
+                self.control_publisher_database_url,
                 self.control_catalog_database_url,
                 self.control_observer_database_url,
                 self.control_operator_actor_id,
@@ -1612,6 +1771,7 @@ class Settings(BaseSettings):
             self.control_restore_database_url,
             self.control_observer_database_url,
             self.control_backup_database_url,
+            self.control_publisher_database_url,
             self.control_operator_actor_id,
             self.control_operator_roles or None,
             self.openai_api_key,

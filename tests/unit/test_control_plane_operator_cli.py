@@ -182,7 +182,7 @@ def test_capacity_apply_authenticates_before_building_operator(
     assert built is False
 
 
-def test_control_plane_check_inspects_all_eight_dedicated_credentials(
+def test_control_plane_check_inspects_all_nine_dedicated_credentials(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[str] = []
@@ -222,6 +222,7 @@ def test_control_plane_check_inspects_all_eight_dedicated_credentials(
         "migrator",
         "api",
         "worker",
+        "publisher",
         "catalog",
         "observer",
         "backup",
@@ -232,6 +233,7 @@ def test_control_plane_check_inspects_all_eight_dedicated_credentials(
         "migrator",
         "api",
         "worker",
+        "publisher",
         "catalog",
         "observer",
         "backup",

@@ -11,7 +11,7 @@ from typing import cast
 from pydantic import ValidationError
 
 from schemabridge.adapters.semantic_registry.datahub import (
-    _ALLOWED_WRITER_PRIVILEGES,
+    _LEGACY_ALLOWED_WRITER_PRIVILEGES,
     DataHubRegistryDocument,
     DataHubRegistryDocumentWrite,
     DataHubRegistryWriteClient,
@@ -93,7 +93,8 @@ class DataHubRegistryProjectionAdapter:
             if (
                 identity.actor_urn != self.config.actor_urn
                 or "manageDocuments" not in identity.granted_platform_mutation_privileges
-                or not identity.granted_platform_mutation_privileges <= _ALLOWED_WRITER_PRIVILEGES
+                or not identity.granted_platform_mutation_privileges
+                <= _LEGACY_ALLOWED_WRITER_PRIVILEGES
             ):
                 raise RegistryControlError(
                     RegistryControlErrorCode.PROJECTION_UNAVAILABLE,

@@ -75,7 +75,7 @@ def test_local_composition_preserves_recorded_registry_and_sqlite_state() -> Non
 
 
 def test_postgres_control_plane_selects_managed_state_stores_without_connecting() -> None:
-    settings = _postgres_settings()
+    settings = _postgres_settings(SCHEMABRIDGE_CATALOG_STALE_AFTER_SECONDS=1234)
     workspace_id = "sb_workspace_test"
 
     assert isinstance(
@@ -96,6 +96,7 @@ def test_postgres_control_plane_selects_managed_state_stores_without_connecting(
     )
     control = build_registry_control_store(settings=settings)
     assert isinstance(control, PostgresRegistryControlStore)
+    assert control.catalog_stale_after_seconds == 1234
     assert "runtime-secret" not in repr(control)
     assert AUDIT_KEY not in repr(control)
 
@@ -172,7 +173,7 @@ def test_migrator_builder_uses_pinned_release_version_and_hides_dsn() -> None:
         settings=settings,
     )
 
-    assert migrator.known_migrations()[-1].version == 13  # type: ignore[attr-defined]
+    assert migrator.known_migrations()[-1].version == 14  # type: ignore[attr-defined]
     assert "do-not-print" not in repr(migrator)
 
 

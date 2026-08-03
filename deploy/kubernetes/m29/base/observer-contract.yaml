@@ -140,6 +140,30 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
+  name: schemabridge-publisher
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/name: schemabridge-publisher
+    app.kubernetes.io/part-of: schemabridge
+    app.kubernetes.io/component: publisher
+spec:
+  jobLabel: app.kubernetes.io/name
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: schemabridge-publisher
+  namespaceSelector:
+    matchNames:
+      - schemabridge-system
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      scheme: http
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
   name: schemabridge-reconciler
   namespace: schemabridge-system
   labels:

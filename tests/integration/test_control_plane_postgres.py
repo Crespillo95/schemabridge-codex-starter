@@ -20,6 +20,10 @@ from uuid import uuid4
 import psycopg
 import pytest
 from psycopg import sql
+from tests.integration.registry_publication_support import (
+    M34PublicationFixture,
+    PublishedVersionReader,
+)
 
 from schemabridge.adapters.control_plane.postgres_identity_rotation import (
     PostgresIdentityRotationStore,
@@ -33,9 +37,6 @@ from schemabridge.adapters.control_plane.postgres_operations import (
 )
 from schemabridge.adapters.control_plane.postgres_registry_control import (
     PostgresRegistryControlStore,
-)
-from schemabridge.adapters.semantic_registry.recorded import (
-    RecordedGovernedSemanticRegistry,
 )
 from schemabridge.application.identity_rotation import (
     ApproveIdentityRotation,
@@ -73,7 +74,6 @@ from schemabridge.domain.identity_rotation import (
     VerifiedOidcKeyDerivation,
 )
 from schemabridge.domain.registry_control import (
-    GovernedRegistryVersion,
     RegistryActivationConfirmation,
     RegistryActivationTransition,
     RegistryControlCommit,
@@ -83,22 +83,17 @@ from schemabridge.domain.registry_control import (
     RegistryProjectionState,
     RegistryReconciliationApproval,
     RegistryReconciliationConfirmation,
-    RegistryVersionTrust,
     build_registry_activation_transition,
     build_registry_projection_outbox,
 )
 from schemabridge.domain.semantic_registry import (
-    GovernedSemanticRegistrySnapshot,
-    ScopedSemanticRegistrySnapshot,
     SemanticRegistryScope,
-    prepare_datahub_registry_version,
 )
 
 pytestmark = pytest.mark.integration
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS = ROOT / "migrations/control_plane"
-MANIFEST = ROOT / "demo/ground_truth/registries/manifest.yml"
 RUNTIME_DSN = (
     "postgresql://schemabridge_runtime:schemabridge_runtime@127.0.0.1:55434/schemabridge_control"
 )
@@ -109,30 +104,17 @@ RECONCILER_DSN = (
 MIGRATOR_DSN = (
     "postgresql://schemabridge_migrator:schemabridge_migrator@127.0.0.1:55434/schemabridge_control"
 )
+API_DSN = "postgresql://schemabridge_api:schemabridge_api@127.0.0.1:55434/schemabridge_control"
+PUBLISHER_DSN = (
+    "postgresql://schemabridge_publisher:schemabridge_publisher"
+    "@127.0.0.1:55434/schemabridge_control"
+)
 AUDIT_KEYS = {"v1": b"control-audit-key-0123456789-abcdef"}
 NOW = datetime(2026, 7, 23, 12, 0, tzinfo=UTC)
 ADMIN_DSN = os.environ.get(
     "SCHEMABRIDGE_TEST_CONTROL_ADMIN_DATABASE_URL",
     "postgresql://postgres:local-only-not-a-secret@127.0.0.1:55434/postgres",
 )
-
-
-class _VersionReader:
-    def __init__(self, versions: dict[int, GovernedRegistryVersion]) -> None:
-        self._versions = versions
-
-    def load_version(
-        self,
-        scope: SemanticRegistryScope,
-        version: int,
-    ) -> GovernedRegistryVersion:
-        loaded = self._versions.get(version)
-        if loaded is None or loaded.snapshot.scope != scope:
-            raise RegistryControlError(
-                RegistryControlErrorCode.VERSION_UNAVAILABLE,
-                "strict test registry version is unavailable",
-            )
-        return loaded
 
 
 class _StaticProjection:
@@ -308,29 +290,6 @@ def fresh_backup_source_dsns() -> Iterator[tuple[str, str, str, str]]:
             )
 
 
-def _versions(scope: SemanticRegistryScope) -> _VersionReader:
-    recorded = RecordedGovernedSemanticRegistry(MANIFEST, scope).load().registry
-    return _VersionReader(
-        {version: _governed_version(recorded, scope, version) for version in (1, 2, 3)}
-    )
-
-
-def _governed_version(
-    recorded: GovernedSemanticRegistrySnapshot,
-    scope: SemanticRegistryScope,
-    version: int,
-) -> GovernedRegistryVersion:
-    numbered = GovernedSemanticRegistrySnapshot.model_validate(
-        {**recorded.model_dump(mode="python"), "version": version}
-    )
-    published = prepare_datahub_registry_version(numbered, scope)
-    return GovernedRegistryVersion(
-        snapshot=ScopedSemanticRegistrySnapshot(scope=scope, registry=published),
-        publication_approval_id=f"integration-publication-v{version}",
-        trust=RegistryVersionTrust.STRICT,
-    )
-
-
 def test_backup_identity_reads_complete_schema_and_cannot_write(
     fresh_backup_source_dsns: tuple[str, str, str, str],
 ) -> None:
@@ -396,8 +355,8 @@ def test_backup_identity_reads_complete_schema_and_cannot_write(
             True,
             True,
             900_000,
-            13,
-            67,
+            14,
+            69,
         )
 
     with (
@@ -618,12 +577,17 @@ def _confirmation(action: str) -> RegistryActivationConfirmation:
 
 def _activate(
     store: PostgresRegistryControlStore,
-    versions: _VersionReader,
+    versions: PublishedVersionReader,
+    publication: M34PublicationFixture,
     scope: SemanticRegistryScope,
     version: int,
     *,
     approved_at: datetime,
 ) -> RegistryControlCommit:
+    if version not in versions.versions:
+        published = publication.publish_next(store.load_active(scope))
+        assert published.snapshot.registry.version == version
+        versions.add(published)
     proposal = PrepareRegistryActivation(store, versions, scope).execute(version)
     approval = PrepareRegistryActivationApproval().execute(
         proposal,
@@ -915,11 +879,20 @@ def prepared_control_backup(
     operator_dsn, runtime_dsn, _, backup_dsn = fresh_backup_source_dsns
     scope = _scope()
     runtime = PostgresRegistryControlStore(runtime_dsn, AUDIT_KEYS, "v1")
-    versions = _versions(scope)
+    versions = PublishedVersionReader()
+    database = unquote(urlsplit(operator_dsn).path.removeprefix("/"))
+    publication = M34PublicationFixture(
+        operator_dsn,
+        f"postgresql://schemabridge_api:schemabridge_api@127.0.0.1:55434/{database}",
+        (f"postgresql://schemabridge_publisher:schemabridge_publisher@127.0.0.1:55434/{database}"),
+        scope,
+        max_versions=3,
+    )
     for offset, version in enumerate((1, 2, 3)):
         _activate(
             runtime,
             versions,
+            publication,
             scope,
             version,
             approved_at=NOW + timedelta(minutes=offset),
@@ -1247,10 +1220,18 @@ def test_two_live_migrators_have_one_lock_winner(
 def test_concurrent_initial_activations_have_one_atomic_cas_winner() -> None:
     scope = _scope()
     store, _ = _stores()
-    versions = _versions(scope)
+    versions = PublishedVersionReader()
+    publication = M34PublicationFixture(
+        _dsn("SCHEMABRIDGE_TEST_CONTROL_MIGRATOR_DATABASE_URL", MIGRATOR_DSN),
+        _dsn("SCHEMABRIDGE_TEST_CONTROL_API_DATABASE_URL", API_DSN),
+        _dsn("SCHEMABRIDGE_TEST_CONTROL_PUBLISHER_DATABASE_URL", PUBLISHER_DSN),
+        scope,
+        max_versions=1,
+    )
+    versions.add(publication.publish_next(None))
     proposals = (
-        PrepareRegistryActivation(store, versions, scope).execute(2),
-        PrepareRegistryActivation(store, versions, scope).execute(3),
+        PrepareRegistryActivation(store, versions, scope).execute(1),
+        PrepareRegistryActivation(store, versions, scope).execute(1),
     )
     transitions: list[tuple[RegistryActivationTransition, RegistryProjectionOutboxItem]] = []
     for offset, proposal in enumerate(proposals):
@@ -1321,13 +1302,28 @@ def test_concurrent_initial_activations_have_one_atomic_cas_winner() -> None:
 def test_rollback_and_reconciliation_are_durable_idempotent_and_audited() -> None:
     scope = _scope()
     runtime, reconciler = _stores()
-    versions = _versions(scope)
-    first = _activate(runtime, versions, scope, 2, approved_at=NOW)
+    versions = PublishedVersionReader()
+    publication = M34PublicationFixture(
+        _dsn("SCHEMABRIDGE_TEST_CONTROL_MIGRATOR_DATABASE_URL", MIGRATOR_DSN),
+        _dsn("SCHEMABRIDGE_TEST_CONTROL_API_DATABASE_URL", API_DSN),
+        _dsn("SCHEMABRIDGE_TEST_CONTROL_PUBLISHER_DATABASE_URL", PUBLISHER_DSN),
+        scope,
+        max_versions=2,
+    )
+    first = _activate(
+        runtime,
+        versions,
+        publication,
+        scope,
+        1,
+        approved_at=NOW,
+    )
     second = _activate(
         runtime,
         versions,
+        publication,
         scope,
-        3,
+        2,
         approved_at=NOW + timedelta(minutes=1),
     )
     proposal = PrepareRegistryRollback(runtime, versions, scope).execute(first.transition.id)
@@ -1345,10 +1341,10 @@ def test_rollback_and_reconciliation_are_durable_idempotent_and_audited() -> Non
 
     assert second.transition.active_pointer.generation == 2
     assert rollback.transition.active_pointer.generation == 3
-    assert rollback.transition.active_pointer.registry_version == 2
+    assert rollback.transition.active_pointer.registry_version == 1
     assert tuple(
         item.active_pointer.registry_version for item in runtime.list_transitions(scope)
-    ) == (2, 3, 2)
+    ) == (1, 2, 1)
     pending = reconciler.load_pending_outbox(scope)
     assert pending == rollback.outbox
     outcome = RegistryProjectionOutcome(
@@ -1418,8 +1414,8 @@ def test_signed_backup_restores_exact_state_into_a_fresh_database(
     assert evidence.archive.stat().st_mode & 0o077 == 0
     assert evidence.manifest_path.stat().st_mode & 0o077 == 0
     manifest = evidence.manifest
-    assert len(manifest.table_counts) == 67
-    assert manifest.table_counts["schema_migrations"] == 13
+    assert len(manifest.table_counts) == 69
+    assert manifest.table_counts["schema_migrations"] == 14
     assert manifest.table_counts["execution_jobs"] == 0
     assert manifest.table_counts["execution_job_events"] == 0
     assert manifest.table_counts["registry_active_pointers"] == 1
@@ -1441,7 +1437,7 @@ def test_signed_backup_restores_exact_state_into_a_fresh_database(
 
     verification = restore.restore_backup(evidence.archive, evidence.manifest_path)
 
-    assert verification.schema_version == 13
+    assert verification.schema_version == 14
     assert verification.schema_checksum == manifest.schema_checksum
     assert verification.state_sha256 == manifest.state_sha256
     assert verification.table_counts == manifest.table_counts

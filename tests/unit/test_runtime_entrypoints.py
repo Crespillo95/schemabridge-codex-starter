@@ -19,6 +19,7 @@ from fastapi import FastAPI
 import schemabridge.bootstrap as bootstrap_module
 import schemabridge.entrypoints.http.app as http_app_module
 import schemabridge.entrypoints.http.main as http_main
+import schemabridge.entrypoints.registry_publisher.main as registry_publisher_main
 import schemabridge.entrypoints.worker.main as worker_main
 from schemabridge.adapters.control_plane.postgres_active_registry import (
     PostgresActiveRegistryPointerReader,
@@ -30,6 +31,10 @@ from schemabridge.adapters.control_plane.postgres_jobs import (
     PostgresBackgroundJobStore,
 )
 from schemabridge.adapters.control_plane.postgres_pool import PostgresControlPool
+from schemabridge.adapters.control_plane.postgres_registry_publication import (
+    PostgresRegistryPublicationJobStore,
+    PostgresRegistryPublicationProposalReader,
+)
 from schemabridge.adapters.control_plane.threaded_heartbeat import (
     ThreadedLeaseHeartbeatSupervisor,
 )
@@ -59,6 +64,7 @@ from schemabridge.application.job_worker import (
     WorkerIterationOutcome,
     WorkerIterationResult,
 )
+from schemabridge.application.registry_publication import SubmitRegistryPublication
 from schemabridge.bootstrap import (
     ApiProcessRuntime,
     WorkerProcessRuntime,
@@ -67,6 +73,7 @@ from schemabridge.bootstrap import (
     build_api_process_runtime,
     build_job_worker,
     build_read_only_worker_orchestrator,
+    build_registry_publisher_process_runtime,
     build_worker_process_runtime,
     require_current_control_plane_schema,
 )
@@ -84,6 +91,7 @@ from schemabridge.domain.connectors import (
 ROOT = Path(__file__).resolve().parents[2]
 API_DSN = "postgresql://schemabridge_api:api-secret@control.example.test/control"
 WORKER_DSN = "postgresql://schemabridge_worker:worker-secret@control.example.test/control"
+PUBLISHER_DSN = "postgresql://schemabridge_publisher:publisher-secret@control.example.test/control"
 LOCAL_TOKEN = "local-api-bearer-token-with-enough-byte-diversity-123"
 CURSOR_KEY = "inventory-cursor-signing-key-with-distinct-bytes-456"  # gitleaks:allow -- fixture
 
@@ -160,7 +168,21 @@ def test_api_composition_uses_only_api_role_and_read_only_workflow_inspection(
         cast(SimpleNamespace, services.semantic_changes.list_reports).store,
     )
     assert semantic_store.application_name == "schemabridge-control-api"
+    assert services.registry_publication is not None
+    publication_submit = cast(
+        SubmitRegistryPublication,
+        services.registry_publication.submit,
+    )
+    publication_jobs = cast(PostgresRegistryPublicationJobStore, publication_submit.jobs)
+    publication_proposals = cast(
+        PostgresRegistryPublicationProposalReader,
+        publication_submit.proposals,
+    )
+    assert publication_jobs._database.application_name == "schemabridge-control-api"
+    assert publication_proposals._database.application_name == "schemabridge-control-api"
     assert not hasattr(inspector, "execute")
+    assert not hasattr(services.registry_publication, "publisher")
+    assert not hasattr(services.registry_publication, "credential_resolver")
     assert "api-secret" not in repr(services)
     assert LOCAL_TOKEN not in repr(services)
 
@@ -804,6 +826,47 @@ def test_worker_readiness_probe_failure_does_not_start_worker(
         )
 
 
+def test_publisher_readiness_checks_schema_without_using_an_unopened_pool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _publisher_settings()
+    pool = _LifecyclePool()
+    checks: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        bootstrap_module,
+        "require_current_control_plane_schema",
+        lambda **kwargs: checks.append(kwargs),
+    )
+    monkeypatch.setattr(
+        bootstrap_module,
+        "build_registry_publisher_worker",
+        lambda **_kwargs: pytest.fail("readiness must not compose a publisher"),
+    )
+    monkeypatch.setattr(
+        bootstrap_module,
+        "build_control_plane_pool",
+        lambda **_kwargs: cast(PostgresControlPool, pool),
+    )
+
+    runtime = build_registry_publisher_process_runtime(
+        readiness_probe=True,
+        settings=settings,
+    )
+    status = registry_publisher_main.command(["--probe-ready"], runtime=runtime)
+
+    assert status == 0
+    assert runtime.publisher is None
+    assert runtime.metrics_exporter is None
+    assert pool.events == ["opened", "closed"]
+    assert checks == [
+        {
+            "credential_kind": "publisher",
+            "repository_root": None,
+            "settings": settings,
+        }
+    ]
+
+
 def test_schema_preflight_never_invokes_migration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -856,6 +919,18 @@ def _worker_settings() -> Settings:
         SCHEMABRIDGE_SEMANTIC_REGISTRY_SELECTION="active",
         SCHEMABRIDGE_ALLOW_LOCAL_LIVE_READS=True,
         SCHEMABRIDGE_CONNECTOR_SECRET_DIRECTORY=ROOT / ".local/test-connectors",
+    )
+
+
+def _publisher_settings() -> Settings:
+    return Settings(
+        _env_file=None,
+        OPENAI_API_KEY=None,
+        DATAHUB_GMS_TOKEN=None,
+        SCHEMABRIDGE_COMPONENT="publisher",
+        SCHEMABRIDGE_CONTROL_PLANE_MODE="postgres",
+        SCHEMABRIDGE_CONTROL_PUBLISHER_DATABASE_URL=PUBLISHER_DSN,
+        SCHEMABRIDGE_REGISTRY_PUBLISHER_WRITER_ENV_PATH=(ROOT / ".local/test-registry-writer.env"),
     )
 
 

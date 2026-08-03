@@ -663,7 +663,7 @@ application bytes and validate these six closed states:
 5. stale backup; and
 6. failed release policy.
 
-At 1280×720 and 390×844, verify the state label, severity, seven-workload readiness count, queue
+At 1280×720 and 390×844, verify the state label, severity, eight-workload readiness count, queue
 depth/age, secret resolution, backup age, release gate, telemetry delivery, and one safe
 recommended response. There must be no SQL, source value, result row, token, JWT, claim, binding,
 path, DSN, endpoint, username/password, provider response, raw exception, or high-cardinality
@@ -754,3 +754,54 @@ typed date ambiguity. It is not evidence for desktop/mobile layout, focus order,
 clipboard/download bytes, DOM hostile-input behavior, a clean browser console, or the complete
 blocked-state matrix. The Streamlit process was stopped, port 8510 was released, and its empty
 temporary directory was removed.
+
+### 2026-08-03 advanced copy-path verification
+
+The Codex in-app browser completed the exact advanced Spanish reference path on the real local
+Streamlit entrypoint. Before confirmation the page exposed the typed 3-model/11-field/2-join
+closure, completed-order filter, three metrics, `HAVING`, rank, percent-of-total, running sum and
+top-three output filter with no SQL. After the exact checkbox confirmation it rendered one
+106-line PostgreSQL statement with compiler-owned `aggregated`/`windowed` CTEs, `LIMIT 100`, no
+driver placeholders, the standalone download control, double-AST-validation notice and
+`Ejecutado: No`. The optional validation/execution button remained disabled and browser
+warning/error logs were empty. This is a pass for that one required happy path, not a retroactive
+pass for the complete desktop/mobile and blocked-state matrix above.
+
+## M34 governed-publication browser acceptance
+
+Run the isolated synthetic presentation only after the final M34 application bytes:
+
+```bash
+SCHEMABRIDGE_M34_SCENARIO_TOKEN=m34-manual-session \
+  .venv/bin/streamlit run scripts/m34_registry_publication_scenario_app.py \
+  --server.address 127.0.0.1 --server.port 8767
+```
+
+Verify the exact visible sequence:
+
+1. an immutable M33 proposal is available with zero DataHub writes/versions and active pointer
+   `not_configured`;
+2. reservation reaches `queued` without changing either external counter;
+3. one isolated worker iteration reaches `awaiting_approval`, showing the complete target,
+   candidate fingerprint and deliberately non-conventional observed dataset URN;
+4. authorization remains disabled until the operator confirms the reloaded candidate;
+5. exact authorization reaches `approved` without a DataHub write;
+6. the next worker iteration reaches `activation_ready`, exactly one immutable DataHub version,
+   one observed write, matching approval/read-back and the unchanged active pointer;
+7. no token, DSN, SQL, source value, production credential or automatic-activation control is
+   rendered, and the browser console contains no warning/error.
+
+The automated equivalent is
+`pytest tests/acceptance/test_m34_registry_publication.py`. This scenario uses real M34 application,
+worker, assembler and DataHub-v2 adapter contracts with in-memory synthetic clients. It proves the
+presentation and zero-automatic-activation boundary, not PostgreSQL durability, real DataHub IAM,
+network behavior, cluster operation or production availability.
+
+### 2026-08-03 local M34 result
+
+The Codex in-app browser observed
+`queued → leased → awaiting_approval → approved → leased → activation_ready`. The opaque
+`urn:li:dataset:(urn:li:dataPlatform:postgres,opaque-9f82,PROD)` remained exact, external writes
+and immutable versions moved from zero to one only during publication, active pointer remained
+`not_configured`, and warning/error logs were empty. Both local Streamlit processes were stopped
+and all browser-test tabs were finalized.

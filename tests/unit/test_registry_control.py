@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from tests.unit.test_registry_publication_v2 import _proposal as _publication_proposal
 
 from schemabridge.adapters.semantic_registry.recorded import (
     RecordedGovernedSemanticRegistry,
@@ -31,6 +33,7 @@ from schemabridge.domain.registry_control import (
     RegistryActivationApproval,
     RegistryActivationConfirmation,
     RegistryActivationProposal,
+    RegistryActivationReadyHandoff,
     RegistryActivationTransition,
     RegistryControlCommit,
     RegistryProjectionOutboxItem,
@@ -44,6 +47,11 @@ from schemabridge.domain.registry_control import (
     RegistryVersionTrust,
     registry_projection_fingerprint,
 )
+from schemabridge.domain.registry_publication import (
+    assemble_publishable_registry_version,
+    registry_publication_candidate_id,
+)
+from schemabridge.domain.registry_publication_jobs import registry_publication_job_id
 from schemabridge.domain.semantic_registry import (
     GovernedSemanticRegistrySnapshot,
     ScopedSemanticRegistrySnapshot,
@@ -93,11 +101,24 @@ class MemoryControlStore:
         self.commit_calls = 0
         self.outcomes: list[RegistryProjectionOutcome] = []
         self.audit_chain_valid = True
+        self.activation_ready_enabled = True
+        self.activation_handoff_overrides: dict[int, RegistryActivationReadyHandoff | None] = {}
 
     def load_active(self, scope: SemanticRegistryScope) -> ActiveRegistryPointer | None:
         if self.active is None or self.active.scope == scope:
             return self.active
         return None
+
+    def load_activation_ready_handoff(
+        self,
+        scope: SemanticRegistryScope,
+        version: int,
+    ) -> RegistryActivationReadyHandoff | None:
+        if not self.activation_ready_enabled:
+            return None
+        if version in self.activation_handoff_overrides:
+            return self.activation_handoff_overrides[version]
+        return _activation_ready_handoff(_governed_version(_v2_registry(), version))
 
     def list_transitions(
         self,
@@ -233,8 +254,8 @@ class MemoryProjection:
 
 @pytest.fixture(scope="module")
 def strict_versions() -> dict[int, GovernedRegistryVersion]:
-    recorded = RecordedGovernedSemanticRegistry(MANIFEST_PATH, SCOPE).load().registry
-    return {version: _governed_version(recorded, version) for version in range(1, 5)}
+    registry = _v2_registry()
+    return {version: _governed_version(registry, version) for version in range(1, 5)}
 
 
 def test_activation_approval_binds_exact_cas_actor_time_and_decisions(
@@ -427,6 +448,71 @@ def test_target_publication_change_after_approval_fails_closed(
 
     assert raised.value.code is RegistryControlErrorCode.VERSION_INVALID
     assert store.commit_calls == 0
+
+
+def test_strict_v2_without_exact_activation_ready_handoff_cannot_be_prepared(
+    strict_versions: dict[int, GovernedRegistryVersion],
+) -> None:
+    store = MemoryControlStore()
+    store.activation_ready_enabled = False
+    versions = StubVersionReader(dict(strict_versions))
+
+    with pytest.raises(RegistryControlError) as raised:
+        PrepareRegistryActivation(store, versions, SCOPE).execute(2)
+
+    assert raised.value.code is RegistryControlErrorCode.ACTIVATION_NOT_READY
+    assert store.commit_calls == 0
+    assert store.active is None
+
+
+def test_activation_ready_catalog_authority_drift_fails_before_store_commit(
+    strict_versions: dict[int, GovernedRegistryVersion],
+) -> None:
+    store = MemoryControlStore()
+    versions = StubVersionReader(dict(strict_versions))
+    proposal = PrepareRegistryActivation(store, versions, SCOPE).execute(2)
+    approval = _activation_approval(proposal, approved_at=NOW)
+    original = proposal.activation_ready_handoff
+    assert original is not None
+    store.activation_handoff_overrides[2] = _changed_activation_handoff(
+        original,
+        catalog_authority_fingerprint="f" * 64,
+    )
+
+    with pytest.raises(RegistryControlError) as raised:
+        CommitRegistryActivation(store, versions).execute(
+            proposal,
+            approval,
+            committed_at=NOW + timedelta(minutes=1),
+        )
+
+    assert raised.value.code is RegistryControlErrorCode.ACTIVATION_HANDOFF_MISMATCH
+    assert store.commit_calls == 0
+    assert store.active is None
+
+
+def test_activation_approval_identity_changes_with_exact_publication_handoff(
+    strict_versions: dict[int, GovernedRegistryVersion],
+) -> None:
+    store = MemoryControlStore()
+    versions = StubVersionReader(dict(strict_versions))
+    first = PrepareRegistryActivation(store, versions, SCOPE).execute(2)
+    original = first.activation_ready_handoff
+    assert original is not None
+    store.activation_handoff_overrides[2] = _changed_activation_handoff(
+        original,
+        candidate_fingerprint="e" * 64,
+    )
+    second = PrepareRegistryActivation(store, versions, SCOPE).execute(2)
+
+    assert first.fingerprint != second.fingerprint
+    assert (
+        _activation_approval(first, approved_at=NOW).id
+        != _activation_approval(
+            second,
+            approved_at=NOW,
+        ).id
+    )
 
 
 def test_legacy_version_is_read_only_and_cannot_be_activated(
@@ -1028,9 +1114,11 @@ def _governed_version(
     recorded: GovernedSemanticRegistrySnapshot,
     version: int,
 ) -> GovernedRegistryVersion:
+    del recorded
+    registry = _v2_registry()
     numbered = GovernedSemanticRegistrySnapshot.model_validate(
         {
-            **recorded.model_dump(mode="python"),
+            **registry.model_dump(mode="python"),
             "version": version,
         }
     )
@@ -1039,6 +1127,67 @@ def _governed_version(
         snapshot=ScopedSemanticRegistrySnapshot(scope=SCOPE, registry=live),
         publication_approval_id=f"publication-v{version}",
         trust=RegistryVersionTrust.STRICT,
+    )
+
+
+def _v2_registry() -> GovernedSemanticRegistrySnapshot:
+    return assemble_publishable_registry_version(
+        _publication_proposal(scope=SCOPE),
+        base=None,
+    ).registry
+
+
+def _activation_ready_handoff(
+    version: GovernedRegistryVersion,
+) -> RegistryActivationReadyHandoff:
+    registry = version.snapshot.registry
+    binding = registry.physical_bindings[0]
+    source_proposal_id = binding.source_proposal_id
+    source_proposal_fingerprint = binding.source_proposal_fingerprint
+    return RegistryActivationReadyHandoff.create(
+        job_id=registry_publication_job_id(SCOPE, registry.version),
+        scope=SCOPE,
+        source_proposal_id=source_proposal_id,
+        source_proposal_fingerprint=source_proposal_fingerprint,
+        candidate_id=registry_publication_candidate_id(
+            source_proposal_id,
+            source_proposal_fingerprint,
+        ),
+        candidate_fingerprint=hashlib.sha256(f"candidate:{registry.version}".encode()).hexdigest(),
+        target_registry_version=registry.version,
+        target_registry_fingerprint=registry.fingerprint,
+        target_registry_urn=datahub_registry_document_urn(SCOPE, registry.version),
+        attempt_authorization_id=version.publication_approval_id,
+        observed_authorization_id=version.publication_approval_id,
+        catalog_authority_fingerprint=hashlib.sha256(
+            f"catalog:{registry.version}".encode()
+        ).hexdigest(),
+        observed_at=NOW,
+    )
+
+
+def _changed_activation_handoff(
+    handoff: RegistryActivationReadyHandoff,
+    *,
+    candidate_fingerprint: str | None = None,
+    catalog_authority_fingerprint: str | None = None,
+) -> RegistryActivationReadyHandoff:
+    return RegistryActivationReadyHandoff.create(
+        job_id=handoff.job_id,
+        scope=handoff.scope,
+        source_proposal_id=handoff.source_proposal_id,
+        source_proposal_fingerprint=handoff.source_proposal_fingerprint,
+        candidate_id=handoff.candidate_id,
+        candidate_fingerprint=candidate_fingerprint or handoff.candidate_fingerprint,
+        target_registry_version=handoff.target_registry_version,
+        target_registry_fingerprint=handoff.target_registry_fingerprint,
+        target_registry_urn=handoff.target_registry_urn,
+        attempt_authorization_id=handoff.attempt_authorization_id,
+        observed_authorization_id=handoff.observed_authorization_id,
+        catalog_authority_fingerprint=(
+            catalog_authority_fingerprint or handoff.catalog_authority_fingerprint
+        ),
+        observed_at=handoff.observed_at,
     )
 
 

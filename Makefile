@@ -9,12 +9,20 @@ CONTROL_RECONCILER_DATABASE_URL ?= postgresql://schemabridge_reconciler:schemabr
 CONTROL_MIGRATOR_DATABASE_URL ?= postgresql://schemabridge_migrator:schemabridge_migrator@127.0.0.1:55434/schemabridge_control
 CONTROL_API_DATABASE_URL ?= postgresql://schemabridge_api:schemabridge_api@127.0.0.1:55434/schemabridge_control
 CONTROL_WORKER_DATABASE_URL ?= postgresql://schemabridge_worker:schemabridge_worker@127.0.0.1:55434/schemabridge_control
+CONTROL_PUBLISHER_DATABASE_URL ?= postgresql://schemabridge_publisher:schemabridge_publisher@127.0.0.1:55434/schemabridge_control
 CONTROL_CATALOG_DATABASE_URL ?= postgresql://schemabridge_catalog:schemabridge_catalog@127.0.0.1:55434/schemabridge_control
 CONTROL_OBSERVER_DATABASE_URL ?= postgresql://schemabridge_observer:schemabridge_observer@127.0.0.1:55434/schemabridge_control
 CONTROL_BACKUP_DATABASE_URL ?= postgresql://schemabridge_backup:schemabridge_backup@127.0.0.1:55434/schemabridge_control
 EXECUTION_CONNECTOR_SECRET_DIRECTORY ?= $(abspath .local/connector-secrets/execution)
 PROFILE_CONNECTOR_SECRET_DIRECTORY ?= $(abspath .local/connector-secrets/profile)
 CATALOG_CONNECTOR_SECRET_DIRECTORY ?= $(abspath .local/connector-secrets/catalog)
+PUBLISHER_CREDENTIAL_CLEAN_ENV := \
+	-u SCHEMABRIDGE_CONTROL_PUBLISHER_DATABASE_URL \
+	-u SCHEMABRIDGE_REGISTRY_PUBLISHER_SECRET_ROLE \
+	-u SCHEMABRIDGE_REGISTRY_PUBLISHER_SECRET_BINDING_REF \
+	-u SCHEMABRIDGE_REGISTRY_PUBLISHER_SECRET_VERSION \
+	-u SCHEMABRIDGE_REGISTRY_PUBLISHER_WRITER_ENV_PATH
+WEB_CLEAN_ENV := env $(PUBLISHER_CREDENTIAL_CLEAN_ENV)
 OPERATOR_CLEAN_ENV := env \
 	-u DATABASE_URL \
 	-u OPENAI_API_KEY \
@@ -57,7 +65,8 @@ OPERATOR_CLEAN_ENV := env \
 	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_ROLE \
 	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_BINDING_REF \
 	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_VERSION \
-	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_READER_ENV_PATH
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_READER_ENV_PATH \
+	$(PUBLISHER_CREDENTIAL_CLEAN_ENV)
 API_CLEAN_ENV := env \
 	-u DATABASE_URL \
 	-u OPENAI_API_KEY \
@@ -88,7 +97,41 @@ API_CLEAN_ENV := env \
 	-u SCHEMABRIDGE_CONTROL_AUDIT_SIGNING_KEY \
 	-u SCHEMABRIDGE_CONTROL_OPERATOR_ACTOR_ID \
 	-u SCHEMABRIDGE_CONTROL_OPERATOR_ROLES \
-	-u SCHEMABRIDGE_IDENTITY_MIGRATION_KEY
+	-u SCHEMABRIDGE_IDENTITY_MIGRATION_KEY \
+	$(PUBLISHER_CREDENTIAL_CLEAN_ENV)
+PUBLISHER_CLEAN_ENV := $(OPERATOR_CLEAN_ENV) \
+	-u POSTGRES_READER_USER \
+	-u DATAHUB_GMS_URL \
+	-u SCHEMABRIDGE_LLM_MODEL \
+	-u SCHEMABRIDGE_CATALOG_MODE \
+	-u SCHEMABRIDGE_REGISTRY_MODE \
+	-u SCHEMABRIDGE_PUBLICATION_MODE \
+	-u SCHEMABRIDGE_JUDGE_EXECUTION \
+	-u SCHEMABRIDGE_ALLOW_LOCAL_LIVE_READS \
+	-u SCHEMABRIDGE_QUERY_STUDIO_AI_MODEL \
+	-u SCHEMABRIDGE_QUERY_STUDIO_AI_REGION \
+	-u SCHEMABRIDGE_OIDC_ROLE_CLAIM \
+	-u SCHEMABRIDGE_OIDC_TENANT_CLAIM \
+	-u SCHEMABRIDGE_OIDC_MAX_SESSION_AGE_SECONDS \
+	-u SCHEMABRIDGE_OIDC_LIVE_PUBLICATION_MAX_IDENTITY_AGE_SECONDS \
+	-u SCHEMABRIDGE_API_OIDC_ALGORITHMS \
+	-u SCHEMABRIDGE_API_MAX_REQUEST_BYTES \
+	-u SCHEMABRIDGE_API_BIND_HOST \
+	-u SCHEMABRIDGE_API_PORT \
+	-u SCHEMABRIDGE_API_LIMIT_CONCURRENCY \
+	-u SCHEMABRIDGE_API_GRACEFUL_SHUTDOWN_SECONDS \
+	-u SCHEMABRIDGE_API_DOCS_ENABLED \
+	-u SCHEMABRIDGE_API_ALLOWED_HOSTS \
+	-u SCHEMABRIDGE_API_JOB_AUTHORIZATION_TTL_SECONDS \
+	-u SCHEMABRIDGE_CONNECTOR_SECRET_TIMEOUT_SECONDS \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_ID \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_CATALOG_SCOPE \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_MANIFEST_PATH \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_VERSION \
+	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_SELECTION \
+	-u SCHEMABRIDGE_CATALOG_DATAHUB_CREDENTIAL_BINDING_REF \
+	-u SCHEMABRIDGE_SEMANTIC_PROFILE_SOURCE_WORKSPACE_ID \
+	-u SCHEMABRIDGE_SEMANTIC_PROFILE_SOURCE_CONNECTION_ID
 WORKER_CLEAN_ENV := env \
 	-u DATABASE_URL \
 	-u OPENAI_API_KEY \
@@ -128,7 +171,8 @@ WORKER_CLEAN_ENV := env \
 	-u SCHEMABRIDGE_PSEUDONYMIZATION_KEY \
 	-u SCHEMABRIDGE_API_LOCAL_BEARER_TOKEN \
 	-u SCHEMABRIDGE_API_OIDC_JWKS_URL \
-	-u SCHEMABRIDGE_INVENTORY_CURSOR_SIGNING_KEY
+	-u SCHEMABRIDGE_INVENTORY_CURSOR_SIGNING_KEY \
+	$(PUBLISHER_CREDENTIAL_CLEAN_ENV)
 CATALOG_CLEAN_ENV := env \
 	-u DATABASE_URL \
 	-u POSTGRES_READER_USER \
@@ -171,7 +215,8 @@ CATALOG_CLEAN_ENV := env \
 	-u SCHEMABRIDGE_PSEUDONYMIZATION_KEY \
 	-u SCHEMABRIDGE_API_LOCAL_BEARER_TOKEN \
 	-u SCHEMABRIDGE_API_OIDC_JWKS_URL \
-	-u SCHEMABRIDGE_INVENTORY_CURSOR_SIGNING_KEY
+	-u SCHEMABRIDGE_INVENTORY_CURSOR_SIGNING_KEY \
+	$(PUBLISHER_CREDENTIAL_CLEAN_ENV)
 RECONCILER_CLEAN_ENV := env \
 	-u DATABASE_URL \
 	-u POSTGRES_READER_USER \
@@ -215,7 +260,8 @@ RECONCILER_CLEAN_ENV := env \
 	-u SCHEMABRIDGE_API_LOCAL_BEARER_TOKEN \
 	-u SCHEMABRIDGE_API_OIDC_JWKS_URL \
 	-u SCHEMABRIDGE_INVENTORY_CURSOR_SIGNING_KEY \
-	-u SCHEMABRIDGE_CATALOG_DATAHUB_CREDENTIAL_BINDING_REF
+	-u SCHEMABRIDGE_CATALOG_DATAHUB_CREDENTIAL_BINDING_REF \
+	$(PUBLISHER_CREDENTIAL_CLEAN_ENV)
 PROFILE_WORKER_CLEAN_ENV := env \
 	-u DATABASE_URL \
 	-u OPENAI_API_KEY \
@@ -260,7 +306,8 @@ PROFILE_WORKER_CLEAN_ENV := env \
 	-u SCHEMABRIDGE_SEMANTIC_REGISTRY_READER_ENV_PATH \
 	-u SCHEMABRIDGE_SEMANTIC_PROFILE_SOURCE_WORKSPACE_ID \
 	-u SCHEMABRIDGE_SEMANTIC_PROFILE_SOURCE_CONNECTION_ID \
-	-u SCHEMABRIDGE_CATALOG_DATAHUB_CREDENTIAL_BINDING_REF
+	-u SCHEMABRIDGE_CATALOG_DATAHUB_CREDENTIAL_BINDING_REF \
+	$(PUBLISHER_CREDENTIAL_CLEAN_ENV)
 OBSERVER_CLEAN_ENV := env \
 	-u DATABASE_URL \
 	-u POSTGRES_READER_USER \
@@ -307,7 +354,8 @@ OBSERVER_CLEAN_ENV := env \
 	-u SCHEMABRIDGE_API_OIDC_JWKS_URL \
 	-u SCHEMABRIDGE_INVENTORY_CURSOR_SIGNING_KEY \
 	-u SCHEMABRIDGE_QUERY_STUDIO_SIGNING_KEY \
-	-u SCHEMABRIDGE_CATALOG_DATAHUB_CREDENTIAL_BINDING_REF
+	-u SCHEMABRIDGE_CATALOG_DATAHUB_CREDENTIAL_BINDING_REF \
+	$(PUBLISHER_CREDENTIAL_CLEAN_ENV)
 
 JUDGE_IMAGE ?= schemabridge-judge:local
 JUDGE_PLATFORM ?= linux/amd64
@@ -318,7 +366,7 @@ SCALE_PREFLIGHT_REPORT_MARKDOWN ?= reports/m25-scale-preflight.md
 SCALE_REPORT_JSON ?= reports/m25-scale-report.json
 SCALE_REPORT_MARKDOWN ?= reports/m25-scale-report.md
 
-.PHONY: help bootstrap install check runtime-wheel-smoke supply-chain-lock supply-chain-static supply-chain-licenses m29-recovery-help m29-recovery-policy-check format lint type test coverage coverage-unit doctor evaluate submission-package submission-package-dev release-audit release-clean judge-build judge-smoke demo-up demo-down demo-reset demo-seed-check demo-reset-proof demo-health demo-query demo-compile demo-preview demo-guard demo-governed-plan demo-governed-preview demo-intent control-plane-up control-plane-down control-plane-reset control-plane-migrate control-plane-check api observer worker worker-once catalog catalog-once semantic-reconciler semantic-reconciler-once semantic-reconciler-probe semantic-profile-worker semantic-profile-worker-once semantic-profile-worker-probe test-api-integration test-worker-integration test-intent test-scale-correctness benchmark-scale-preflight benchmark-scale test-integration test-acceptance datahub-version datahub-start datahub-health datahub-init-admin datahub-ingest datahub-provision-mcp datahub-provision-writer datahub-catalog-check datahub-registry-check datahub-restart datahub-reset datahub-stop datahub-mcp-check ui clean
+.PHONY: help bootstrap install check runtime-wheel-smoke supply-chain-lock supply-chain-static supply-chain-licenses m29-recovery-help m29-recovery-policy-check format lint type test coverage coverage-unit doctor evaluate submission-package submission-package-dev release-audit release-clean judge-build judge-smoke demo-up demo-down demo-reset demo-seed-check demo-reset-proof demo-health demo-query demo-compile demo-preview demo-guard demo-governed-plan demo-governed-preview demo-intent control-plane-up control-plane-down control-plane-reset control-plane-migrate control-plane-check api observer worker worker-once registry-publisher registry-publisher-once registry-publisher-probe catalog catalog-once semantic-reconciler semantic-reconciler-once semantic-reconciler-probe semantic-profile-worker semantic-profile-worker-once semantic-profile-worker-probe test-api-integration test-worker-integration test-intent test-scale-correctness benchmark-scale-preflight benchmark-scale test-integration test-acceptance datahub-version datahub-start datahub-health datahub-init-admin datahub-ingest datahub-provision-mcp datahub-provision-writer datahub-catalog-check datahub-registry-check datahub-restart datahub-reset datahub-stop datahub-mcp-check ui clean
 
 help:
 	@printf '%s\n' \
@@ -361,6 +409,9 @@ help:
 	  'make observer    Start only the aggregate read-only metrics observer' \
 	  'make worker      Start only the durable execution worker' \
 	  'make worker-once Process at most one durable worker poll' \
+	  'make registry-publisher Start only the isolated registry publisher' \
+	  'make registry-publisher-once Process one registry publication poll' \
+	  'make registry-publisher-probe Check schema without resolving DataHub' \
 	  'make catalog     Start only the DataHub-reading catalog indexer' \
 	  'make catalog-once Process at most one durable catalog refresh' \
 	  'make semantic-reconciler Start only the semantic-change reconciler' \
@@ -551,6 +602,7 @@ control-plane-check:
 	  SCHEMABRIDGE_CONTROL_MIGRATOR_DATABASE_URL='$(CONTROL_MIGRATOR_DATABASE_URL)' \
 	  SCHEMABRIDGE_CONTROL_API_DATABASE_URL='$(CONTROL_API_DATABASE_URL)' \
 	  SCHEMABRIDGE_CONTROL_WORKER_DATABASE_URL='$(CONTROL_WORKER_DATABASE_URL)' \
+	  SCHEMABRIDGE_CONTROL_PUBLISHER_DATABASE_URL='$(CONTROL_PUBLISHER_DATABASE_URL)' \
 	  SCHEMABRIDGE_CONTROL_CATALOG_DATABASE_URL='$(CONTROL_CATALOG_DATABASE_URL)' \
 	  SCHEMABRIDGE_CONTROL_OBSERVER_DATABASE_URL='$(CONTROL_OBSERVER_DATABASE_URL)' \
 	  SCHEMABRIDGE_CONTROL_BACKUP_DATABASE_URL='$(CONTROL_BACKUP_DATABASE_URL)' \
@@ -589,6 +641,33 @@ worker-once:
 	  SCHEMABRIDGE_SEMANTIC_REGISTRY_SELECTION=active \
 	  SCHEMABRIDGE_ALLOW_LOCAL_LIVE_READS=true \
 	  $(BIN)/schemabridge-worker --once
+
+registry-publisher:
+	@$(PUBLISHER_CLEAN_ENV) SCHEMABRIDGE_COMPONENT=publisher \
+	  SCHEMABRIDGE_ENVIRONMENT=development \
+	  SCHEMABRIDGE_AUTH_MODE=local-demo \
+	  SCHEMABRIDGE_CONTROL_PLANE_MODE=postgres \
+	  SCHEMABRIDGE_CONTROL_PUBLISHER_DATABASE_URL='$(CONTROL_PUBLISHER_DATABASE_URL)' \
+	  SCHEMABRIDGE_REGISTRY_PUBLISHER_WRITER_ENV_PATH='$(abspath .local/datahub/writer.env)' \
+	  $(BIN)/schemabridge-registry-publisher
+
+registry-publisher-once:
+	@$(PUBLISHER_CLEAN_ENV) SCHEMABRIDGE_COMPONENT=publisher \
+	  SCHEMABRIDGE_ENVIRONMENT=development \
+	  SCHEMABRIDGE_AUTH_MODE=local-demo \
+	  SCHEMABRIDGE_CONTROL_PLANE_MODE=postgres \
+	  SCHEMABRIDGE_CONTROL_PUBLISHER_DATABASE_URL='$(CONTROL_PUBLISHER_DATABASE_URL)' \
+	  SCHEMABRIDGE_REGISTRY_PUBLISHER_WRITER_ENV_PATH='$(abspath .local/datahub/writer.env)' \
+	  $(BIN)/schemabridge-registry-publisher --once
+
+registry-publisher-probe:
+	@$(PUBLISHER_CLEAN_ENV) SCHEMABRIDGE_COMPONENT=publisher \
+	  SCHEMABRIDGE_ENVIRONMENT=development \
+	  SCHEMABRIDGE_AUTH_MODE=local-demo \
+	  SCHEMABRIDGE_CONTROL_PLANE_MODE=postgres \
+	  SCHEMABRIDGE_CONTROL_PUBLISHER_DATABASE_URL='$(CONTROL_PUBLISHER_DATABASE_URL)' \
+	  SCHEMABRIDGE_REGISTRY_PUBLISHER_WRITER_ENV_PATH='$(abspath .local/datahub/writer.env)' \
+	  $(BIN)/schemabridge-registry-publisher --probe-ready
 
 catalog:
 	@$(CATALOG_CLEAN_ENV) SCHEMABRIDGE_COMPONENT=catalog \
@@ -768,7 +847,8 @@ datahub-mcp-check:
 	  scripts/check_datahub_mcp.py
 
 ui:
-	@DATABASE_URL='$(DEMO_DATABASE_URL)' $(BIN)/streamlit run src/schemabridge/entrypoints/streamlit/app.py
+	@$(WEB_CLEAN_ENV) DATABASE_URL='$(DEMO_DATABASE_URL)' \
+	  $(BIN)/streamlit run src/schemabridge/entrypoints/streamlit/app.py
 
 clean:
 	rm -rf .venv .pytest_cache .mypy_cache .ruff_cache .coverage htmlcov dist build

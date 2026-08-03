@@ -62,6 +62,7 @@ class _SnapshotReader:
                 QueueOperationalSnapshot(OperationalQueue.EXECUTION, 0, 0.0),
                 QueueOperationalSnapshot(OperationalQueue.CATALOG, 0, 0.0),
                 QueueOperationalSnapshot(OperationalQueue.PROFILE, 0, 0.0),
+                QueueOperationalSnapshot(OperationalQueue.PUBLICATION, 0, 0.0),
                 QueueOperationalSnapshot(OperationalQueue.RECONCILIATION, 0, 0.0),
             )
         )
@@ -129,6 +130,7 @@ def test_metric_catalog_separates_composed_from_uncomposed_families() -> None:
         "catalog",
         "observer",
         "profile",
+        "publisher",
         "reconciler",
         "worker",
     }
@@ -260,6 +262,16 @@ def test_composed_producer_scenarios_emit_exactly_the_active_metric_contract() -
             "reconciliation",
             "degraded",
             "queue_unavailable",
+            {"retries_scheduled": 1},
+            "retry_scheduled",
+            1,
+        ),
+        (
+            "publisher",
+            "registry.publication",
+            "publication",
+            "degraded",
+            "source_unavailable",
             {"retries_scheduled": 1},
             "retry_scheduled",
             1,

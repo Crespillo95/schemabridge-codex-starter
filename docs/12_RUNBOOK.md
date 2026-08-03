@@ -3620,7 +3620,7 @@ exactly `format_version`, `kind`, `server`, `token`, and `platform`. The secret 
 SHA-256 of its opaque reference plus `.json`; operators should use approved provisioning tooling
 to create it and must not derive or print the filename in application output.
 
-### 1. Apply and verify exact current control-plane schema v13
+### 1. Apply and verify exact current control-plane schema v14
 
 ```bash
 make control-plane-reset
@@ -3630,9 +3630,9 @@ make control-plane-check
 
 Schema v11 was the M28 checkpoint. The current tree must preserve immutable migrations
 0001–0009, apply `0010_operational_observer.sql`, then
-`0011_connector_secret_versions.sql`, `0012_backup_identity.sql`, and finally
-`0013_semantic_onboarding.sql`. Every managed component must report current/expected schema
-version 13 with no pending migration and
+`0011_connector_secret_versions.sql`, `0012_backup_identity.sql`,
+`0013_semantic_onboarding.sql`, and finally `0014_registry_publication.sql`. Every managed
+component must report current/expected schema version 14 with no pending migration and
 source/control separation. Provision the exact backup role posture described in the M29 recovery
 section before v12; an unsafe role must make the migration fail and roll back rather than be
 repaired. Retain pristine and upgrade results, immutable historical checksums, and the exact role
@@ -3643,6 +3643,45 @@ drafts, append-only decisions, immutable prepared proposals, audit records, idem
 and the constraints that keep publication non-executable. It does not publish to DataHub or activate
 a registry. Verify migration `0013` and the runtime both report v13 before enabling the M33 HTTP
 surface.
+
+Migration v14 adds the target-reserving registry-publication queue, append-only events, dedicated
+`schemabridge_publisher` grants and the bounded activation-ready handoff function. The migration
+must reject an unsafe publisher identity rather than repair it. The publisher role must be an
+exact login with `NOINHERIT`, no memberships or administrative attributes, a positive 30-second
+statement timeout, and no active-pointer write privilege.
+
+### 1a. Operate one M34 publication without automatic activation
+
+Managed API and publisher processes require different control DSNs. The publisher additionally
+requires the exact-version remote registry-writer binding; do not inject the reader binding,
+source connector credentials, OIDC or LLM configuration into that process.
+Before starting M34, verify its DataHub identity reports exactly `manageDocuments` among mutating
+platform privileges and no target-edit grant. The stock local M22 writer can inherit broader
+all-users privileges and is deliberately rejected by registry-v2 publication; tighten the DataHub
+policy rather than weakening the M34 check.
+
+Readiness-only checks:
+
+```bash
+make registry-publisher-probe
+schemabridge-registry-publisher --probe-ready
+```
+
+The authenticated operator flow is:
+
+1. submit one exact M33 `ready_for_publication` proposal with a unique `Idempotency-Key`;
+2. inspect until the isolated publisher has prepared `awaiting_approval`;
+3. reload the complete candidate and authorize its exact revision/fingerprint using confirmation
+   `publish-exact-observed-registry-version` from a recent publisher session;
+4. inspect until `activation_ready` and verify the exact receipt/related assets;
+5. verify the active pointer is unchanged;
+6. use the separate M23 prepare/approve/commit flow to activate, then reconcile.
+
+The normal long-running publisher command is `make registry-publisher`. For a single bounded
+operator iteration use `make registry-publisher-once`. Do not retry a target conflict by deleting
+or editing the DataHub document or queue row. Preserve the immutable target and event history for
+investigation. A retryable ambiguous failure must be resolved by the worker's exact read-back path;
+manual success inference is forbidden.
 
 Migration v9 refuses undrained non-terminal legacy work. Historical terminal targetless work may
 remain non-executable. Existing catalog generations with null M28 identities remain historical

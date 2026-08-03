@@ -11,6 +11,8 @@ from enum import StrEnum
 from pydantic import Field, field_validator, model_validator
 
 from schemabridge.domain._base import FrozenDomainModel
+from schemabridge.domain.registry_publication import registry_publication_candidate_id
+from schemabridge.domain.registry_publication_jobs import registry_publication_job_id
 from schemabridge.domain.semantic_registry import (
     ScopedSemanticRegistrySnapshot,
     SemanticRegistryScope,
@@ -130,6 +132,98 @@ class GovernedRegistryVersion(FrozenDomainModel):
         return self
 
 
+class RegistryActivationReadyHandoff(FrozenDomainModel):
+    """Exact M34 publication receipt and current catalog authority for activation."""
+
+    job_id: str = Field(min_length=3, max_length=200)
+    scope: SemanticRegistryScope
+    source_proposal_id: str = Field(min_length=3, max_length=200)
+    source_proposal_fingerprint: str
+    candidate_id: str = Field(min_length=3, max_length=200)
+    candidate_fingerprint: str
+    target_registry_version: int = Field(ge=1)
+    target_registry_fingerprint: str
+    target_registry_urn: str = Field(min_length=3, max_length=500)
+    attempt_authorization_id: str = Field(min_length=3, max_length=200)
+    observed_authorization_id: str = Field(min_length=3, max_length=200)
+    catalog_authority_fingerprint: str
+    observed_at: datetime
+    fingerprint: str
+
+    @field_validator(
+        "source_proposal_fingerprint",
+        "candidate_fingerprint",
+        "target_registry_fingerprint",
+        "catalog_authority_fingerprint",
+        "fingerprint",
+    )
+    @classmethod
+    def fingerprints_must_be_sha256(cls, value: str) -> str:
+        if _SHA256.fullmatch(value) is None:
+            raise ValueError("activation-ready handoff fingerprint is invalid")
+        return value
+
+    @field_validator("observed_at")
+    @classmethod
+    def observed_time_must_be_aware(cls, value: datetime) -> datetime:
+        return _aware(value, "activation-ready handoff observation time")
+
+    @model_validator(mode="after")
+    def handoff_must_bind_one_exact_publication(self) -> RegistryActivationReadyHandoff:
+        if (
+            self.job_id != registry_publication_job_id(self.scope, self.target_registry_version)
+            or self.candidate_id
+            != registry_publication_candidate_id(
+                self.source_proposal_id,
+                self.source_proposal_fingerprint,
+            )
+            or self.target_registry_urn
+            != datahub_registry_document_urn(self.scope, self.target_registry_version)
+            or self.fingerprint != registry_activation_ready_handoff_fingerprint(self)
+        ):
+            raise ValueError("activation-ready handoff does not match its exact publication")
+        return self
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        job_id: str,
+        scope: SemanticRegistryScope,
+        source_proposal_id: str,
+        source_proposal_fingerprint: str,
+        candidate_id: str,
+        candidate_fingerprint: str,
+        target_registry_version: int,
+        target_registry_fingerprint: str,
+        target_registry_urn: str,
+        attempt_authorization_id: str,
+        observed_authorization_id: str,
+        catalog_authority_fingerprint: str,
+        observed_at: datetime,
+    ) -> RegistryActivationReadyHandoff:
+        provisional = cls.model_construct(
+            job_id=job_id,
+            scope=scope,
+            source_proposal_id=source_proposal_id,
+            source_proposal_fingerprint=source_proposal_fingerprint,
+            candidate_id=candidate_id,
+            candidate_fingerprint=candidate_fingerprint,
+            target_registry_version=target_registry_version,
+            target_registry_fingerprint=target_registry_fingerprint,
+            target_registry_urn=target_registry_urn,
+            attempt_authorization_id=attempt_authorization_id,
+            observed_authorization_id=observed_authorization_id,
+            catalog_authority_fingerprint=catalog_authority_fingerprint,
+            observed_at=observed_at,
+            fingerprint="0" * 64,
+        )
+        return cls(
+            **provisional.model_dump(mode="python", exclude={"fingerprint"}),
+            fingerprint=registry_activation_ready_handoff_fingerprint(provisional),
+        )
+
+
 class ActiveRegistryPointer(FrozenDomainModel):
     """Authoritative control-plane selection for one registry scope."""
 
@@ -197,6 +291,7 @@ class RegistryActivationProposal(FrozenDomainModel):
     target_registry_fingerprint: str
     target_registry_urn: str = Field(min_length=1, max_length=500)
     target_publication_approval_id: str = Field(min_length=1, max_length=200)
+    activation_ready_handoff: RegistryActivationReadyHandoff | None = None
     decision_ids: tuple[str, ...] = Field(min_length=1, max_length=2_000)
     rollback_transition_id: str | None = Field(default=None, min_length=3, max_length=200)
 
@@ -249,8 +344,19 @@ class RegistryActivationProposal(FrozenDomainModel):
         if self.action is RegistryActivationAction.ACTIVATE:
             if self.rollback_transition_id is not None:
                 raise ValueError("forward activation cannot identify a rollback transition")
+            handoff = self.activation_ready_handoff
+            if handoff is None or (
+                handoff.scope != self.scope
+                or handoff.target_registry_version != self.target_registry_version
+                or handoff.target_registry_fingerprint != self.target_registry_fingerprint
+                or handoff.target_registry_urn != self.target_registry_urn
+                or handoff.observed_authorization_id != self.target_publication_approval_id
+            ):
+                raise ValueError("forward activation requires the exact activation-ready handoff")
         elif self.rollback_transition_id is None:
             raise ValueError("rollback must identify a previously active transition")
+        elif self.activation_ready_handoff is not None:
+            raise ValueError("rollback cannot claim a new publication handoff")
         if (
             self.expected_registry_fingerprint == self.target_registry_fingerprint
             and self.expected_registry_version == self.target_registry_version
@@ -624,6 +730,21 @@ def registry_projection_outbox_id(transition_id: str) -> str:
 
 def registry_projection_fingerprint(pointer: ActiveRegistryPointer) -> str:
     return _fingerprint(pointer.model_dump(mode="json"))
+
+
+def registry_activation_ready_handoff_fingerprint(
+    handoff: RegistryActivationReadyHandoff,
+) -> str:
+    """Bind the bounded M34 receipt and catalog authority into activation approval."""
+
+    if not isinstance(handoff, RegistryActivationReadyHandoff):
+        raise ValueError("activation-ready handoff is invalid")
+    return _fingerprint(
+        {
+            "contract": "registry_activation_ready_handoff_v1",
+            "handoff": handoff.model_dump(mode="json", exclude={"fingerprint"}),
+        }
+    )
 
 
 def registry_reconciliation_approval_id(

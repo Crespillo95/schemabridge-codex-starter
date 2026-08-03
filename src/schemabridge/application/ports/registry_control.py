@@ -9,6 +9,7 @@ from schemabridge.domain.registry_control import (
     ActiveRegistryPointer,
     ControlAuditChainVerification,
     GovernedRegistryVersion,
+    RegistryActivationReadyHandoff,
     RegistryActivationTransition,
     RegistryControlCommit,
     RegistryProjectionOutboxItem,
@@ -25,6 +26,8 @@ class RegistryControlErrorCode(StrEnum):
     VERSION_UNAVAILABLE = "registry_version_unavailable"
     VERSION_INVALID = "registry_version_invalid"
     LEGACY_VERSION = "registry_version_legacy_read_only"
+    ACTIVATION_NOT_READY = "registry_activation_not_ready"
+    ACTIVATION_HANDOFF_MISMATCH = "registry_activation_handoff_mismatch"
     ALREADY_ACTIVE = "registry_version_already_active"
     APPROVAL_REQUIRED = "registry_activation_approval_required"
     APPROVAL_MISMATCH = "registry_activation_approval_mismatch"
@@ -61,7 +64,22 @@ class ActiveRegistryPointerReadPort(Protocol):
         """Load the current CAS pointer for one exact scope."""
 
 
-class RegistryControlStorePort(ActiveRegistryPointerReadPort, Protocol):
+class RegistryActivationReadyReadPort(Protocol):
+    """Read one bounded M34 activation-ready receipt with current catalog authority."""
+
+    def load_activation_ready_handoff(
+        self,
+        scope: SemanticRegistryScope,
+        version: int,
+    ) -> RegistryActivationReadyHandoff | None:
+        """Return only an exact activation-ready publication whose catalog is still current."""
+
+
+class RegistryControlStorePort(
+    ActiveRegistryPointerReadPort,
+    RegistryActivationReadyReadPort,
+    Protocol,
+):
     """Authoritative pointer/history/outbox/audit persistence boundary."""
 
     def list_transitions(

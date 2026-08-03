@@ -43,7 +43,7 @@ from schemabridge.domain.workflows import AgentWorkflowDraft
 
 _SCHEMA = re.compile(r"^[a-z][a-z0-9_]{2,62}$")
 _APPLICATION_NAME = re.compile(
-    r"^schemabridge-control-(?:runtime|api|worker|catalog|reconciler|migrator)$"
+    r"^schemabridge-control-(?:runtime|api|worker|publisher|catalog|reconciler|migrator)$"
 )
 _MAX_LIST_LIMIT = 100
 _ModelT = TypeVar("_ModelT", bound=BaseModel)

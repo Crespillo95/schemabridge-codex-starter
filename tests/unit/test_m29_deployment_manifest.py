@@ -26,6 +26,7 @@ COMPONENTS = {
     "web",
     "api",
     "worker",
+    "publisher",
     "catalog",
     "profile",
     "reconciler",
@@ -37,6 +38,7 @@ RUNTIME_COMPONENTS = {
     "web",
     "api",
     "worker",
+    "publisher",
     "catalog",
     "profile",
     "reconciler",
@@ -45,7 +47,8 @@ RUNTIME_COMPONENTS = {
 REMOTE_SECRET_COMPONENTS = {"web", "worker", "catalog", "profile"}
 REGISTRY_SECRET_COMPONENTS = {"web", "worker", "profile", "reconciler"}
 REMOTE_IDENTITY_COMPONENTS = REMOTE_SECRET_COMPONENTS | REGISTRY_SECRET_COMPONENTS
-BACKGROUND_METRICS_COMPONENTS = {"worker", "catalog", "profile", "reconciler"}
+REMOTE_IDENTITY_COMPONENTS.add("publisher")
+BACKGROUND_METRICS_COMPONENTS = {"worker", "publisher", "catalog", "profile", "reconciler"}
 BASE_RESOURCES = (
     "namespace.yaml",
     "serviceaccounts.yaml",
@@ -108,6 +111,8 @@ def _rendered_text() -> str:
         ("replace-with-profile-registry-role", "sb-profile-registry"),
         ("replace-with-reconciler-registry-role", "sb-reconciler-registry"),
         ("replace-with-registry-reader-binding", "registry.reader.primary"),
+        ("replace-with-publisher-registry-role", "sb-publisher-registry"),
+        ("replace-with-registry-writer-binding", "registry.writer.primary"),
         ("replace-with-web-runtime-secret-version", "schemabridge-external-web-v17"),
         ("replace-with-api-runtime-secret-version", "schemabridge-external-api-v17"),
         ("replace-with-worker-runtime-secret-version", "schemabridge-external-worker-v17"),
@@ -116,6 +121,10 @@ def _rendered_text() -> str:
         (
             "replace-with-reconciler-runtime-secret-version",
             "schemabridge-external-reconciler-v17",
+        ),
+        (
+            "replace-with-publisher-runtime-secret-version",
+            "schemabridge-external-publisher-v17",
         ),
         (
             "replace-with-observer-runtime-secret-version",
@@ -241,7 +250,7 @@ def test_template_is_intentionally_blocked_until_every_operator_value_is_set() -
 def test_complete_rendered_production_contract_passes_the_fail_closed_validator() -> None:
     documents = VALIDATOR.validate_rendered_text(_rendered_text())
 
-    assert len(documents) == 63
+    assert len(documents) == 70
     assert {item["kind"] for item in documents} >= {
         "Namespace",
         "ServiceAccount",
@@ -304,6 +313,7 @@ def test_only_existing_runtime_commands_are_deployed_and_observer_is_executable(
         "web": ["schemabridge-web"],
         "api": ["schemabridge-api"],
         "worker": ["schemabridge-worker"],
+        "publisher": ["schemabridge-registry-publisher"],
         "catalog": ["schemabridge-catalog"],
         "profile": ["schemabridge-semantic-profile-worker"],
         "reconciler": ["schemabridge-semantic-reconciler"],
@@ -495,7 +505,7 @@ def test_observer_runtime_is_minimal_tls_bound_and_scrapeable() -> None:
         "SCHEMABRIDGE_COMPONENT": "observer",
         "SCHEMABRIDGE_CONTROL_PLANE_MODE": "postgres",
         "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA": "schemabridge_control",
-        "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION": "13",
+        "SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION": "14",
         "SCHEMABRIDGE_LOG_LEVEL": "INFO",
         "SCHEMABRIDGE_OBSERVER_BIND_HOST": "0.0.0.0",
         "SCHEMABRIDGE_OBSERVER_PORT": "9464",
@@ -807,6 +817,7 @@ def test_only_connector_secret_readers_receive_short_lived_projected_identity() 
             "schemabridge.io/secret-capability": {
                 "web": "preflight",
                 "worker": "execution",
+                "publisher": "registry-publisher",
                 "catalog": "catalog",
                 "profile": "profile",
                 "reconciler": "registry",
@@ -869,6 +880,13 @@ def test_remote_secret_configuration_is_https_and_capability_scoped() -> None:
         component_configs[component]["SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_VERSION"]
         for component in REGISTRY_SECRET_COMPONENTS
     } == {"17"}
+    publisher = component_configs["publisher"]
+    assert publisher["SCHEMABRIDGE_REGISTRY_PUBLISHER_SECRET_ROLE"] == ("sb-publisher-registry")
+    assert publisher["SCHEMABRIDGE_REGISTRY_PUBLISHER_SECRET_BINDING_REF"] == (
+        "registry.writer.primary"
+    )
+    assert publisher["SCHEMABRIDGE_REGISTRY_PUBLISHER_SECRET_VERSION"] == "23"
+    assert publisher["SCHEMABRIDGE_REGISTRY_PUBLISHER_SECRET_ROLE"] not in (roles | registry_roles)
     for component in {"api", "observer"}:
         assert "SCHEMABRIDGE_CONNECTOR_SECRET_ROLE" not in component_configs[component]
         assert "SCHEMABRIDGE_CONNECTOR_SECRET_CAPABILITY" not in component_configs[component]
@@ -907,12 +925,53 @@ def test_external_runtime_secret_references_are_exact_separated_and_content_free
         reference_count += len(secret_entries)
         assert all(set(reference) == {"name", "key"} for reference in secret_entries.values())
 
-    assert reference_count == 16
+    assert reference_count == 17
     assert len(secret_names) == len(secret_components)
     rendered = _rendered_text()
     for component in secret_components:
         for variable in VALIDATOR.EXPECTED_SECRET_ENV[component]:
             assert _synthetic_secret_value(component, variable) not in rendered
+
+
+def test_publisher_deployment_has_only_queue_writer_and_remote_identity_material() -> None:
+    documents = _documents()
+    deployment = _deployment(documents, "publisher")
+    container = _container(deployment)
+    config = _resource(documents, "ConfigMap", "schemabridge-publisher-config")["data"]
+
+    assert set(config) == VALIDATOR.EXPECTED_COMPONENT_CONFIG_KEYS["publisher"]
+    assert config["SCHEMABRIDGE_CONTROL_PLANE_SCHEMA_VERSION"] == "14"
+    assert config["SCHEMABRIDGE_REGISTRY_PUBLISHER_SECRET_BINDING_REF"] == (
+        "registry.writer.primary"
+    )
+    assert config["SCHEMABRIDGE_REGISTRY_PUBLISHER_SECRET_VERSION"] == "23"
+    assert container["command"] == ["schemabridge-registry-publisher"]
+    assert container["startupProbe"]["exec"]["command"] == [
+        "schemabridge-registry-publisher",
+        "--probe-ready",
+    ]
+    assert container["readinessProbe"]["exec"]["command"] == [
+        "schemabridge-registry-publisher",
+        "--probe-ready",
+    ]
+    assert {item["name"] for item in container["env"]} == {
+        "SCHEMABRIDGE_REGISTRY_PUBLISHER_ID",
+        "SCHEMABRIDGE_CONTROL_PUBLISHER_DATABASE_URL",
+    }
+    serialized = yaml.safe_dump({"config": config, "container": container}, sort_keys=True)
+    for forbidden in (
+        "OPENAI",
+        "LLM",
+        "OIDC",
+        "DATAHUB_GMS_TOKEN",
+        "SCHEMABRIDGE_CONTROL_API_DATABASE_URL",
+        "SCHEMABRIDGE_CONTROL_WORKER_DATABASE_URL",
+        "SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_",
+        "SCHEMABRIDGE_CONNECTOR_SECRET_ROLE",
+        "SCHEMABRIDGE_CONNECTOR_SECRET_CAPABILITY",
+        "SCHEMABRIDGE_SEMANTIC_PROFILE_SOURCE_",
+    ):
+        assert forbidden not in serialized
 
 
 def test_each_final_config_map_composes_with_settings_and_only_synthetic_test_secrets() -> None:
@@ -931,6 +990,7 @@ def test_each_final_config_map_composes_with_settings_and_only_synthetic_test_se
         "web": "web",
         "api": "api",
         "worker": "worker",
+        "publisher": "publisher",
         "catalog": "catalog",
         "profile": "worker",
         "reconciler": "reconciler",
@@ -962,6 +1022,10 @@ def test_each_final_config_map_composes_with_settings_and_only_synthetic_test_se
             if component in REGISTRY_SECRET_COMPONENTS:
                 assert settings.semantic_registry_secret_binding_ref == ("registry.reader.primary")
                 assert settings.semantic_registry_secret_version == 17
+            if component == "publisher":
+                assert settings.registry_publisher_secret_role == "sb-publisher-registry"
+                assert settings.registry_publisher_secret_binding_ref == ("registry.writer.primary")
+                assert settings.registry_publisher_secret_version == 23
         else:
             assert settings.connector_secret_mode == "local"
             assert settings.connector_secret_capability is None
@@ -974,6 +1038,7 @@ def test_runtime_field_identity_and_secret_references_cannot_cross_components() 
         "web": {},
         "api": {},
         "worker": {"SCHEMABRIDGE_WORKER_ID": "metadata.name"},
+        "publisher": {"SCHEMABRIDGE_REGISTRY_PUBLISHER_ID": "metadata.name"},
         "catalog": {"SCHEMABRIDGE_CATALOG_INDEXER_ID": "metadata.name"},
         "profile": {"SCHEMABRIDGE_WORKER_ID": "metadata.name"},
         "reconciler": {"SCHEMABRIDGE_SEMANTIC_RECONCILER_ID": "metadata.name"},
@@ -1055,7 +1120,7 @@ def test_tls_ingress_resilience_and_namespace_resource_governance_are_explicit()
     )
     assert quota["spec"]["hard"]["persistentvolumeclaims"] == "4"
     secret_quota = int(quota["spec"]["hard"]["secrets"])
-    assert secret_quota == 13
+    assert secret_quota == 14
     assert len(RUNTIME_COMPONENTS) + len(ingresses) + 1 == VALIDATOR.REQUIRED_SECRET_OBJECTS
     assert secret_quota - VALIDATOR.REQUIRED_SECRET_OBJECTS == 3
 
@@ -1401,6 +1466,21 @@ def _registry_binding_diverges(documents: list[dict[str, Any]]) -> None:
     reconciler["SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_BINDING_REF"] = "registry.reader.unapproved"
 
 
+def _publisher_receives_reader_secret(documents: list[dict[str, Any]]) -> None:
+    publisher = _resource(documents, "ConfigMap", "schemabridge-publisher-config")["data"]
+    publisher["SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_ROLE"] = "forbidden-reader-role"
+
+
+def _publisher_reuses_reader_binding(documents: list[dict[str, Any]]) -> None:
+    publisher = _resource(documents, "ConfigMap", "schemabridge-publisher-config")["data"]
+    publisher["SCHEMABRIDGE_REGISTRY_PUBLISHER_SECRET_BINDING_REF"] = "registry.reader.primary"
+
+
+def _publisher_readiness_resolves_writer(documents: list[dict[str, Any]]) -> None:
+    publisher = _container(_deployment(documents, "publisher"))
+    publisher["readinessProbe"]["exec"]["command"] = ["schemabridge-registry-publisher"]
+
+
 def _cross_component_external_secret(documents: list[dict[str, Any]]) -> None:
     worker_environment = _container(_deployment(documents, "worker"))["env"]
     control = next(
@@ -1515,6 +1595,9 @@ def _grant_application_rbac(documents: list[dict[str, Any]]) -> None:
         (_missing_projected_identity_for_reconciler, "workload_volume_set"),
         (_registry_role_reuses_connector_role, "registry_secret_role"),
         (_registry_binding_diverges, "registry_secret_binding"),
+        (_publisher_receives_reader_secret, "component_config"),
+        (_publisher_reuses_reader_binding, "publisher_secret_binding"),
+        (_publisher_readiness_resolves_writer, "publisher_probe_contract"),
         (_cross_component_external_secret, "runtime_secret_ref"),
         (_wrong_external_secret_key, "runtime_secret_ref"),
         (_embedded_secret_volume, "embedded_private_material"),
@@ -1560,7 +1643,7 @@ def test_validator_cli_emits_only_safe_codes_and_never_manifest_content(
     assert VALIDATOR.main([str(valid_path)]) == 0
     output = capsys.readouterr()
     assert output.err == ""
-    assert output.out == "m29_manifest_valid resources=63\n"
+    assert output.out == "m29_manifest_valid resources=70\n"
 
     sensitive_sentinel = "sensitive-provider-payload-must-not-echo"
     invalid_path = tmp_path / "invalid.yaml"

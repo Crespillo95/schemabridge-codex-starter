@@ -168,8 +168,8 @@ def catalog_database(tmp_path_factory: pytest.TempPathFactory) -> Iterator[_Data
             PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).require_current()
         assert stale.value.code is ControlPlaneMigrationErrorCode.SCHEMA_NOT_CURRENT
         upgraded = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert upgraded.applied_versions == (4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
-        assert upgraded.inspection.current_version == 13
+        assert upgraded.applied_versions == (4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
+        assert upgraded.inspection.current_version == 14
         yield urls
     finally:
         _drop_database(database)
@@ -261,8 +261,8 @@ def test_pristine_schema_reaches_exact_current_version() -> None:
     urls = _create_database(database)
     try:
         migrated = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert migrated.applied_versions == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
-        assert migrated.inspection.current_version == 13
+        assert migrated.applied_versions == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
+        assert migrated.inspection.current_version == 14
         with psycopg.connect(urls.migrator) as connection:
             tables = {
                 row[0]

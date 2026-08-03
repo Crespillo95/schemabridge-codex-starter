@@ -180,6 +180,16 @@ class SemanticOnboardingAuthorizationPolicy:
             self._policy_unavailable()
         return matches[0]
 
+    def workspace_ids_for_principal(
+        self,
+        principal: AuthenticatedPrincipal,
+    ) -> tuple[str, ...]:
+        """Return the bounded current/historical workspace keys for exact resource lookup."""
+
+        if self.identity_resolver is None:
+            return (principal.workspace_id,)
+        return self._workspace_aliases(principal.workspace_id)
+
     def _workspace_aliases(self, workspace_id: str) -> tuple[str, ...]:
         assert self.identity_resolver is not None
         try:

@@ -10,6 +10,7 @@ from schemabridge.adapters.semantic_registry.datahub import (
     DataHubRegistryReadClient,
     DataHubRegistryReadConfig,
     _parse_registry_document,
+    _parse_registry_document_v2,
 )
 from schemabridge.application.ports.planning import (
     PlanningPortError,
@@ -70,23 +71,34 @@ class DataHubRegistryVersionReader:
                     RegistryControlErrorCode.VERSION_UNAVAILABLE,
                     "immutable DataHub registry version was not found",
                 )
-            registry, approval, _ = _parse_registry_document(
-                document,
-                scope=scope,
-                version=version,
-            )
-            try:
-                validate_registry_publication_approval(registry, approval)
+            if document.custom_properties.get("schemabridge.registryFormatVersion") == "2":
+                candidate, authorization, _ = _parse_registry_document_v2(
+                    document,
+                    scope=scope,
+                    version=version,
+                )
+                registry = candidate.registry
+                approval_id = authorization.id
                 trust = RegistryVersionTrust.STRICT
-            except ValueError:
-                # The parser accepts only the one fingerprint-pinned M22 historical shim.
-                trust = RegistryVersionTrust.LEGACY_READ_ONLY
+            else:
+                registry, approval, _ = _parse_registry_document(
+                    document,
+                    scope=scope,
+                    version=version,
+                )
+                approval_id = approval.id
+                try:
+                    validate_registry_publication_approval(registry, approval)
+                    trust = RegistryVersionTrust.STRICT
+                except ValueError:
+                    # The parser accepts only the one fingerprint-pinned M22 historical shim.
+                    trust = RegistryVersionTrust.LEGACY_READ_ONLY
             return GovernedRegistryVersion(
                 snapshot=ScopedSemanticRegistrySnapshot(
                     scope=scope,
                     registry=registry,
                 ),
-                publication_approval_id=approval.id,
+                publication_approval_id=approval_id,
                 trust=trust,
             )
         except RegistryControlError:

@@ -13,7 +13,7 @@ import psycopg
 from psycopg_pool import ConnectionPool, PoolClosed, PoolTimeout, TooManyRequests
 
 _APPLICATION_NAME = re.compile(
-    r"^schemabridge-control-(?:api|worker|catalog|runtime|reconciler|migrator|observer)$"
+    r"^schemabridge-control-(?:api|worker|publisher|catalog|runtime|reconciler|migrator|observer)$"
 )
 _PSYCOPG_POOL_LOGGER = logging.getLogger("psycopg.pool")
 

@@ -225,6 +225,7 @@ if TYPE_CHECKING:
     from schemabridge.adapters.observability.http_export import MetricsHttpExporter
     from schemabridge.adapters.semantic_registry.remote_secrets import (
         DataHubRegistryCredentialResolver,
+        DataHubRegistryWriterCredentialResolver,
     )
     from schemabridge.adapters.storage.postgres import (
         ControlConnectionProvider,
@@ -271,6 +272,9 @@ if TYPE_CHECKING:
         SearchGovernedFields,
     )
     from schemabridge.application.query_studio_ai_policy import TenantAiPolicyOperator
+    from schemabridge.application.registry_publication_worker import (
+        RunOneRegistryPublisherWorker,
+    )
     from schemabridge.application.semantic_change import InspectSemanticChange
     from schemabridge.application.semantic_change_reconciler import (
         RunOneSemanticChangeScan,
@@ -305,6 +309,7 @@ ControlPlaneCredential = Literal[
     "migrator",
     "api",
     "worker",
+    "publisher",
     "catalog",
     "observer",
     "backup",
@@ -451,6 +456,18 @@ class WorkerProcessRuntime:
     """Fully composed worker process or a completed readiness-only preflight."""
 
     worker: RunOneJobWorker | None = field(repr=False)
+    log_level: str
+    poll_interval_seconds: float
+    control_pool: "PostgresControlPool | None" = field(default=None, repr=False)
+    telemetry: "OperationalTelemetryPort | None" = field(default=None, repr=False)
+    metrics_exporter: "MetricsHttpExporter | None" = field(default=None, repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class RegistryPublisherProcessRuntime:
+    """Isolated publisher process or a completed readiness-only preflight."""
+
+    publisher: "RunOneRegistryPublisherWorker | None" = field(repr=False)
     log_level: str
     poll_interval_seconds: float
     control_pool: "PostgresControlPool | None" = field(default=None, repr=False)
@@ -926,6 +943,7 @@ def require_current_control_plane_schema(
         "reconciler",
         "api",
         "worker",
+        "publisher",
         "catalog",
         "observer",
         "backup",
@@ -946,7 +964,7 @@ def require_current_control_plane_schema(
 
 def build_control_plane_pool(
     *,
-    credential_kind: Literal["api", "worker", "catalog", "reconciler", "observer"],
+    credential_kind: Literal["api", "worker", "publisher", "catalog", "reconciler", "observer"],
     settings: Settings | None = None,
 ) -> "PostgresControlPool":
     """Build one closed, bounded pool for an isolated long-running process."""
@@ -996,6 +1014,7 @@ def build_registry_control_store(
         audit_signing_keys=_control_audit_keys(resolved),
         active_audit_key_version=resolved.control_audit_key_version,
         schema=resolved.control_plane_schema,
+        catalog_stale_after_seconds=resolved.catalog_stale_after_seconds,
     )
 
 
@@ -1399,6 +1418,7 @@ def _control_plane_dsn(settings: Settings, credential_kind: ControlPlaneCredenti
         "migrator": settings.control_migrator_database_url,
         "api": settings.control_api_database_url,
         "worker": settings.control_worker_database_url,
+        "publisher": settings.control_publisher_database_url,
         "catalog": settings.control_catalog_database_url,
         "observer": settings.control_observer_database_url,
         "backup": settings.control_backup_database_url,
@@ -1410,6 +1430,7 @@ def _control_plane_dsn(settings: Settings, credential_kind: ControlPlaneCredenti
             "migrator": "SCHEMABRIDGE_CONTROL_MIGRATOR_DATABASE_URL",
             "api": "SCHEMABRIDGE_CONTROL_API_DATABASE_URL",
             "worker": "SCHEMABRIDGE_CONTROL_WORKER_DATABASE_URL",
+            "publisher": "SCHEMABRIDGE_CONTROL_PUBLISHER_DATABASE_URL",
             "catalog": "SCHEMABRIDGE_CONTROL_CATALOG_DATABASE_URL",
             "observer": "SCHEMABRIDGE_CONTROL_OBSERVER_DATABASE_URL",
             "backup": "SCHEMABRIDGE_CONTROL_BACKUP_DATABASE_URL",
@@ -1441,6 +1462,7 @@ def _reject_operator_credentials_in_managed_web(settings: Settings) -> None:
         or settings.control_migrator_database_url is not None
         or settings.control_api_database_url is not None
         or settings.control_worker_database_url is not None
+        or settings.control_publisher_database_url is not None
         or settings.control_catalog_database_url is not None
         or settings.control_observer_database_url is not None
         or settings.control_restore_database_url is not None
@@ -2896,6 +2918,38 @@ def _build_registry_credential_resolver(
         ) from error
 
 
+def _build_registry_publisher_credential_resolver(
+    settings: Settings,
+) -> "DataHubRegistryWriterCredentialResolver":
+    from schemabridge.adapters.connectors.remote_secrets import ConnectorSecretCapability
+    from schemabridge.adapters.semantic_registry.remote_secrets import (
+        VaultKvV2DataHubRegistryWriterCredentialResolver,
+    )
+    from schemabridge.application.ports.connector_secrets import OpaqueConnectorSecretRef
+
+    role = settings.registry_publisher_secret_role
+    binding_ref = settings.registry_publisher_secret_binding_ref
+    version = settings.registry_publisher_secret_version
+    if role is None or binding_ref is None or version is None:
+        raise DatabaseConfigurationError(
+            "remote registry publisher secret configuration is incomplete"
+        )
+    try:
+        return VaultKvV2DataHubRegistryWriterCredentialResolver(
+            backend=_build_remote_secret_backend(
+                settings,
+                role=role,
+                capability=ConnectorSecretCapability.REGISTRY_PUBLISHER,
+            ),
+            reference=OpaqueConnectorSecretRef(binding_ref),
+            version=version,
+        )
+    except (OSError, TypeError, ValueError) as error:
+        raise DatabaseConfigurationError(
+            "remote registry publisher secret configuration is invalid"
+        ) from error
+
+
 def _build_datahub_catalog_secret_resolver(
     settings: Settings,
     *,
@@ -3564,6 +3618,10 @@ def build_api_http_services(
     from schemabridge.adapters.control_plane.postgres_active_registry import (
         PostgresActiveRegistryPointerReader,
     )
+    from schemabridge.adapters.control_plane.postgres_registry_publication import (
+        PostgresRegistryPublicationJobStore,
+        PostgresRegistryPublicationProposalReader,
+    )
     from schemabridge.adapters.semantic_change.cursor import (
         SignedSemanticChangeCursorCodec,
     )
@@ -3593,6 +3651,12 @@ def build_api_http_services(
         SemanticOnboardingStorePort,
     )
     from schemabridge.application.ports.workflow_access import WorkflowAccessStorePort
+    from schemabridge.application.registry_publication import (
+        AuthorizeRegistryPublication,
+        CancelRegistryPublication,
+        InspectRegistryPublication,
+        SubmitRegistryPublication,
+    )
     from schemabridge.application.semantic_change_read import (
         InspectSemanticChangeReport,
         ListSemanticChangeFindings,
@@ -3625,6 +3689,7 @@ def build_api_http_services(
     from schemabridge.entrypoints.http.app import (
         ApiHttpServices,
         CatalogHttpServices,
+        RegistryPublicationHttpServices,
         SemanticChangeHttpServices,
         SemanticOnboardingHttpServices,
     )
@@ -3686,6 +3751,18 @@ def build_api_http_services(
         schema=resolved.control_plane_schema,
         application_name="schemabridge-control-api",
         stale_after_seconds=resolved.catalog_stale_after_seconds,
+        connection_provider=control_connection_provider,
+    )
+    registry_publication_jobs = PostgresRegistryPublicationJobStore(
+        dsn=_control_plane_dsn(resolved, "api"),
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-api",
+        connection_provider=control_connection_provider,
+    )
+    registry_publication_proposals = PostgresRegistryPublicationProposalReader(
+        dsn=_control_plane_dsn(resolved, "api"),
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-api",
         connection_provider=control_connection_provider,
     )
     onboarding_catalog = PostgresSemanticOnboardingCatalogEvidence(
@@ -4020,6 +4097,29 @@ def build_api_http_services(
             inspect_draft=TenantSemanticOnboardingDraftInspector(),
             decide=TenantSemanticOnboardingDecider(),
             prepare_publication=TenantSemanticOnboardingPublicationPreparer(),
+        ),
+        registry_publication=RegistryPublicationHttpServices(
+            submit=SubmitRegistryPublication(
+                proposals=registry_publication_proposals,
+                jobs=registry_publication_jobs,
+                authorization=onboarding_authorization,
+                clock=clock,
+            ),
+            inspect=InspectRegistryPublication(
+                jobs=registry_publication_jobs,
+                authorization=onboarding_authorization,
+                clock=clock,
+            ),
+            authorize=AuthorizeRegistryPublication(
+                jobs=registry_publication_jobs,
+                authorization=onboarding_authorization,
+                clock=clock,
+            ),
+            cancel=CancelRegistryPublication(
+                jobs=registry_publication_jobs,
+                authorization=onboarding_authorization,
+                clock=clock,
+            ),
         ),
     )
 
@@ -4402,6 +4502,166 @@ def build_worker_process_runtime(
         worker=worker,
         log_level=resolved.log_level,
         poll_interval_seconds=resolved.worker_poll_interval_ms / 1_000,
+        control_pool=control_pool,
+        telemetry=telemetry,
+        metrics_exporter=(
+            None
+            if readiness_probe
+            else _build_process_metrics_exporter(resolved, telemetry=telemetry)
+        ),
+    )
+
+
+def build_registry_publisher_worker(
+    *,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+    control_connection_provider: "ControlConnectionProvider | None" = None,
+) -> "RunOneRegistryPublisherWorker":
+    """Compose one publisher iteration with no source, LLM, API, or activation capability."""
+
+    from schemabridge.adapters.catalog.postgres_registry_publication import (
+        PostgresRegistryPhysicalBindingAuthority,
+    )
+    from schemabridge.adapters.catalog.postgres_semantic_onboarding import (
+        PostgresSemanticOnboardingCatalogEvidence,
+    )
+    from schemabridge.adapters.control_plane.postgres_active_registry import (
+        PostgresActiveRegistryPointerReader,
+    )
+    from schemabridge.adapters.control_plane.postgres_registry_publication import (
+        PostgresRegistryPublicationJobStore,
+        PostgresRegistryPublicationProposalReader,
+    )
+    from schemabridge.adapters.control_plane.threaded_registry_publication_heartbeat import (
+        ThreadedRegistryPublicationHeartbeatSupervisor,
+    )
+    from schemabridge.adapters.semantic_onboarding.publication_authority import (
+        ExactRegistryPublicationAuthority,
+    )
+    from schemabridge.adapters.semantic_registry.datahub import (
+        DataHubObservedSemanticRegistryPublisher,
+        DataHubRegistryWriteConfig,
+        DataHubWriterRegistryVersionReader,
+    )
+    from schemabridge.adapters.semantic_registry.remote_secrets import (
+        RemoteDataHubObservedSemanticRegistryPublisher,
+        RemoteDataHubWriterRegistryVersionReader,
+    )
+    from schemabridge.adapters.workflows.system import SystemWorkflowClock
+    from schemabridge.application.ports.registry_publication import (
+        ObservedRegistryPublisherPort,
+    )
+    from schemabridge.application.registry_publication_worker import (
+        RunOneRegistryPublisherWorker,
+    )
+
+    root = (repository_root or Path.cwd()).resolve()
+    resolved = settings or get_settings()
+    if resolved.runtime_component != "publisher":
+        raise DatabaseConfigurationError(
+            "registry publisher composition requires SCHEMABRIDGE_COMPONENT=publisher"
+        )
+    require_current_control_plane_schema(
+        credential_kind="publisher",
+        repository_root=root,
+        settings=resolved,
+        connection_provider=control_connection_provider,
+    )
+    dsn = _control_plane_dsn(resolved, "publisher")
+    store = PostgresRegistryPublicationJobStore(
+        dsn,
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-publisher",
+        connection_provider=control_connection_provider,
+    )
+    proposals = PostgresRegistryPublicationProposalReader(
+        dsn,
+        schema=resolved.control_plane_schema,
+        application_name="schemabridge-control-publisher",
+        connection_provider=control_connection_provider,
+    )
+    publisher: ObservedRegistryPublisherPort
+    versions: RegistryVersionReadPort
+    if resolved.connector_secret_mode == "remote":
+        credentials = _build_registry_publisher_credential_resolver(resolved)
+        publisher = RemoteDataHubObservedSemanticRegistryPublisher(credentials)
+        versions = RemoteDataHubWriterRegistryVersionReader(credentials)
+    else:
+        writer_path = resolved.registry_publisher_writer_env_path
+        if not writer_path.is_absolute():
+            writer_path = root / writer_path
+        config = DataHubRegistryWriteConfig.from_env_file(writer_path.resolve())
+        publisher = DataHubObservedSemanticRegistryPublisher(config)
+        versions = DataHubWriterRegistryVersionReader(config)
+    authority = ExactRegistryPublicationAuthority(
+        proposals=proposals,
+        catalog=PostgresSemanticOnboardingCatalogEvidence(
+            dsn,
+            schema=resolved.control_plane_schema,
+            application_name="schemabridge-control-publisher",
+            stale_after_seconds=resolved.catalog_stale_after_seconds,
+            connection_provider=control_connection_provider,
+        ),
+        pointers=PostgresActiveRegistryPointerReader(
+            dsn,
+            schema=resolved.control_plane_schema,
+            application_name="schemabridge-control-publisher",
+            connection_provider=control_connection_provider,
+        ),
+        versions=versions,
+        physical_bindings=PostgresRegistryPhysicalBindingAuthority(
+            dsn,
+            schema=resolved.control_plane_schema,
+            application_name="schemabridge-control-publisher",
+            stale_after_seconds=resolved.catalog_stale_after_seconds,
+            connection_provider=control_connection_provider,
+        ),
+    )
+    return RunOneRegistryPublisherWorker(
+        jobs=store,
+        authority=authority,
+        publisher=publisher,
+        clock=SystemWorkflowClock(),
+        capability_factory=lambda: secrets.token_urlsafe(48),
+        heartbeat_supervisor=ThreadedRegistryPublicationHeartbeatSupervisor(store),
+        worker_id=resolved.registry_publisher_id,
+        lease_duration=timedelta(seconds=resolved.registry_publisher_lease_seconds),
+        heartbeat_interval=timedelta(seconds=resolved.registry_publisher_heartbeat_seconds),
+    )
+
+
+def build_registry_publisher_process_runtime(
+    *,
+    readiness_probe: bool = False,
+    repository_root: Path | None = None,
+    settings: Settings | None = None,
+) -> RegistryPublisherProcessRuntime:
+    """Compose the isolated publisher without resolving DataHub during readiness."""
+
+    resolved = settings or Settings(_env_file=None)
+    control_pool = build_control_plane_pool(
+        credential_kind="publisher",
+        settings=resolved,
+    )
+    if readiness_probe:
+        require_current_control_plane_schema(
+            credential_kind="publisher",
+            repository_root=repository_root,
+            settings=resolved,
+        )
+        publisher = None
+    else:
+        publisher = build_registry_publisher_worker(
+            repository_root=repository_root,
+            settings=resolved,
+            control_connection_provider=control_pool,
+        )
+    telemetry = _build_operational_telemetry(resolved, service="publisher")
+    return RegistryPublisherProcessRuntime(
+        publisher=publisher,
+        log_level=resolved.log_level,
+        poll_interval_seconds=resolved.registry_publisher_poll_interval_ms / 1_000,
         control_pool=control_pool,
         telemetry=telemetry,
         metrics_exporter=(

@@ -25,11 +25,28 @@ from schemabridge.application.ports.planning import (
     RegistryPublicationError,
     RegistryPublicationErrorCode,
 )
+from schemabridge.application.ports.registry_control import (
+    RegistryControlError,
+    RegistryControlErrorCode,
+)
 from schemabridge.domain.publication_audit import (
     PublicationAuditOutcome,
     PublicationFamily,
     PublicationTargetAuditRecord,
     validate_publication_audit_binding,
+)
+from schemabridge.domain.registry_control import (
+    GovernedRegistryVersion,
+    RegistryVersionTrust,
+)
+from schemabridge.domain.registry_publication import (
+    ObservedRegistryPublicationResult,
+    PublicationReadbackReceipt,
+    PublishableRegistryVersion,
+    RegistryPublicationAuthorization,
+    RegistryPublicationCandidateManifest,
+    observed_registry_related_asset_urns,
+    validate_registry_publication_authorization,
 )
 from schemabridge.domain.semantic_registry import (
     GovernedSemanticRegistrySnapshot,
@@ -49,6 +66,7 @@ logger = logging.getLogger(__name__)
 
 _MAX_REGISTRY_JSON_BYTES = 2 * 1024 * 1024
 _MAX_APPROVAL_JSON_BYTES = 256 * 1024
+_MAX_CANDIDATE_MANIFEST_JSON_BYTES = 512 * 1024
 _MAX_AUDIT_JSON_BYTES = 64 * 1024
 _MAX_RELATED_ASSETS = 256
 _MAX_ENV_BYTES = 64 * 1024
@@ -79,6 +97,10 @@ _REGISTRY_PROPERTIES = frozenset(
         "schemabridge.registryPublicationAudit",
     }
 )
+_REGISTRY_V2_PROPERTIES = (_REGISTRY_PROPERTIES - {"schemabridge.registryPublicationApproval"}) | {
+    "schemabridge.registryPublicationCandidate",
+    "schemabridge.registryPublicationAuthorization",
+}
 _READER_TOLERATED_PLATFORM_PRIVILEGES = frozenset({"generatePersonalAccessTokens"})
 _TARGET_EDIT_PRIVILEGES = (
     "canManageEntity",
@@ -104,7 +126,7 @@ _MUTATING_PLATFORM_PRIVILEGES = (
     "manageTags",
     "manageStructuredProperties",
 )
-_ALLOWED_WRITER_PRIVILEGES = frozenset(
+_LEGACY_ALLOWED_WRITER_PRIVILEGES = frozenset(
     {
         "generatePersonalAccessTokens",
         "manageGlossaries",
@@ -112,6 +134,7 @@ _ALLOWED_WRITER_PRIVILEGES = frozenset(
         "manageStructuredProperties",
     }
 )
+_M34_WRITER_PRIVILEGES = frozenset({"manageDocuments"})
 
 
 class _RejectRedirects(urllib.request.HTTPRedirectHandler):
@@ -274,7 +297,9 @@ class DataHubHttpRegistryReadClient:
             target_query,
             {"urn": target_urn, "actorUrn": actor},
         )
-        document = target_data.get("document")
+        if "document" not in target_data:
+            raise ValueError("DataHub target privilege response is incomplete")
+        document = target_data["document"]
         target_privileges: dict[str, object] = {}
         if document is not None:
             if not isinstance(document, dict):
@@ -284,8 +309,9 @@ class DataHubHttpRegistryReadClient:
                 if not isinstance(raw_target_privileges, dict):
                     raise ValueError("DataHub target privileges are invalid")
                 target_privileges = raw_target_privileges
-        if set(target_privileges) != set(_TARGET_EDIT_PRIVILEGES) or any(
-            not isinstance(granted, bool) for granted in target_privileges.values()
+        if document is not None and (
+            set(target_privileges) != set(_TARGET_EDIT_PRIVILEGES)
+            or any(not isinstance(granted, bool) for granted in target_privileges.values())
         ):
             raise ValueError("DataHub target privilege response is incomplete")
         granted = target_data.get("getGrantedPrivileges")
@@ -493,11 +519,19 @@ class DataHubGovernedSemanticRegistry:
                     PlanningPortErrorCode.REGISTRY_NOT_FOUND,
                     "configured DataHub semantic registry version was not found",
                 )
-            registry, _, _ = _parse_registry_document(
-                document,
-                scope=self.scope,
-                version=self.version,
-            )
+            if document.custom_properties.get("schemabridge.registryFormatVersion") == "2":
+                candidate, _, _ = _parse_registry_document_v2(
+                    document,
+                    scope=self.scope,
+                    version=self.version,
+                )
+                registry = candidate.registry
+            else:
+                registry, _, _ = _parse_registry_document(
+                    document,
+                    scope=self.scope,
+                    version=self.version,
+                )
             return ScopedSemanticRegistrySnapshot(scope=self.scope, registry=registry)
         except PlanningPortError:
             raise
@@ -520,6 +554,11 @@ class DataHubSemanticRegistryPublisher:
         registry: GovernedSemanticRegistrySnapshot,
         approval: RegistryPublicationApproval,
     ) -> RegistryPublicationResult:
+        if registry.format_version != 1:
+            raise RegistryPublicationError(
+                RegistryPublicationErrorCode.PAYLOAD_INVALID,
+                "legacy registry publisher accepts only format v1",
+            )
         if not isinstance(approval, RegistryPublicationApproval):
             raise RegistryPublicationError(
                 RegistryPublicationErrorCode.APPROVAL_REQUIRED,
@@ -559,15 +598,7 @@ class DataHubSemanticRegistryPublisher:
         )
         try:
             identity = client.identity(target)
-            if (
-                identity.actor_urn != self.config.actor_urn
-                or "manageDocuments" not in identity.granted_platform_mutation_privileges
-                or not identity.granted_platform_mutation_privileges <= _ALLOWED_WRITER_PRIVILEGES
-            ):
-                raise RegistryPublicationError(
-                    RegistryPublicationErrorCode.CATALOG_PERMISSION_DENIED,
-                    "DataHub registry writer identity or privileges are not bounded",
-                )
+            _require_bounded_writer_identity(identity, self.config)
             existing = client.get_document(target)
         except RegistryPublicationError:
             raise
@@ -651,9 +682,321 @@ class DataHubSemanticRegistryPublisher:
         )
 
 
+@dataclass(slots=True)
+class DataHubObservedSemanticRegistryPublisher:
+    """Publish one exact format-v2 registry using only observed DataHub asset identities."""
+
+    config: DataHubRegistryWriteConfig
+    client: DataHubRegistryWriteClient | None = None
+
+    def observe(
+        self,
+        candidate: PublishableRegistryVersion,
+        authorization: RegistryPublicationAuthorization,
+        *,
+        observed_at: datetime,
+    ) -> ObservedRegistryPublicationResult:
+        """Read back one exact target without ever invoking an upsert."""
+
+        try:
+            validate_registry_publication_authorization(candidate, authorization)
+        except ValueError as error:
+            raise RegistryPublicationError(
+                RegistryPublicationErrorCode.APPROVAL_MISMATCH,
+                "registry publication authorization does not match the exact v2 candidate",
+            ) from error
+        client = self.client or DataHubSdkRegistryWriteClient(
+            self.config.server,
+            self.config.token,
+        )
+        try:
+            identity = client.identity(candidate.target)
+            _require_document_only_writer_identity(identity, self.config)
+            existing = client.get_document(candidate.target)
+        except RegistryPublicationError:
+            raise
+        except Exception as error:
+            raise RegistryPublicationError(
+                _publication_error_code(error),
+                "DataHub registry v2 target observation failed",
+            ) from error
+        if existing is None:
+            return _v2_publication_result(
+                candidate,
+                authorization,
+                observed_authorization_id=None,
+                observed_at=observed_at,
+                status="failed",
+                previous_fingerprint=None,
+                reason_code="target_absent",
+            )
+        try:
+            observed_candidate, observed_authorization, _ = _parse_registry_document_v2(
+                existing,
+                scope=candidate.scope,
+                version=candidate.registry.version,
+            )
+        except PlanningPortError as error:
+            raise RegistryPublicationError(
+                RegistryPublicationErrorCode.INVALID_RESPONSE,
+                "DataHub immutable registry v2 target failed typed validation",
+            ) from error
+        if (
+            observed_candidate.registry != candidate.registry
+            or observed_candidate.manifest != candidate.manifest
+        ):
+            raise RegistryPublicationError(
+                RegistryPublicationErrorCode.CONFLICT,
+                "DataHub immutable registry v2 target already identifies different content",
+            )
+        return _v2_publication_result(
+            candidate,
+            authorization,
+            observed_authorization_id=observed_authorization.id,
+            observed_at=observed_at,
+            status="already_current",
+            previous_fingerprint=candidate.registry.fingerprint,
+        )
+
+    def publish(
+        self,
+        candidate: PublishableRegistryVersion,
+        authorization: RegistryPublicationAuthorization,
+        *,
+        observed_at: datetime,
+    ) -> ObservedRegistryPublicationResult:
+        try:
+            validate_registry_publication_authorization(
+                candidate,
+                authorization,
+            )
+        except ValueError as error:
+            raise RegistryPublicationError(
+                RegistryPublicationErrorCode.APPROVAL_MISMATCH,
+                "registry publication authorization does not match the exact v2 candidate",
+            ) from error
+        registry = candidate.registry
+        target = candidate.target
+        stored_audit = _v2_audit_record(
+            candidate,
+            authorization,
+            outcome=PublicationAuditOutcome.SUCCEEDED,
+            previous_fingerprint=None,
+        )
+        try:
+            document = _v2_document_write(candidate, authorization, stored_audit)
+        except ValueError as error:
+            raise RegistryPublicationError(
+                RegistryPublicationErrorCode.PAYLOAD_INVALID,
+                "registry v2 publication payload exceeds its safe storage contract",
+            ) from error
+        client = self.client or DataHubSdkRegistryWriteClient(
+            self.config.server,
+            self.config.token,
+        )
+        try:
+            identity = client.identity(target)
+            _require_document_only_writer_identity(identity, self.config)
+            existing = client.get_document(target)
+        except RegistryPublicationError:
+            raise
+        except Exception as error:
+            raise RegistryPublicationError(
+                _publication_error_code(error),
+                "DataHub registry v2 target state read failed",
+            ) from error
+
+        if existing is not None:
+            try:
+                observed_candidate, observed_authorization, _ = _parse_registry_document_v2(
+                    existing,
+                    scope=candidate.scope,
+                    version=registry.version,
+                )
+            except PlanningPortError as error:
+                raise RegistryPublicationError(
+                    RegistryPublicationErrorCode.INVALID_RESPONSE,
+                    "DataHub immutable registry v2 target failed typed validation",
+                ) from error
+            if (
+                observed_candidate.registry != registry
+                or observed_candidate.manifest != candidate.manifest
+            ):
+                raise RegistryPublicationError(
+                    RegistryPublicationErrorCode.CONFLICT,
+                    "DataHub immutable registry v2 target already identifies different content",
+                )
+            return _v2_publication_result(
+                candidate,
+                authorization,
+                observed_authorization_id=observed_authorization.id,
+                observed_at=observed_at,
+                status="already_current",
+                previous_fingerprint=registry.fingerprint,
+            )
+
+        # A retry may arrive after the short human-authorization window.  It is
+        # safe to read and reconcile an already-written immutable target, but a
+        # missing target must never be created from an expired authorization.
+        try:
+            validate_registry_publication_authorization(
+                candidate,
+                authorization,
+                at=observed_at,
+            )
+        except ValueError as error:
+            raise RegistryPublicationError(
+                RegistryPublicationErrorCode.APPROVAL_MISMATCH,
+                "registry publication authorization is no longer current for a new write",
+            ) from error
+
+        logger.info("datahub_registry_publish_v2 operation=versioned_document target=%s", target)
+        try:
+            client.upsert_document(document)
+            observed = client.get_document(target)
+            if observed is None:
+                raise ValueError("DataHub registry v2 document was absent after upsert")
+            observed_candidate, observed_authorization, observed_audit = (
+                _parse_registry_document_v2(
+                    observed,
+                    scope=candidate.scope,
+                    version=registry.version,
+                )
+            )
+            if (
+                observed_candidate != candidate
+                or observed_authorization != authorization
+                or observed_audit != stored_audit
+            ):
+                raise ValueError("DataHub registry v2 post-write state differs from authorization")
+        except Exception as error:
+            reason = _reason_code(error)
+            logger.warning(
+                "datahub_registry_publish_v2_failed operation=versioned_document target=%s code=%s",
+                target,
+                reason,
+            )
+            return _v2_publication_result(
+                candidate,
+                authorization,
+                observed_authorization_id=None,
+                observed_at=observed_at,
+                status="failed",
+                previous_fingerprint=None,
+                reason_code=reason,
+            )
+        return _v2_publication_result(
+            candidate,
+            authorization,
+            observed_authorization_id=authorization.id,
+            observed_at=observed_at,
+            status="published",
+            previous_fingerprint=None,
+        )
+
+
+@dataclass(slots=True)
+class DataHubWriterRegistryVersionReader:
+    """Publisher-only strict v2 base reader using the bounded writer identity."""
+
+    config: DataHubRegistryWriteConfig
+    client: DataHubRegistryWriteClient | None = None
+
+    def load_version(
+        self,
+        scope: SemanticRegistryScope,
+        version: int,
+    ) -> GovernedRegistryVersion:
+        target = datahub_registry_document_urn(scope, version)
+        client = self.client or DataHubSdkRegistryWriteClient(
+            self.config.server,
+            self.config.token,
+        )
+        try:
+            _require_document_only_writer_identity(client.identity(target), self.config)
+            document = client.get_document(target)
+            if document is None:
+                raise RegistryControlError(
+                    RegistryControlErrorCode.VERSION_UNAVAILABLE,
+                    "registry publisher base version is unavailable",
+                )
+            candidate, authorization, _ = _parse_registry_document_v2(
+                document,
+                scope=scope,
+                version=version,
+            )
+            if candidate.registry.format_version != 2:
+                raise ValueError("registry publisher base is not format v2")
+            return GovernedRegistryVersion(
+                snapshot=ScopedSemanticRegistrySnapshot(
+                    scope=scope,
+                    registry=candidate.registry,
+                ),
+                publication_approval_id=authorization.id,
+                trust=RegistryVersionTrust.STRICT,
+            )
+        except RegistryControlError:
+            raise
+        except RegistryPublicationError as error:
+            raise RegistryControlError(
+                RegistryControlErrorCode.VERSION_INVALID,
+                "registry publisher base writer identity is invalid",
+            ) from error
+        except PlanningPortError as error:
+            raise RegistryControlError(
+                RegistryControlErrorCode.VERSION_INVALID,
+                "registry publisher base version is invalid",
+            ) from error
+        except (ConnectionError, TimeoutError, urllib.error.URLError) as error:
+            raise RegistryControlError(
+                RegistryControlErrorCode.VERSION_UNAVAILABLE,
+                "registry publisher base version is unavailable",
+            ) from error
+        except Exception as error:
+            raise RegistryControlError(
+                RegistryControlErrorCode.VERSION_INVALID,
+                "registry publisher base version is invalid",
+            ) from error
+
+
+def _require_bounded_writer_identity(
+    identity: DataHubRegistryIdentity,
+    config: DataHubRegistryWriteConfig,
+) -> None:
+    if (
+        identity.actor_urn != config.actor_urn
+        or "manageDocuments" not in identity.granted_platform_mutation_privileges
+        or not identity.granted_platform_mutation_privileges <= _LEGACY_ALLOWED_WRITER_PRIVILEGES
+        or bool(identity.granted_target_edit_privileges)
+    ):
+        raise RegistryPublicationError(
+            RegistryPublicationErrorCode.CATALOG_PERMISSION_DENIED,
+            "DataHub registry writer identity or privileges are not bounded",
+        )
+
+
+def _require_document_only_writer_identity(
+    identity: DataHubRegistryIdentity,
+    config: DataHubRegistryWriteConfig,
+) -> None:
+    """Require the exact M34 capability, excluding tolerated legacy/local residual grants."""
+
+    if (
+        identity.actor_urn != config.actor_urn
+        or identity.granted_platform_mutation_privileges != _M34_WRITER_PRIVILEGES
+        or bool(identity.granted_target_edit_privileges)
+    ):
+        raise RegistryPublicationError(
+            RegistryPublicationErrorCode.CATALOG_PERMISSION_DENIED,
+            "DataHub registry-v2 writer identity or privileges are not document-only",
+        )
+
+
 def semantic_registry_related_asset_urns(
     registry: GovernedSemanticRegistrySnapshot,
 ) -> tuple[str, ...]:
+    if registry.format_version != 1:
+        raise ValueError("format-v2 related assets require observed physical bindings")
     datasets = {
         governed.mapping.physical_field.root.rsplit(".", 1)[0]
         for governed in registry.mapping_set.mappings
@@ -664,6 +1007,285 @@ def semantic_registry_related_asset_urns(
             for dataset in datasets
         )
     )
+
+
+def _parse_registry_document_v2(
+    document: DataHubRegistryDocument,
+    *,
+    scope: SemanticRegistryScope,
+    version: int,
+) -> tuple[
+    PublishableRegistryVersion,
+    RegistryPublicationAuthorization,
+    PublicationTargetAuditRecord,
+]:
+    expected_target = datahub_registry_document_urn(scope, version)
+    if document.urn != expected_target or document.removed:
+        raise PlanningPortError(
+            PlanningPortErrorCode.REGISTRY_INTEGRITY_FAILED,
+            "DataHub registry v2 document identity or active status changed",
+        )
+    properties = document.custom_properties
+    if set(properties) != _REGISTRY_V2_PROPERTIES:
+        raise PlanningPortError(
+            PlanningPortErrorCode.REGISTRY_INTEGRITY_FAILED,
+            "DataHub registry v2 properties are incomplete or unexpected",
+        )
+    try:
+        registry = GovernedSemanticRegistrySnapshot.model_validate(
+            _load_unique_json(
+                _bounded_property(
+                    properties,
+                    "schemabridge.registrySnapshot",
+                    _MAX_REGISTRY_JSON_BYTES,
+                )
+            )
+        )
+        manifest = RegistryPublicationCandidateManifest.model_validate(
+            _load_unique_json(
+                _bounded_property(
+                    properties,
+                    "schemabridge.registryPublicationCandidate",
+                    _MAX_CANDIDATE_MANIFEST_JSON_BYTES,
+                )
+            )
+        )
+        authorization = RegistryPublicationAuthorization.model_validate(
+            _load_unique_json(
+                _bounded_property(
+                    properties,
+                    "schemabridge.registryPublicationAuthorization",
+                    _MAX_APPROVAL_JSON_BYTES,
+                )
+            )
+        )
+        audit = PublicationTargetAuditRecord.model_validate(
+            _load_unique_json(
+                _bounded_property(
+                    properties,
+                    "schemabridge.registryPublicationAudit",
+                    _MAX_AUDIT_JSON_BYTES,
+                )
+            )
+        )
+        candidate = PublishableRegistryVersion(
+            id=manifest.id,
+            scope=manifest.scope,
+            source_proposal_id=manifest.source_proposal_id,
+            source_proposal_fingerprint=manifest.source_proposal_fingerprint,
+            base_registry=manifest.base_registry,
+            registry=registry,
+            target=manifest.target,
+            review_decision_ids=manifest.review_decision_ids,
+            active_decision_ids=manifest.active_decision_ids,
+            fingerprint=manifest.fingerprint,
+        )
+    except (TypeError, ValueError, ValidationError, json.JSONDecodeError) as error:
+        raise PlanningPortError(
+            PlanningPortErrorCode.CONTEXT_INVALID,
+            "DataHub registry v2 payload is invalid",
+        ) from error
+
+    fingerprint = properties.get("schemabridge.registryFingerprint")
+    workspace_digest = hashlib.sha256(scope.workspace_id.encode()).hexdigest()[:24]
+    stored_decisions = _parse_stored_decisions(properties)
+    if (
+        registry.format_version != 2
+        or manifest != candidate.manifest
+        or manifest.scope != scope
+        or properties.get("schemabridge.registryFormatVersion") != "2"
+        or properties.get("schemabridge.registryId") != registry.registry_id
+        or properties.get("schemabridge.registryVersion") != str(registry.version)
+        or properties.get("schemabridge.registryCatalogScope") != registry.catalog_scope
+        or properties.get("schemabridge.registryWorkspaceDigest") != workspace_digest
+        or not isinstance(fingerprint, str)
+        or _SHA256.fullmatch(fingerprint) is None
+        or fingerprint != registry.fingerprint
+        or stored_decisions != candidate.active_decision_ids
+        or registry.registry_id != scope.registry_id
+        or registry.catalog_scope != scope.catalog_scope
+        or registry.version != version
+        or document.title != _registry_document_title(registry)
+        or document.text != _registry_document_text(registry)
+    ):
+        raise PlanningPortError(
+            PlanningPortErrorCode.REGISTRY_INTEGRITY_FAILED,
+            "DataHub registry v2 identity or fingerprint verification failed",
+        )
+    try:
+        validate_registry_publication_authorization(candidate, authorization)
+        validate_publication_audit_binding(
+            (audit,),
+            approval_id=authorization.id,
+            actor=authorization.actor_id,
+            approved_at=authorization.approved_at,
+            new_fingerprint=registry.fingerprint,
+            approved_decision_ids=candidate.active_decision_ids,
+        )
+    except ValueError as error:
+        raise PlanningPortError(
+            PlanningPortErrorCode.REGISTRY_INTEGRITY_FAILED,
+            "DataHub registry v2 authorization or audit verification failed",
+        ) from error
+    if (
+        audit.family is not PublicationFamily.REGISTRY
+        or audit.operation != "versioned_document_v2"
+        or audit.target != expected_target
+        or audit.outcome
+        not in {
+            PublicationAuditOutcome.SUCCEEDED,
+            PublicationAuditOutcome.ALREADY_CURRENT,
+        }
+        or audit.reason_code is not None
+    ):
+        raise PlanningPortError(
+            PlanningPortErrorCode.REGISTRY_INTEGRITY_FAILED,
+            "DataHub registry v2 audit is not a successful exact-target record",
+        )
+    expected_assets = observed_registry_related_asset_urns(registry)
+    if tuple(sorted(document.related_asset_urns)) != expected_assets:
+        raise PlanningPortError(
+            PlanningPortErrorCode.REGISTRY_INTEGRITY_FAILED,
+            "DataHub registry v2 related assets differ from observed physical bindings",
+        )
+    return candidate, authorization, audit
+
+
+def _v2_document_write(
+    candidate: PublishableRegistryVersion,
+    authorization: RegistryPublicationAuthorization,
+    audit: PublicationTargetAuditRecord,
+) -> DataHubRegistryDocumentWrite:
+    registry = candidate.registry
+    if registry.format_version != 2:
+        raise ValueError("observed registry publication requires format v2")
+    registry_json = registry.model_dump_json()
+    manifest_json = candidate.manifest.model_dump_json()
+    authorization_json = authorization.model_dump_json()
+    audit_json = audit.model_dump_json()
+    _validate_serialized_size(registry_json, _MAX_REGISTRY_JSON_BYTES, "registry v2 snapshot")
+    _validate_serialized_size(
+        manifest_json,
+        _MAX_CANDIDATE_MANIFEST_JSON_BYTES,
+        "registry publication candidate",
+    )
+    _validate_serialized_size(
+        authorization_json,
+        _MAX_APPROVAL_JSON_BYTES,
+        "registry publication authorization",
+    )
+    _validate_serialized_size(audit_json, _MAX_AUDIT_JSON_BYTES, "registry v2 audit")
+    related_assets = observed_registry_related_asset_urns(registry)
+    workspace_digest = hashlib.sha256(candidate.scope.workspace_id.encode()).hexdigest()[:24]
+    return DataHubRegistryDocumentWrite(
+        document_id=datahub_registry_document_id(candidate.scope, registry.version),
+        title=_registry_document_title(registry),
+        text=_registry_document_text(registry),
+        custom_properties={
+            "schemabridge.registryFormatVersion": "2",
+            "schemabridge.registryId": registry.registry_id,
+            "schemabridge.registryVersion": str(registry.version),
+            "schemabridge.registryCatalogScope": registry.catalog_scope,
+            "schemabridge.registryWorkspaceDigest": workspace_digest,
+            "schemabridge.registryFingerprint": registry.fingerprint,
+            "schemabridge.registryDecisionIds": json.dumps(
+                candidate.active_decision_ids,
+                separators=(",", ":"),
+            ),
+            "schemabridge.registrySnapshot": registry_json,
+            "schemabridge.registryPublicationCandidate": manifest_json,
+            "schemabridge.registryPublicationAuthorization": authorization_json,
+            "schemabridge.registryPublicationAudit": audit_json,
+        },
+        related_asset_urns=related_assets,
+    )
+
+
+def _v2_publication_result(
+    candidate: PublishableRegistryVersion,
+    authorization: RegistryPublicationAuthorization,
+    *,
+    observed_authorization_id: str | None,
+    observed_at: datetime,
+    status: str,
+    previous_fingerprint: str | None,
+    reason_code: str | None = None,
+) -> ObservedRegistryPublicationResult:
+    outcome = {
+        "published": PublicationAuditOutcome.SUCCEEDED,
+        "already_current": PublicationAuditOutcome.ALREADY_CURRENT,
+        "failed": PublicationAuditOutcome.FAILED,
+    }[status]
+    receipt = (
+        None
+        if observed_authorization_id is None
+        else PublicationReadbackReceipt(
+            candidate_id=candidate.id,
+            candidate_fingerprint=candidate.fingerprint,
+            scope=candidate.scope,
+            registry_version=candidate.registry.version,
+            registry_fingerprint=candidate.registry.fingerprint,
+            target=candidate.target,
+            observed_authorization_id=observed_authorization_id,
+            related_asset_urns=observed_registry_related_asset_urns(candidate.registry),
+            observed_at=observed_at,
+        )
+    )
+    return ObservedRegistryPublicationResult(
+        attempt_authorization_id=authorization.id,
+        observed_authorization_id=observed_authorization_id,
+        status=status,
+        receipt=receipt,
+        reason_code=reason_code,
+        audit_record=_v2_audit_record(
+            candidate,
+            authorization,
+            outcome=outcome,
+            previous_fingerprint=previous_fingerprint,
+            reason_code=reason_code,
+        ),
+    )
+
+
+def _v2_audit_record(
+    candidate: PublishableRegistryVersion,
+    authorization: RegistryPublicationAuthorization,
+    *,
+    outcome: PublicationAuditOutcome,
+    previous_fingerprint: str | None,
+    reason_code: str | None = None,
+) -> PublicationTargetAuditRecord:
+    return PublicationTargetAuditRecord(
+        family=PublicationFamily.REGISTRY,
+        operation="versioned_document_v2",
+        target=candidate.target,
+        approval_id=authorization.id,
+        actor=authorization.actor_id,
+        approved_at=authorization.approved_at,
+        previous_fingerprint=previous_fingerprint,
+        new_fingerprint=candidate.registry.fingerprint,
+        outcome=outcome,
+        decision_ids=candidate.active_decision_ids,
+        reason_code=reason_code,
+    )
+
+
+def _parse_stored_decisions(properties: Mapping[str, str]) -> tuple[str, ...]:
+    serialized = _bounded_property(
+        properties,
+        "schemabridge.registryDecisionIds",
+        _MAX_APPROVAL_JSON_BYTES,
+    )
+    try:
+        raw = _load_unique_json(serialized)
+        if not isinstance(raw, list) or any(not isinstance(item, str) for item in raw):
+            raise TypeError("registry decisions must be a string array")
+        return tuple(raw)
+    except (TypeError, ValueError, json.JSONDecodeError) as error:
+        raise PlanningPortError(
+            PlanningPortErrorCode.CONTEXT_INVALID,
+            "DataHub registry decision closure is invalid",
+        ) from error
 
 
 def _parse_registry_document(
@@ -735,7 +1357,8 @@ def _parse_registry_document(
             "DataHub registry decision closure is invalid",
         ) from error
     if (
-        properties.get("schemabridge.registryFormatVersion") != str(registry.format_version)
+        registry.format_version != 1
+        or properties.get("schemabridge.registryFormatVersion") != str(registry.format_version)
         or properties.get("schemabridge.registryId") != registry.registry_id
         or properties.get("schemabridge.registryVersion") != str(registry.version)
         or properties.get("schemabridge.registryCatalogScope") != registry.catalog_scope

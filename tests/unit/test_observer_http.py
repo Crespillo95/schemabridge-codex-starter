@@ -70,6 +70,7 @@ class _Reader:
                 QueueOperationalSnapshot(OperationalQueue.EXECUTION, 4, 12.0),
                 QueueOperationalSnapshot(OperationalQueue.CATALOG, 1, 4.5),
                 QueueOperationalSnapshot(OperationalQueue.PROFILE, 0, 0.0),
+                QueueOperationalSnapshot(OperationalQueue.PUBLICATION, 3, 5.5),
                 QueueOperationalSnapshot(OperationalQueue.RECONCILIATION, 2, 7.25),
             )
         )

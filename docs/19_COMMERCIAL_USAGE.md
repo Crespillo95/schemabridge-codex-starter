@@ -7,9 +7,10 @@
 SchemaBridge tiene una base local amplia y M32 genera PostgreSQL determinista para copiar cuando
 la petición cabe por completo en su lenguaje tipado y en contexto semántico aprobado. M33 cierra
 localmente el onboarding genérico gobernado que evita editar fixtures para cada cliente, pero
-termina en una
-propuesta inmutable `ready_for_publication`: no publica ni activa contexto en DataHub. M34, la
-certificación M30, el piloto M31 y los controles externos operados siguen siendo puertas de salida.
+termina en una propuesta inmutable `ready_for_publication`. M34 ya cierra localmente la cola
+durable, aprobación posterior al ensamblado, publicación DataHub v2, read-back exacto y handoff
+`activation_ready`; la activación sigue siendo un flujo M23 separado. La certificación M30, el
+piloto M31 y los controles externos operados siguen siendo puertas de salida.
 
 La promesa comercial correcta es **exactitud acotada y fallo cerrado**, no “experto supremo sin
 errores”. Una consulta de 50 líneas puede ser compatible y otra de 5 líneas puede no serlo: manda
@@ -27,6 +28,7 @@ devolver una explicación sin SQL.
 | Salida | SQL standalone validado para copiar o descargar | Destino: otro cliente conectado al mismo contexto PostgreSQL gobernado |
 | Ejecución | Preview read-only separado, opcional y acotado cuando está habilitado | El flujo principal M32 no ejecuta: `executed=false` |
 | Onboarding M33 | Preflight server-side, borrador tenant-bound, decisiones steward append-only y handoff inmutable | Cero escritura externa; no publicación ni activación |
+| Publicación M34 | Reserva tenant-bound, worker aislado, aprobación del candidato completo, DataHub v2 y read-back exacto | No activa; la evidencia local/sintética no prueba IAM ni operación externa |
 | Operación gestionada | Contratos locales de identidad, aislamiento, secretos, observabilidad, backup y supply chain | No equivalen a evidencia de proveedor/cluster/guardias operadas en producción |
 
 ### Relación con el benchmark LearnSQL solicitado
@@ -84,6 +86,11 @@ Estos son límites de producto, no una estimación de rendimiento para cualquier
 | Payload de borrador/propuesta M33 | 2 MiB |
 | Payload de decisión M33 | 64 KiB |
 | Historial M33 por inspección | 25 recientes por defecto; máximo 50 y `history_truncated` explícito |
+| Target M34 | Una reserva durable por workspace/scope/registry/version |
+| Intentos M34 | 5 por defecto; máximo tipado 10; backoff máximo 300 s |
+| Lease M34 | 60 s por defecto; máximo 5 min; heartbeat 20 s por defecto |
+| Autorización M34 | Sesión publisher y autorización menores de 15 min |
+| Payload durable de un job M34 | 16 MiB; evento append-only 64 KiB |
 | Padding de identificadores | 1–256 caracteres; valores mayores se rechazan antes de compilar |
 | Regex de transformación | Subconjunto ASCII lineal, anclado con `^...$`; sin grupos, alternancia, lookaround, backreferences ni escapes de dialecto |
 
@@ -122,11 +129,12 @@ imposibles.
 
 ## Roles y separación de funciones
 
-| Rol | Puede hacer | No puede hacer en M33 |
+| Rol | Puede hacer | No puede hacer en M33/M34 |
 |---|---|---|
 | Analyst | Ver sus borradores y crear uno con un catálogo exacto | Aprobar significado o preparar publicación |
 | Steward | Ver el workspace, crear, aprobar/rechazar modelo y mapeos, revisar auditoría | Publicar o activar; la confianza no sustituye su decisión |
-| Publisher | Ver el workspace y preparar un handoff inmutable con sesión reciente | Ser propietario/aprobador del mismo handoff en modo gestionado; escribir en DataHub |
+| Publisher humano | Preparar M33 y reservar/autorizar/cancelar M34 con sesión reciente | Obtener el token DataHub, escribir directamente o activar el registro |
+| Publisher worker | Reclamar la cola, ensamblar, revalidar, publicar y hacer read-back exacto | Autenticarse como usuario, aprobar, leer fuente/LLM o cambiar el active pointer |
 | Auditor | Ver borradores y trazabilidad del workspace | Crear, decidir o preparar |
 | Platform admin | Operar la matriz cerrada de permisos | Saltarse CAS, frescura, evidencia, aislamiento o separación de funciones |
 
@@ -144,11 +152,12 @@ flowchart LR
     B --> C["Borrador M33 needs_review"]
     C --> D["Decisiones steward append-only"]
     D --> E["Handoff ready_for_publication"]
-    E -. "M34 pendiente" .-> F["Publicación y read-back"]
-    F -. "activación separada" .-> G["Registro activo"]
-    G --> H["Petición natural tipada"]
-    H --> I["Confirmación humana"]
-    I --> J["PostgreSQL standalone validado"]
+    E --> F["M34: reserva, aprobación, publicación y read-back"]
+    F --> G["Handoff activation_ready"]
+    G -. "M23: aprobación y CAS separados" .-> H["Registro activo"]
+    H --> I["Petición natural tipada"]
+    I --> J["Confirmación humana"]
+    J --> K["PostgreSQL standalone validado"]
 ```
 
 1. **Contrato de alcance.** Registrar dialecto, regiones, clasificación de datos, propietario de
@@ -171,17 +180,20 @@ flowchart LR
    y mapeos empiezan `needs_review`; aprobar exige rationale y evidencia distinta del nombre.
 7. **Preparación.** Un publisher separado y con sesión reciente confirma la revisión exacta. El
    resultado es un JSON inmutable con `external_writes_performed=false`.
-8. **Publicación y activación.** No disponibles en M33. M34 deberá consumir una cola durable con
-   identidad observada allowlisted, publicar, hacer read-back y auditar. La activación continuará
-   siendo una acción posterior independiente.
-9. **Petición analítica.** El usuario describe la necesidad. El sistema recupera sólo el cierre
+8. **Publicación M34.** El API reserva el target sin token DataHub. El worker aislado revalida la
+   propuesta, catálogo y base, ensambla el candidato completo, espera aprobación exacta, publica
+   sólo si el target está ausente y acepta éxito únicamente tras read-back/auditoría exactos.
+9. **Activación M23.** `activation_ready` no cambia el puntero. Otro prepare/approval/commit liga el
+   handoff y repite la autoridad de catálogo dentro del CAS; rollback y reconciliación siguen
+   separados.
+10. **Petición analítica.** El usuario describe la necesidad. El sistema recupera sólo el cierre
    aprobado pertinente y muestra interpretación, datasets, joins, supuestos, confianza y riesgos.
-10. **Confirmación y salida.** Tras confirmación exacta, el compilador determinista genera
+11. **Confirmación y salida.** Tras confirmación exacta, el compilador determinista genera
     PostgreSQL, dos validaciones AST lo revisan y el usuario copia/descarga el artefacto standalone.
-11. **Uso externo.** Pegar el artefacto únicamente en un editor conectado al mismo contexto
+12. **Uso externo.** Pegar el artefacto únicamente en un editor conectado al mismo contexto
     gobernado. Aplicar los permisos, timeout y límites del cliente de destino; copiar no transporta
     credenciales ni valida otra base.
-12. **Cambio y retirada.** Una nueva generación o drift invalida contexto afectado. Reconciliar,
+13. **Cambio y retirada.** Una nueva generación o drift invalida contexto afectado. Reconciliar,
     aprobar una nueva versión y conservar auditoría; nunca parchear silenciosamente una consulta.
 
 ## Plan de producto hasta versión comercial
@@ -202,13 +214,23 @@ flowchart LR
 - registrar authoring incremental/import batch como gap para M34 o un hito explícito previo a GA
   si el segmento necesita acercarse a 2.000 mapeos; M33 no lo incluye ni lo promete.
 
-### Puerta 2 — M34: publicación genérica segura
+### Puerta 2 — M34 local cerrada: publicación genérica segura
 
-- cola durable y worker dedicado con credencial de escritura no disponible para web/API;
-- URN exacta observada, nunca construida desde `schema.table`;
-- allowlist, idempotencia, read-back, auditoría y recuperación de fallo parcial;
-- soporte correcto de un primer registro con cero joins;
-- activación separada, rollback y reconciliación demostrados.
+- cola PostgreSQL v14 con reserva única, fencing, heartbeat, retry/dead-letter, cancelación y
+  worker dedicado cuya credencial de escritura no está disponible para web/API;
+- privilegios M34 cerrados a exactamente `manageDocuments`; los grants residuales del writer local
+  histórico se rechazan y no cuentan como postura comercial;
+- URN exacta observada, nunca construida desde `schema.table`; binding físico revalidado antes de
+  escribir y de activar;
+- aprobación posterior al ensamblado, idempotencia, read-back/auditoría exactos y recuperación de
+  fallo parcial sin overwrite;
+- primer registro con cero joins y merge aditivo sobre una base v2 estricta;
+- handoff `activation_ready`, activación M23 separada, rollback y reconciliación conservados;
+- AppTest, navegador interno, PostgreSQL fresco, manifests aislados y gate local documentados.
+
+Esta puerta cierra implementación local, no operación externa. Antes de producción aún deben
+probarse el DataHub real con IAM exclusivo, el gestor de secretos real, NetworkPolicy/admission en
+el cluster destino, alertas/SIEM, recuperación y carga con el perfil del cliente.
 
 ### Puerta 3 — M30: certificación de calidad y seguridad
 
@@ -238,6 +260,26 @@ flowchart LR
 - dos personas distintas autorizan publicación/release y se prueba recuperación en destino fresco;
 - go/no-go firmado por producto, seguridad, operaciones, legal y propietario del cliente.
 
+## Auditoría de lo que aún falta para una versión comercial
+
+| Prioridad | Brecha actual | Evidencia necesaria para cerrarla |
+|---|---|---|
+| P0 | Calidad del lenguaje natural no certificada con proveedor real | M30: corpus ciego representativo, exactitud semántica/ejecutable, rechazo seguro, adversariales, umbrales firmados y regresión por versión |
+| P0 | Seguridad y operación sólo demostradas localmente | Pentest independiente, IAM exclusivo DataHub, secret manager/rotación, cluster admission/NetworkPolicy, SIEM/paging, backup/restore y simulacro de incidente operados |
+| P0 | No existe piloto real aceptado | M31 con un tenant autorizado, SLO/coste/capacidad observados, runbooks y salida/rollback firmados |
+| P0 | Falta cierre legal y de servicio | DPA, privacidad/retención/borrado, subprocesadores, residencia, soporte, SLO, facturación y go/no-go multifunción |
+| P1 | Sólo PostgreSQL | Un compilador, guard AST, tipos, funciones, quoting, límites y corpus separados por cada dialecto; no basta traducir sintaxis |
+| P1 | Alta grande no es incremental | Importación/batch tenant-bound, reanudable, idempotente y con CAS para acercarse con seguridad a 2.000 mapeos |
+| P1 | Escala de inventario no equivale a escala de consulta/servicio | Pruebas del perfil cliente con miles de tablas/campos, concurrencia, latencia p95/p99, memoria, colas, coste, drift y cuotas por tenant |
+| P1 | Gestión comercial multi-cliente incompleta | Onboarding/offboarding, RBAC/SCIM según segmento, cuotas, auditoría exportable/paginada, soporte y aislamiento operado |
+| P2 | Álgebra SQL deliberadamente acotada | Contratos tipados y pruebas separadas para self join, subconsultas/sets, recursión, gaps/islands, `ROLLUP/GROUPING`, federación y más de 3 tablas si el mercado lo exige |
+
+Cambiar de tablas dentro de PostgreSQL ya es un flujo soportado cuando el inventario se ingiere y
+cada concepto/mapping/join se aprueba. Aumentar a miles de tablas también es compatible con el
+catálogo paginado, pero una petición sigue cerrada a tres tablas y dos joins. Cambiar a MySQL,
+SQL Server, Oracle, Snowflake, BigQuery u otro motor es una nueva capacidad de dialecto y no forma
+parte de la versión actual.
+
 ## Checklist de go-live por tenant
 
 No iniciar tráfico hasta que todos los elementos aplicables tengan evidencia enlazada.
@@ -249,7 +291,8 @@ No iniciar tráfico hasta que todos los elementos aplicables tengan evidencia en
 - [ ] Roles de fuente read-only, timeout y límites verificados independientemente.
 - [ ] Inventario completo, capacidad, paginación y generación retenida verificados.
 - [ ] Modelos, mapeos y joins aprobados con evidencia y riesgos; cero decisiones por nombre solo.
-- [ ] M34 publica/read-back/activa/rollbacka el registro exacto sin credencial en web/API.
+- [ ] M34 publica/read-back y M23 activa/rollbacka el registro exacto en el entorno real sin
+      credencial writer en web/API.
 - [ ] Corpus M30 del alcance contractual supera umbrales acordados y pruebas adversariales.
 - [ ] Aislamiento tenant, IDOR, inyección, XSS, CSRF y filtración de secretos revisados.
 - [ ] Alertas, dashboards, SIEM y paging reciben eventos reales del runtime desplegado.
@@ -300,6 +343,34 @@ Prueba automatizada equivalente:
 
 Detener Streamlit con `Ctrl-C`. Como el estado es sintético y reside sólo en memoria, terminar el
 proceso es la limpieza completa; no se borra ni modifica ningún recurso externo.
+
+## Prueba manual de la superficie M34
+
+La instrumentación local compone los casos de uso M34, el worker, el ensamblador v2 y el adaptador
+de publicación/read-back DataHub con clientes sintéticos en memoria. No usa red, PostgreSQL,
+fuente, LLM, SQL, secretos productivos ni activación.
+
+```bash
+SCHEMABRIDGE_M34_SCENARIO_TOKEN=m34-manual-session \
+  .venv/bin/streamlit run scripts/m34_registry_publication_scenario_app.py \
+  --server.address 127.0.0.1 --server.port 8767
+```
+
+En `http://127.0.0.1:8767`, reservar la propuesta, ejecutar preparación, recargar/confirmar el
+candidato completo, autorizarlo y ejecutar publicación. El resultado esperado es:
+
+```text
+queued → leased → awaiting_approval → approved → leased → activation_ready
+external_writes=1
+immutable_datahub_versions=1
+related_asset=urn:li:dataset:(urn:li:dataPlatform:postgres,opaque-9f82,PROD)
+active_registry_pointer=not_configured
+automatic_activation=false
+```
+
+La prueba equivalente es
+`.venv/bin/pytest tests/acceptance/test_m34_registry_publication.py`. La evidencia en memoria no
+sustituye la integración PostgreSQL ni un DataHub/secret-manager/cluster real.
 
 ## Cómo interpretar una consulta solicitada
 

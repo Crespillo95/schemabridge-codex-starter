@@ -38,6 +38,7 @@ from schemabridge.domain.registry_control import (
     RegistryActivationAction,
     RegistryActivationConfirmation,
     RegistryActivationProposal,
+    RegistryActivationReadyHandoff,
     RegistryProjectionState,
     RegistryReconciliationCode,
     RegistryReconciliationConfirmation,
@@ -46,6 +47,8 @@ from schemabridge.domain.registry_control import (
     RegistryReconciliationSeverity,
     registry_projection_fingerprint,
 )
+from schemabridge.domain.registry_publication import registry_publication_candidate_id
+from schemabridge.domain.registry_publication_jobs import registry_publication_job_id
 from schemabridge.domain.semantic_registry import (
     SemanticRegistryScope,
     datahub_registry_document_urn,
@@ -89,6 +92,26 @@ def test_managed_operator_actor_is_configured_and_never_trusted_from_argv() -> N
 
 
 def _proposal() -> RegistryActivationProposal:
+    source_proposal_id = "publication-proposal-v2"
+    source_proposal_fingerprint = "b" * 64
+    handoff = RegistryActivationReadyHandoff.create(
+        job_id=registry_publication_job_id(SCOPE, 2),
+        scope=SCOPE,
+        source_proposal_id=source_proposal_id,
+        source_proposal_fingerprint=source_proposal_fingerprint,
+        candidate_id=registry_publication_candidate_id(
+            source_proposal_id,
+            source_proposal_fingerprint,
+        ),
+        candidate_fingerprint="c" * 64,
+        target_registry_version=2,
+        target_registry_fingerprint="a" * 64,
+        target_registry_urn=datahub_registry_document_urn(SCOPE, 2),
+        attempt_authorization_id="publication-v2",
+        observed_authorization_id="publication-v2",
+        catalog_authority_fingerprint="d" * 64,
+        observed_at=INSPECTED_AT,
+    )
     return RegistryActivationProposal(
         action=RegistryActivationAction.ACTIVATE,
         scope=SCOPE,
@@ -98,6 +121,7 @@ def _proposal() -> RegistryActivationProposal:
         target_registry_urn=datahub_registry_document_urn(SCOPE, 2),
         target_publication_approval_id="publication-v2",
         decision_ids=("decision-1",),
+        activation_ready_handoff=handoff,
     )
 
 

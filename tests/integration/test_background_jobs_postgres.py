@@ -160,8 +160,8 @@ def job_database() -> Iterator[_DatabaseUrls]:
             PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).require_current()
         assert stale_schema.value.code is ControlPlaneMigrationErrorCode.SCHEMA_NOT_CURRENT
         upgraded = PostgresControlPlaneMigrator(urls.migrator, MIGRATIONS).migrate()
-        assert upgraded.applied_versions == (2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
-        assert upgraded.inspection.current_version == 13
+        assert upgraded.applied_versions == (2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
+        assert upgraded.inspection.current_version == 14
         yield urls
     finally:
         with psycopg.connect(admin_dsn, autocommit=True) as connection:

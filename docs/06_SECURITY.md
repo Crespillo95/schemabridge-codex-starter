@@ -1266,3 +1266,37 @@ satisfy the operated production boundary. Provider IAM/rotation/revocation, targ
 admission and network enforcement, production mTLS/SIEM/alert delivery, remote encrypted
 object-lock retention, fresh-target recovery/rollback, vulnerability disposition, M30/M31, and
 external security review remain mandatory production NO-GO items until independently evidenced.
+
+## M34 publication and activation authority
+
+- The API may reserve, inspect, authorize and cancel a publication job, but it has neither the
+  DataHub writer credential nor the active-pointer update privilege. Public responses omit lease
+  capabilities/digests, request fingerprints, submitter internals, DSNs and secret material.
+- The publisher owns a separate no-inherit PostgreSQL login and operation-scoped DataHub writer
+  secret. It has no source, connector execution, LLM, OIDC, web/API, migration, activation or
+  registry-reader credential. Managed composition rejects local writer files and requires one
+  exact remote secret role, opaque binding and immutable provider version.
+- Registry-v2 publication and publisher-side base read-back require the observed mutating platform
+  privilege set to equal exactly `{manageDocuments}` and require zero target-edit grants. The
+  broader residual privileges tolerated by the historical local M22 writer are rejected for M34.
+- Target versions are reserved uniquely. Claims use database time, a high-entropy capability that
+  is persisted only as SHA-256, and a monotonically increasing fencing token. Expired claims are
+  recovered deterministically; a stale worker cannot settle work.
+- Candidate assembly happens before human authorization. The authorization is short-lived and
+  binds the complete candidate, registry fingerprint, exact target and active decision set. An
+  expired authorization may read an existing exact target but cannot create one.
+- DataHub success is accepted only after strict read-back of the closed v2 document, observed
+  approval, audit identity and the exact retained dataset URNs. Existing different content is a
+  terminal conflict and is never overwritten. A transport failure after a possible write enters
+  read-back recovery.
+- Publication cannot mutate `registry_active_pointers`. Forward activation requires a second M23
+  approval whose proposal binds the exact `activation_ready` receipt and current catalog-authority
+  fingerprint. PostgreSQL repeats that validation inside the pointer CAS transaction. Rollback
+  remains separate and cannot invent a fresh publication handoff.
+- A dataset URN is authority only when copied from the exact retained catalog observation and
+  revalidated against its current workspace, connection, generation/vector, locator, type and
+  metadata fingerprints. Name similarity and reconstructed `schema.table` URNs are rejected.
+
+These controls are local implementation evidence. They do not prove real DataHub IAM exclusivity,
+secret-manager policy, target-cluster NetworkPolicy enforcement, external audit retention or an
+operated incident/recovery path; those remain production NO-GO gates.

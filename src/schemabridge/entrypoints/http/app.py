@@ -44,6 +44,9 @@ from schemabridge.application.ports.operational_telemetry import (
     OperationalResourceAccessCause,
     OperationalTelemetryPort,
 )
+from schemabridge.application.ports.registry_publication import (
+    RegistryPublicationJobMutation,
+)
 from schemabridge.application.ports.semantic_change_read import (
     SemanticChangeFindingFilter,
     SemanticChangeFindingPublic,
@@ -53,6 +56,10 @@ from schemabridge.application.ports.semantic_change_read import (
     SemanticChangePageRequest,
     SemanticChangeReportFilter,
     SemanticChangeReportPublic,
+)
+from schemabridge.application.registry_publication import (
+    RegistryPublicationError,
+    RegistryPublicationErrorCode,
 )
 from schemabridge.application.semantic_change_read import (
     SemanticChangeReadError,
@@ -87,6 +94,10 @@ from schemabridge.domain.catalog_inventory import (
 )
 from schemabridge.domain.decisions import DecisionAction
 from schemabridge.domain.identity import AuthenticatedPrincipal
+from schemabridge.domain.registry_publication import (
+    RegistryPublicationAuthorizationConfirmation,
+)
+from schemabridge.domain.registry_publication_jobs import RegistryPublicationJob
 from schemabridge.domain.semantic_onboarding import (
     CreateSemanticOnboardingRequest,
     OnboardingEvidence,
@@ -117,6 +128,11 @@ from schemabridge.entrypoints.http.schemas import (
     ExecutionJobSubmissionResponse,
     HealthResponse,
     ProblemResponse,
+    RegistryPublicationAuthorizationRequest,
+    RegistryPublicationCancellationRequest,
+    RegistryPublicationJobResponse,
+    RegistryPublicationSubmissionRequest,
+    RegistryPublicationSubmissionResponse,
     SemanticChangeFindingListQuery,
     SemanticChangeFindingPageResponse,
     SemanticChangeImpactListQuery,
@@ -145,6 +161,7 @@ _REFRESH_ID_PATTERN = r"^[a-z0-9][a-z0-9_-]{2,199}$"
 _ASSET_ID_PATTERN = r"^[^\x00-\x1f\x7f]{1,500}$"
 _SEMANTIC_CHANGE_REPORT_ID_PATTERN = r"^report_[0-9a-f]{64}$"
 _SEMANTIC_ONBOARDING_DRAFT_ID_PATTERN = r"^[a-z][a-z0-9_-]{2,79}$"
+_REGISTRY_PUBLICATION_JOB_ID_PATTERN = r"^[a-z0-9][a-z0-9_-]{2,199}$"
 _IDEMPOTENCY_PATTERN = r"^[A-Za-z0-9._~-]{16,128}$"
 _JSON_MEDIA_TYPE = "application/json"
 _SECURITY_HEADERS = (
@@ -197,6 +214,15 @@ _BUSINESS_HTTP_ROUTES: tuple[tuple[str, re.Pattern[str]], ...] = (
             r"^/v1/semantic-onboarding/drafts/[a-z][a-z0-9_-]{2,79}"
             r"/(?:model-decisions|mapping-decisions|prepare-publication)$"
         ),
+    ),
+    ("POST", re.compile(r"^/v1/registry-publications$")),
+    (
+        "GET",
+        re.compile(r"^/v1/registry-publications/[a-z0-9][a-z0-9_-]{2,199}$"),
+    ),
+    (
+        "POST",
+        re.compile(r"^/v1/registry-publications/[a-z0-9][a-z0-9_-]{2,199}/(?:authorize|cancel)$"),
     ),
 )
 
@@ -519,6 +545,51 @@ class SemanticOnboardingPreparationPort(Protocol):
         """Prepare one immutable non-executable publication proposal."""
 
 
+class RegistryPublicationSubmissionPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        *,
+        proposal_id: str,
+        confirmed_proposal_fingerprint: str,
+        idempotency_key: str,
+    ) -> RegistryPublicationJobMutation:
+        """Reserve or exactly replay one tenant-bound publication target."""
+
+
+class RegistryPublicationInspectionPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        job_id: str,
+    ) -> RegistryPublicationJob:
+        """Return one tenant-bound publication job."""
+
+
+class RegistryPublicationAuthorizationPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        job_id: str,
+        *,
+        expected_revision: int,
+        confirmed_candidate_fingerprint: str,
+        confirmation: RegistryPublicationAuthorizationConfirmation,
+    ) -> RegistryPublicationJob:
+        """Authorize one exact fully assembled publication candidate."""
+
+
+class RegistryPublicationCancellationPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        job_id: str,
+        *,
+        expected_revision: int,
+    ) -> RegistryPublicationJob:
+        """Request or exactly replay cooperative cancellation."""
+
+
 @dataclass(frozen=True, slots=True)
 class CatalogHttpServices:
     list_connections: CatalogConnectionListPort
@@ -549,6 +620,14 @@ class SemanticOnboardingHttpServices:
 
 
 @dataclass(frozen=True, slots=True)
+class RegistryPublicationHttpServices:
+    submit: RegistryPublicationSubmissionPort
+    inspect: RegistryPublicationInspectionPort
+    authorize: RegistryPublicationAuthorizationPort
+    cancel: RegistryPublicationCancellationPort
+
+
+@dataclass(frozen=True, slots=True)
 class ApiHttpServices:
     authenticator: BearerAuthenticationPort
     clock: ApiClockPort
@@ -560,6 +639,7 @@ class ApiHttpServices:
     admission: ApiAdmissionPort | None = None
     semantic_changes: SemanticChangeHttpServices | None = None
     semantic_onboarding: SemanticOnboardingHttpServices | None = None
+    registry_publication: RegistryPublicationHttpServices | None = None
 
 
 class ApiConcurrencyMiddleware:
@@ -1122,6 +1202,52 @@ def create_http_app(
             }[error.code],
         )
 
+    @app.exception_handler(RegistryPublicationError)
+    async def registry_publication_error(
+        request: Request,
+        error: RegistryPublicationError,
+    ) -> JSONResponse:
+        if error.code is RegistryPublicationErrorCode.UNAVAILABLE:
+            _mark_resource_access_cause(request, OperationalResourceAccessCause.DENIED)
+        status = {
+            RegistryPublicationErrorCode.INVALID_REQUEST: 422,
+            RegistryPublicationErrorCode.UNAVAILABLE: 404,
+            RegistryPublicationErrorCode.CONFLICT: 409,
+            RegistryPublicationErrorCode.TARGET_RESERVED: 409,
+            RegistryPublicationErrorCode.NOT_READY: 409,
+            RegistryPublicationErrorCode.STALE_SESSION: 401,
+            RegistryPublicationErrorCode.SERVICE_UNAVAILABLE: 503,
+        }[error.code]
+        return _problem_response(
+            request,
+            status=status,
+            code=error.code.value,
+            title={
+                RegistryPublicationErrorCode.INVALID_REQUEST: (
+                    "The registry-publication request is invalid."
+                ),
+                RegistryPublicationErrorCode.UNAVAILABLE: (
+                    "The registry-publication resource is not available."
+                ),
+                RegistryPublicationErrorCode.CONFLICT: (
+                    "The registry-publication job changed; reload and retry."
+                ),
+                RegistryPublicationErrorCode.TARGET_RESERVED: (
+                    "The registry version is already reserved."
+                ),
+                RegistryPublicationErrorCode.NOT_READY: (
+                    "The registry-publication job is not ready for this operation."
+                ),
+                RegistryPublicationErrorCode.STALE_SESSION: (
+                    "A recent authenticated publisher session is required."
+                ),
+                RegistryPublicationErrorCode.SERVICE_UNAVAILABLE: (
+                    "The registry-publication service is temporarily unavailable."
+                ),
+            }[error.code],
+            headers={"WWW-Authenticate": "Bearer"} if status == 401 else None,
+        )
+
     @app.exception_handler(AuthorizationError)
     async def authorization_error(
         request: Request,
@@ -1130,18 +1256,27 @@ def create_http_app(
         _mark_resource_access_cause(request, OperationalResourceAccessCause.DENIED)
         if error.code is AuthorizationErrorCode.WORKFLOW_ACCESS_DENIED:
             semantic_onboarding_route = request.url.path.startswith("/v1/semantic-onboarding/")
+            registry_publication_route = request.url.path.startswith("/v1/registry-publications")
             return _problem_response(
                 request,
                 status=404,
                 code=(
-                    SemanticOnboardingErrorCode.UNAVAILABLE.value
-                    if semantic_onboarding_route
-                    else "resource_unavailable"
+                    RegistryPublicationErrorCode.UNAVAILABLE.value
+                    if registry_publication_route
+                    else (
+                        SemanticOnboardingErrorCode.UNAVAILABLE.value
+                        if semantic_onboarding_route
+                        else "resource_unavailable"
+                    )
                 ),
                 title=(
-                    "The semantic-onboarding resource is not available."
-                    if semantic_onboarding_route
-                    else "The requested resource is not available."
+                    "The registry-publication resource is not available."
+                    if registry_publication_route
+                    else (
+                        "The semantic-onboarding resource is not available."
+                        if semantic_onboarding_route
+                        else "The requested resource is not available."
+                    )
                 ),
             )
         status = {
@@ -1749,6 +1884,91 @@ def create_http_app(
         response.status_code = 200 if result.replayed else 201
         return SemanticOnboardingPreparationResponse.from_domain(result)
 
+    @app.post(
+        "/v1/registry-publications",
+        response_model=RegistryPublicationSubmissionResponse,
+        responses={
+            200: {"model": RegistryPublicationSubmissionResponse},
+            202: {"model": RegistryPublicationSubmissionResponse},
+        },
+    )
+    def submit_registry_publication(
+        body: RegistryPublicationSubmissionRequest,
+        response: Response,
+        request: Request,
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> RegistryPublicationSubmissionResponse:
+        _require_single_registry_publication_idempotency_header(request, idempotency_key)
+        authenticated = principal(request)
+        publication = _registry_publication_services(services)
+        result = publication.submit.execute(
+            authenticated,
+            proposal_id=body.proposal_id,
+            confirmed_proposal_fingerprint=body.confirmed_proposal_fingerprint,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 202
+        return RegistryPublicationSubmissionResponse(
+            job=RegistryPublicationJobResponse.from_domain(result.job),
+            replayed=result.replayed,
+        )
+
+    @app.get(
+        "/v1/registry-publications/{job_id}",
+        response_model=RegistryPublicationJobResponse,
+    )
+    def inspect_registry_publication(
+        request: Request,
+        job_id: str = Path(pattern=_REGISTRY_PUBLICATION_JOB_ID_PATTERN),
+    ) -> RegistryPublicationJobResponse:
+        authenticated = principal(request)
+        publication = _registry_publication_services(services)
+        result = publication.inspect.execute(authenticated, job_id)
+        return RegistryPublicationJobResponse.from_domain(result)
+
+    @app.post(
+        "/v1/registry-publications/{job_id}/authorize",
+        response_model=RegistryPublicationJobResponse,
+    )
+    def authorize_registry_publication(
+        body: RegistryPublicationAuthorizationRequest,
+        request: Request,
+        job_id: str = Path(pattern=_REGISTRY_PUBLICATION_JOB_ID_PATTERN),
+    ) -> RegistryPublicationJobResponse:
+        authenticated = principal(request)
+        publication = _registry_publication_services(services)
+        result = publication.authorize.execute(
+            authenticated,
+            job_id,
+            expected_revision=body.expected_revision,
+            confirmed_candidate_fingerprint=body.confirmed_candidate_fingerprint,
+            confirmation=body.confirmation,
+        )
+        return RegistryPublicationJobResponse.from_domain(result)
+
+    @app.post(
+        "/v1/registry-publications/{job_id}/cancel",
+        response_model=RegistryPublicationJobResponse,
+    )
+    def cancel_registry_publication(
+        body: RegistryPublicationCancellationRequest,
+        request: Request,
+        job_id: str = Path(pattern=_REGISTRY_PUBLICATION_JOB_ID_PATTERN),
+    ) -> RegistryPublicationJobResponse:
+        authenticated = principal(request)
+        publication = _registry_publication_services(services)
+        result = publication.cancel.execute(
+            authenticated,
+            job_id,
+            expected_revision=body.expected_revision,
+        )
+        return RegistryPublicationJobResponse.from_domain(result)
+
     return app
 
 
@@ -1781,6 +2001,17 @@ def _semantic_onboarding_services(
             "semantic onboarding service is unavailable",
         )
     return services.semantic_onboarding
+
+
+def _registry_publication_services(
+    services: ApiHttpServices,
+) -> RegistryPublicationHttpServices:
+    if services.registry_publication is None:
+        raise RegistryPublicationError(
+            RegistryPublicationErrorCode.SERVICE_UNAVAILABLE,
+            "registry publication service is unavailable",
+        )
+    return services.registry_publication
 
 
 def _decide_semantic_onboarding(
@@ -1839,6 +2070,18 @@ def _require_single_semantic_onboarding_idempotency_header(
     values = request.headers.getlist("idempotency-key")
     if len(values) != 1 or values[0] != parsed_value:
         raise _semantic_onboarding_invalid_request()
+
+
+def _require_single_registry_publication_idempotency_header(
+    request: Request,
+    parsed_value: str,
+) -> None:
+    values = request.headers.getlist("idempotency-key")
+    if len(values) != 1 or values[0] != parsed_value:
+        raise RegistryPublicationError(
+            RegistryPublicationErrorCode.INVALID_REQUEST,
+            "registry publication request is invalid",
+        )
 
 
 def _semantic_onboarding_invalid_request() -> SemanticOnboardingError:

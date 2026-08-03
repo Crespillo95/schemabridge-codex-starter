@@ -71,6 +71,20 @@ spec:
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
+  name: schemabridge-publisher
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/component: publisher
+spec:
+  minAvailable: 1
+  unhealthyPodEvictionPolicy: IfHealthyBudget
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: schemabridge-publisher
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
   name: schemabridge-reconciler
   namespace: schemabridge-system
   labels:

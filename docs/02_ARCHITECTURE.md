@@ -1133,7 +1133,7 @@ OpenTelemetry collector egress rule and TCP/4317 is absent from the M29 NetworkP
 that path is a validation failure until a real bounded exporter, destination authentication, loss
 handling, and operated evidence are composed.
 
-The Kubernetes M29 base composes seven long-running workloads with distinct service accounts,
+The current Kubernetes base composes eight long-running workloads with distinct service accounts,
 immutable external Secret references, projected capability identities only where needed,
 restricted pod security, resource limits, topology spread, PDBs, TLS ingress, default-deny
 networking, six internal metrics Services/ServiceMonitors, and capability-specific egress-plane
@@ -1412,3 +1412,44 @@ metrics, and numeric buckets are representable. Cross/self joins, arbitrary subq
 operations, recursion, and gaps/islands are typed unsupported outcomes. `ROLLUP` remains rejected
 until a future design emits reviewed `GROUPING()` flags; otherwise a subtotal `NULL` would be
 indistinguishable from a genuine governed `NULL`.
+
+## M34 governed registry publication
+
+M34 turns one immutable M33 proposal into one complete semantic-registry format-v2 document. The
+domain assembler is pure and additive: it accepts an explicit empty base or an exact active v2
+base, preserves every existing model, mapping, join and provenance decision, and adds only the new
+approved model and mappings. Every active mapping carries one fingerprinted physical binding with
+workspace, connection, catalog generation/vector, locator, observed DataHub dataset URN, physical
+type and metadata fingerprints. Display names and `schema.table` strings cannot construct an
+authority URN. Format v1 stays readable as historical input but cannot become an M34 base or a new
+forward activation.
+
+The authenticated API can reserve, inspect, authorize and cancel a tenant-scoped durable job. It
+uses only the API control-plane credential and never receives a DataHub token. Preparation runs in
+a dedicated publisher process, re-reads the exact proposal, retained catalog authority, active
+pointer and strict base, and persists the complete candidate before authorization is possible.
+Authorization binds the candidate, registry, target, active decisions, actor and fresh session.
+Publishing then revalidates all authority, observes the immutable target, writes only when absent
+and the authorization is current, and requires exact read-back of the document, approval, audit
+and observed `relatedAssets`. Ambiguous external failure becomes bounded read-back recovery rather
+than inferred success.
+
+Control-plane schema v14 owns the target reservation, immutable payload, append-only events,
+database-time leases, hashed transient capability, monotonically increasing fencing token,
+bounded retry/dead-letter state and cooperative cancellation. PostgreSQL privileges and lifecycle
+triggers split API transitions from publisher transitions. The publisher can read only the exact
+catalog/base state needed for revalidation and cannot update `registry_active_pointers`.
+
+Successful publication finishes at `activation_ready`; it does not activate. A bounded
+`SECURITY DEFINER` function returns only the exact handoff identity, receipt and a fingerprint of
+the currently revalidated physical bindings. M23 forward prepare and commit bind and re-read that
+handoff; the commit repeats the check inside its pointer CAS transaction while holding the job and
+active catalog-connection rows. Rollback remains the historical M23 transition and cannot claim a
+new publication handoff.
+
+The production-shaped Kubernetes contract therefore has eight long-running workloads. The
+publisher has its own service account, control-publisher DSN, exact-version registry-writer secret
+capability, PDB, metrics service and default-deny NetworkPolicy. Its only non-DNS egress planes are
+the secret manager, control publisher database and DataHub registry writer. It receives no OIDC,
+LLM, source, execution, API or registry-reader credential. These manifests remain static local
+contracts, not operated-cluster evidence.
