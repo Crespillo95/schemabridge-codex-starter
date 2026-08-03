@@ -1,8 +1,8 @@
 # Current task
 
 - Current milestone: M30 — Production evaluation and security verification
-- Status: Phase 0 prepared locally; Phase 1a passes its final current-byte local gate; campaign,
-  pilot, production and release remain blocked
+- Status: Phase 0 prepared locally; Phase 1a passes its focused current-byte local gate while the
+  exact-head full hosted gate is pending; campaign, pilot, production and release remain blocked
 - Plan: `plans/M30_PRODUCTION_EVALUATION_SECURITY.md`
 - Machine contract: `plans/M30_CAMPAIGN_CONTRACT.yml`
 - Handoff: `tasks/M30_HANDOFF.md`
@@ -40,12 +40,15 @@ campaign and target controls before it can be accepted; repository evidence alon
 
 ## Current evidence and boundary
 
-- `make m30-readiness` on the current development tree reports `blocked_prerequisites`, four
-  repository failures, 24 `missing_external` controls, 37 exact source digests, no external calls or
-  writes, `campaign_executable=false` and `release_decision=no_go`.
-- Focused M30/commercial/supply-chain selections pass after the Phase-1a hardening. The final
-  isolated current-byte `make check` passes 3,988 tests with 248 explicit deselections in 1,132.41
-  seconds; publication evidence remains candidate-specific and is recorded only after upload.
+- `make m30-readiness` on clean commit `bf7d18a` reports `blocked_prerequisites`, two repository
+  failures (`candidate_main_branch` and `candidate_annotated_release_tag`), 24
+  `missing_external` controls, 37 exact source digests, no external calls or writes,
+  `campaign_executable=false` and `release_decision=no_go`.
+- Focused current-byte M30/supply-chain tests pass 52 tests with 158 deselections after the final
+  trust, clock and verifier-TOCTOU hardening. A pre-final isolated `make check` passed 3,988 tests
+  with 248 explicit deselections in 1,132.41 seconds; the exact final-byte local attempt was
+  terminated externally at 65% without a recorded test failure. Exact-head hosted CI is therefore
+  the pending full gate and must not be reported as passed before completion.
 - Hosted PR run `30826970514` passed quality, PostgreSQL integration and supply chain for branch
   head `e49e5d7d52f9e4005e4d469b24e7b23797a59aeb`, but its test checkout/evaluation subject is PR merge
   ref `43b4c21676c7bbffaa7b81c2e98d398692e43e8f`; it predates Phase 1a and is not exact M30 candidate

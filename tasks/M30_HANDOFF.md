@@ -3,8 +3,8 @@
 ## Summary
 
 - Milestone: M30 — Production evaluation and security verification, Phase 0 + Phase 1a
-- Status: partial; preparation/authentication vertical passes the final current-byte local gate,
-  while the campaign and all operated evidence remain blocked
+- Status: partial; preparation/authentication vertical passes its focused current-byte local gate,
+  while exact-head full CI, the campaign and all operated evidence remain pending or blocked
 - Recommended operator decision: publish only to draft PR #1 for review; do not merge, tag or
   dispatch Phase 1a, and retain M30, pilot, commercial availability, production and release
   **NO-GO**
@@ -63,7 +63,7 @@
 - M30 unit/acceptance/support, supply-chain and commercial-documentation tests: mutation, CLI,
   report, trust-provider and workflow regressions.
 - `tasks/CURRENT_TASK.md`, `tasks/PROJECT_STATE.md`, `tasks/WORK_QUEUE.md`, `tasks/M30_HANDOFF.md`
-  and `tasks/DECISION_LOG.md`: current candidate state, final local gate and D132.
+  and `tasks/DECISION_LOG.md`: current candidate state, bounded local evidence and D132.
 
 ## Commands executed
 
@@ -76,13 +76,15 @@
 | Focused verifier/CLI/workflow selection | pass | 19 passed after byte-pinning and workflow rename |
 | Corpus-balance/critical mutation regression | pass | 1 passed after exact risk/language hardening |
 | `.venv/bin/pytest -q tests/unit/test_commercial_operations_docs.py` | pass | 4 documentation-contract tests on the corrected operating-model bytes |
-| `make m30-readiness` | pass with explicit NO-GO | 4 repository failures, 24 missing external controls, 37 source digests, zero external I/O/writes |
+| `make m30-readiness` on clean `bf7d18a` | pass with explicit NO-GO | 2 repository failures (`main`/tag), 24 missing external controls, 37 source digests, zero external I/O/writes |
 | `make supply-chain-static` | pass | Static policy and release audit pass; dirty-tree warning expected before commit |
 | `gh run view 30826970514 ...` | pass/read-only | All three jobs passed for old head `e49e5d7`; PR merge subject, not current M30 evidence |
 | GitHub configuration read-only audit | pass/read-only | `main` unprotected; zero environments, rulesets and tags |
 | First `make check` attempt | fail | One transient `inspect.getsource` assertion failed; 3,967 passed and 248 deselected in 895.58 s |
 | Exact failing test and complete test module reruns | pass | 1 passed, then all 13 module tests passed without code or assertion changes |
-| Final isolated `make check` | pass | Ruff format/lint, mypy over 364 source files, performance node and 3,988 functional tests passed; 248 deselected in 1,132.41 s |
+| Pre-final isolated `make check` | pass | Ruff format/lint, mypy over 364 source files, performance node and 3,988 functional tests passed; 248 deselected in 1,132.41 s before the final trust/clock/TOCTOU closures |
+| Exact final-byte local `make check` | incomplete (environment termination) | Reached 65% with no recorded test failure before SIGTERM 15; it is not a pass |
+| Exact current-byte M30/supply-chain selection | pass | 52 passed, 158 deselected after the final trust/clock/TOCTOU closures |
 | `git diff --check` | pass | Current corrected documentation bytes; rerun if any file changes |
 
 ## Automated test results
@@ -90,17 +92,22 @@
 - Focused tests: pass; 243 in the combined M30/commercial/supply-chain selection, 19 in the final
   verifier/CLI/workflow selection, 4 commercial-documentation contracts and the final corpus
   mutation regression.
-- `make check`: final isolated run passed 3,988 tests with 248 explicit deselections in 1,132.41
-  seconds. The preceding contended attempt had one transient source-inspection failure; its exact
-  test and complete 13-test module both passed unchanged before the clean full rerun.
+- `make check`: the isolated 3,988-test pass predates the final trust, clock and verifier-TOCTOU
+  closures. The exact final-byte local attempt reached 65% with no recorded assertion failure but
+  was terminated by the execution environment, so it is not a pass. The exact current-byte focal
+  selection passes 52 tests with 158 deselections; exact-head hosted CI remains the pending full
+  gate.
 - Integration tests: no new service adapter is composed by Phase 1a; old hosted PostgreSQL evidence
   passed for a prior PR merge subject and is not accepted for this candidate.
 - Acceptance tests: Phase-1a clean synthetic subject authenticates bytes while execution/release
   remain blocked; dirty/non-main/unready subjects do not touch the trust provider.
 - Coverage: not rerun for this vertical; no new coverage claim.
-- Browser: no new runtime UI was added. M32 has exactly one later advanced desktop happy-path PASS;
-  its remaining desktop/mobile/blocked-state matrix is pending. M35 remains historical local
-  evidence, and the commercial integrated surface is explicitly missing.
+- Browser: the production Streamlit health endpoint returned `ok`, but Codex's in-app browser
+  became unavailable before a tab could be created. The automated advanced/simple/ambiguity
+  Streamlit selection passes 3 tests in 4.30 seconds. This adds no manual PASS: M32 still has
+  exactly one earlier advanced desktop happy path, its remaining desktop/mobile/blocked-state
+  matrix is pending, M35 remains historical local evidence, and the commercial integrated surface
+  is explicitly missing.
 
 ## Operator manual test
 

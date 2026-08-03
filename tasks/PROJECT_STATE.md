@@ -183,13 +183,15 @@ detached-bundle verifier pins exact GitHub attestation facts and official platfo
 snapshots plus sanitized config. Even success is only workflow-attested bytes:
 `campaign_executable=false`, `release_decision=no_go`, zero controls passed and 24 remaining.
 
-The final isolated Phase-1a local gate passes Ruff format/lint, strict mypy over 364 source files,
+A pre-final isolated Phase-1a local gate passed Ruff format/lint, strict mypy over 364 source files,
 the isolated performance node and 3,988 functional tests with 248 explicit deselections in
-1,132.41 seconds. An earlier contended full-gate attempt had one transient
-`inspect.getsource(build_api_http_services)` assertion after 3,967 passes; its exact test and all
-13 tests in that module passed unchanged before the clean full rerun. Focused M30, commercial,
-supply-chain, corpus-mutation and acceptance regressions also pass. This is local implementation
-evidence only and does not satisfy any of the 24 external M30 controls.
+1,132.41 seconds. It predates the final trust-fact revalidation, injected-clock expiry check and
+verifier-TOCTOU closure. The exact final-byte local `make check` reached 65% with no recorded test
+failure before the execution environment sent SIGTERM 15, so it is not a pass. The exact
+current-byte M30/supply-chain selection passes 52 tests with 158 deselections, and the clean
+`bf7d18a` preflight reports only the expected `main`/annotated-tag repository failures plus all 24
+external controls missing. Exact-head hosted CI remains the pending full gate. This is local
+implementation evidence only and does not satisfy any external M30 control.
 
 Phase 0 commit `c7e72cc97e4226b2d953f5c1e8ef55178a1598f5` and warmup commit
 `3f57a2ea89220ff0c68ac58f0f8e668069e93f81` are published on
