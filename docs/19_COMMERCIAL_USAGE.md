@@ -519,27 +519,33 @@ PostgreSQL/HTTP y aceptación; el criterio manual M35 exige sólo el recorrido d
 
 ## Prueba manual del nivel SQL solicitado
 
-El 3 de agosto de 2026, Query Studio produjo una observación manual **pre-final** en el navegador
-interno de Codex para el subset local/recorded avanzado, layout móvil y ambigüedad, sin ejecución de
-fuente. La petición en español
-pidió, por mes y categoría, ingresos netos, unidades y pedidos distintos, mínimo cuatro pedidos,
-ranking determinista top-3, porcentaje sobre el total elegible e ingreso acumulado. Antes de
-confirmar no había bloque SQL ni descarga. Tras confirmar se obtuvo PostgreSQL standalone de 106
-líneas visibles, empezando por `WITH`, con dos CTE, `COUNT(DISTINCT ...)`, `HAVING`, `ROW_NUMBER`,
-porcentaje, ventana acumulada y `LIMIT 100`; no contenía `%s`/`$1`, la descarga era visible, la
-validación opcional seguía deshabilitada y `Ejecutado=No`. La UI mostró `Sin ligar` y la advertencia
-no comercial; la consola no tuvo warnings/errors.
+El 4 de agosto de 2026, el navegador interno de Codex recorrió Query Studio sobre el árbol D140
+real con perfil local/recorded, intérprete determinista y cero ejecución de fuente. La petición en
+español pidió, por mes y categoría, ingresos netos, unidades y pedidos distintos, mínimo cuatro
+pedidos, ranking determinista top-3, porcentaje sobre el total elegible e ingreso acumulado. Antes
+de confirmar sólo había un preview tipado de 3 modelos, 11 campos y 2 joins; no había SQL ni
+descarga. Tras confirmar la huella exacta se obtuvo PostgreSQL standalone de 106 líneas, empezando
+por `WITH`, con dos CTE, `COUNT(DISTINCT ...)`, `HAVING`, `ROW_NUMBER`, porcentaje, ventana
+acumulada y `LIMIT 100`. La UI mostró PostgreSQL/v2, `Sin ligar`, `Ejecutado=No`, dos validaciones
+AST y la validación/ejecución opcional deshabilitada. El botón de descarga produjo un evento real
+del navegador y los logs de warning/error quedaron vacíos.
 
-En 390×844 los anchos visibles/scroll fueron 390, sin overflow horizontal. La petición ambigua
-`Muestra las ventas por fecha.` devolvió `date_meaning` sin confirmación, SQL ni descarga. La
-rotación managed después de crear un artefacto está cubierta aparte, ya sobre las remediaciones
-posteriores, por AppTest automatizado (`4 passed`), que elimina SQL/descarga y muestra error seguro;
-no es una prueba manual ni un target operado. La matriz restante sobre bytes finales —managed/
-operated target, simple/v1-v2, physical-only, unsupported,
-inyección, provider failure, foco/clipboard y navegadores/accessibility soportados— sigue abierta.
-La fuente canónica es [`docs/14_BROWSER_ACCEPTANCE.md`](14_BROWSER_ACCEPTANCE.md). Esta evidencia
-parcial no convierte en soportadas las subconsultas arbitrarias, self/CROSS joins, `INTERSECT`,
-recursión o `ROLLUP` del benchmark externo.
+El portapapeles oculto no fue observable en esa sesión, por lo que **no** se declara fidelidad de
+clipboard. La aceptación complementaria lee el `MemoryMediaFileStorage` real de Streamlit y prueba
+en las rutas simple y avanzada que los bytes descargados son exactamente el SQL visible en UTF-8,
+con SHA-256 y nombre derivados de esos bytes, MIME `text/plain`, sin BOM, newline añadido,
+placeholders ni ejecución. Es evidencia local server-side, no una prueba de destino externo.
+
+El viewport nativo 390×844 informó anchos document/body visibles y scroll exactamente iguales a
+390, sin overflow horizontal. `Muestra las ventas por fecha.` devolvió `date_meaning` sin
+confirmación, SQL ni descarga tanto en desktop como en móvil. La rotación managed posterior a un
+artefacto está cubierta aparte por AppTest, que elimina SQL/descarga y muestra un error seguro; no
+es una prueba manual ni un target operado. La matriz restante —managed/operated target,
+simple/v1-v2 y physical-only manuales, unsupported/inyección/provider failure, foco/clipboard,
+destinos pgAdmin/DBeaver/`psql` y navegadores/accessibility soportados— sigue abierta. La fuente
+canónica es [`docs/14_BROWSER_ACCEPTANCE.md`](14_BROWSER_ACCEPTANCE.md). Esta evidencia parcial no
+convierte en soportadas las subconsultas arbitrarias, self/CROSS joins, `INTERSECT`, recursión o
+`ROLLUP` del benchmark externo.
 
 ## Cómo interpretar una consulta solicitada
 

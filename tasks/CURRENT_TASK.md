@@ -6,8 +6,12 @@
   the published draft-PR baseline; exact commit `23dea0f` passes its clean-room gate and the current
   D137/D138 implementation passes the 174-test M30 cut. Security hotfix commit `664b90f` upgrades
   only the exact runtime lock to `cryptography==50.0.0`, passes the 4,073-test full local gate and
-  has an exact local/recorded desktop/responsive browser regression. The managed/operated browser,
-  campaign, pilot, commercial availability, production and release remain blocked
+  has an exact local/recorded desktop/responsive browser regression. D140 is hardening the current
+  workflows onto reviewed Node-24 action releases, binding every action SHA to its exact reviewed
+  version and adding real Streamlit download-byte acceptance. Its focal 171-test cut, 174-test M30
+  cut, runtime wheel, full 4,076-test gate and desktop/390×844 in-app-browser regression pass. The
+  managed/operated browser, campaign, pilot, commercial availability, production and release remain
+  blocked
 - Plan: `plans/M30_PRODUCTION_EVALUATION_SECURITY.md`
 - Machine contract: `plans/M30_CAMPAIGN_CONTRACT.yml`
 - Handoff: `tasks/M30_HANDOFF.md`
@@ -43,7 +47,7 @@ it can be accepted; repository evidence alone cannot do that.
 - Split GitHub workflow: candidate code runs only in the read-only validation job; the protected
   attestation job downloads one digest-bound artifact and never checks out or executes candidate
   code. Workflow SHA-256 is
-  `8944a48a3a14fe0c2aca4edca2d0a7bed00d0a0ce7fc699f5ff420ff5668d3d0`.
+  `7419abb1fd87e66e4f24e4102c6efe28cad8f1dd7937342cadd5fddd8ce61f6f`.
 - Detached-bundle verifier: exact repository/ref/revision/workflow/OIDC/predicate/hosted-runner
   policy, official platform-specific GitHub CLI 2.96.0 executable hashes, private snapshots,
   bounded inputs/output/time, sanitized config, before/after reads and trace hashes.
@@ -67,6 +71,13 @@ it can be accepted; repository evidence alone cannot do that.
   after HIGH GHSA-g6cj-pr64-35w5. Exact exports, `pip check`, `pip-audit`, targeted auth/OIDC/
   readiness tests, static policy and clean runtime-wheel smoke pass without changing product scope
   or any M30 trust fact.
+- D140 replaces every direct or Trivy-transitive Node-20 GitHub Action with the minimum reviewed
+  Node-24 release. A closed static allowlist now rejects an unknown full SHA or a version comment
+  that does not match its reviewed SHA. The exact M30/release workflow SHA-256 values are
+  `7419abb1...e61f6f` and `cf817243...8d643d`; the CI workflow fixes Trivy `v0.69.3` explicitly.
+  Streamlit acceptance also retrieves the real in-memory download and proves its UTF-8 bytes,
+  visible SHA, MIME and filename match both simple and advanced SQL with no BOM or added newline.
+  This is local implementation evidence, not a browser clipboard/destination or external control.
 - Commercial operating-model documents cover roles/RACI, setup, tenant onboarding, daily bounded
   M32 use, incidents/DR, offboarding and a pilot scorecard while explicitly remaining non-executable
   end-to-end until OpenAPI/payloads and an integrated commercial surface exist.
@@ -100,6 +111,13 @@ it can be accepted; repository evidence alone cannot do that.
   functional tests with 250 deselections. Its clean readiness report passes the clean-tree/source
   gates, fails only branch/tag repository gates, leaves all 24 controls `missing_external`, performs
   zero writes/network/database calls and returns `release_decision=no_go`.
+- D140 focal supply-chain plus copy/download acceptance passes 171 tests. Static supply-chain and
+  release policy pass over the modified tree; Actionlint 1.7.12 and ShellCheck 0.11.0 pass all
+  workflows with only the documented `concurrency.queue` schema exclusion. The M30 cut passes 174,
+  runtime-wheel smoke passes, and `make check` passes 4,076 functional tests with 250 deselections
+  in 864.50 seconds. After recording the browser evidence, the final evidence tree passes the same
+  complete gate again in 907.58 seconds. Exact hosted Node-20-warning-free evidence remains to be
+  recorded.
 - Codex's in-app browser completed the exact-`664b90f` local/recorded regression. Desktop covered
   25-line simple and 106-line advanced standalone PostgreSQL, pre-confirmation no-SQL, exact
   confirmation, `executed=false`, `date_meaning` and `unsupported_request`; both blocked paths
@@ -109,13 +127,20 @@ it can be accepted; repository evidence alone cannot do that.
   mobile SQL generation, managed target operation, clipboard/download bytes and the complete
   accessibility matrix remain pending. No current-final-byte managed/operated browser PASS is
   claimed.
+- The current D140 in-app-browser regression repeats the advanced 106-line path with no SQL before
+  confirmation, `executed=false`, a real download event and optional execution disabled. The
+  `date_meaning` request returns no SQL/download/confirmation. A native 390×844 viewport reports
+  document/body widths exactly 390 with the same blocked state, and desktop/mobile warning/error
+  logs are empty. The internal clipboard remained unobservable, so clipboard/destination fidelity
+  is not claimed; the real Streamlit media-store acceptance is local server-side evidence only.
 - Exact commit `23dea0f` passes a dedicated clean-room `make check`: supply-chain/release audit,
   formatting, Ruff, strict Mypy over 366 source files, the isolated performance node and 4,044
   functional tests pass with 250 deselections in 1,023.35 seconds. The later documentation-only
   evidence correction receives dedicated documentation/readiness/diff checks; PR merge-ref CI and
   exact tagged-main candidate evidence remain separate.
 - Draft PR #1 publishes `785a052` (qsp3 target binding) and `23dea0f` (fail-closed Phase 1b policy
-  preparation); D139 hotfix `664b90f` is the implementation head for this evidence closure.
+  preparation); D139 hotfix `664b90f` and documentation commit `5e55fd4` are the published head
+  before D140.
   Run `30847018014` is correlated to head `23dea0f` but executes merge ref `00f72c1`;
   it must not be described as exact-head or tagged-main candidate evidence.
 - Hosted PR run `30826970514` passed quality, PostgreSQL integration and supply chain for branch
@@ -130,8 +155,11 @@ it can be accepted; repository evidence alone cannot do that.
   JSON-last repair defects; D138 closes pre-limit subprocess buffering and proves bounded group
   cleanup while keeping trust, measurement, ledger, dedicated evaluator
   isolation and append-only retention outside the composed authority path. A malicious same-UID
-  co-tenant can still ABA-substitute private verifier paths; this is a conditional P1 before
-  commercial authority and requires evaluator isolation or a reviewed fd-input/fd-exec verifier.
+  co-tenant can still ABA-substitute private verifier paths; adversarial reproduction consumed a
+  substituted executable and input while their paths were restored before post-read. A portable
+  fd-input/fd-exec repair is unavailable on the current Darwin matrix and would not isolate
+  same-UID process authority. This remains a conditional P1 before commercial authority and
+  requires a dedicated non-co-tenant evaluator with root-owned binaries and read-only inputs.
 
 ## Commercial product boundary
 

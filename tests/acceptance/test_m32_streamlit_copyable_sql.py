@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
+import re
 from pathlib import Path
 
 import pytest
+import streamlit.testing.v1.app_test as streamlit_app_test
+from streamlit.runtime.memory_media_file_storage import MemoryMediaFileStorage
 from streamlit.testing.v1 import AppTest
 
 from schemabridge.adapters.query_studio.advanced_fake_language import (
@@ -38,6 +42,48 @@ def _visible(app: AppTest) -> str:
     )
 
 
+def _capture_media_storage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[MemoryMediaFileStorage]:
+    storages: list[MemoryMediaFileStorage] = []
+
+    def build_storage(media_endpoint: str) -> MemoryMediaFileStorage:
+        storage = MemoryMediaFileStorage(media_endpoint)
+        storages.append(storage)
+        return storage
+
+    monkeypatch.setattr(streamlit_app_test, "MemoryMediaFileStorage", build_storage)
+    return storages
+
+
+def _assert_exact_copy_and_download_bytes(
+    app: AppTest,
+    storages: list[MemoryMediaFileStorage],
+) -> None:
+    assert len(app.code) == 1
+    assert storages
+    code_text = app.code[0].proto.code_text
+    download_button = app.download_button(key="m32-download-copyable-sql")
+    download_name = Path(download_button.proto.url).name
+    download = storages[-1].get_file(download_name)
+    expected_bytes = code_text.encode("utf-8")
+    expected_sha256 = hashlib.sha256(expected_bytes).hexdigest()
+
+    assert str(app.code[0].value) == code_text
+    assert download.content == expected_bytes
+    assert download.mimetype == "text/plain"
+    assert download.filename == f"schemabridge-{expected_sha256[:12]}.sql"
+    assert f"SQL SHA-256: `{expected_sha256}`" in _visible(app)
+    assert not download.content.startswith(b"\xef\xbb\xbf")
+    assert not code_text.endswith("\n")
+    assert not download.content.endswith(b"\n")
+    assert "%s" not in code_text
+    assert re.search(r"\$\d+", code_text) is None
+    assert "executed=false" in _visible(app)
+    execution_metric = next(item for item in app.metric if item.label == "Ejecutado")
+    assert execution_metric.value == "No"
+
+
 def _copy_app(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -58,6 +104,7 @@ def test_streamlit_advanced_copy_flow_previews_before_generating_standalone_sql(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    storages = _capture_media_storage(monkeypatch)
     app = _copy_app(tmp_path, monkeypatch, name="m32-advanced-copy")
 
     assert not app.exception
@@ -114,12 +161,14 @@ def test_streamlit_advanced_copy_flow_previews_before_generating_standalone_sql(
     assert "executed=false" in visible
     target_metric = next(item for item in app.metric if item.label == "Destino gobernado")
     assert target_metric.value == "Sin ligar"
+    _assert_exact_copy_and_download_bytes(app, storages)
 
 
 def test_streamlit_simple_copy_flow_uses_the_same_confirmed_non_execution_path(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    storages = _capture_media_storage(monkeypatch)
     app = _copy_app(tmp_path, monkeypatch, name="m32-simple-copy")
     app.text_area(key="m32-natural-sql-text").set_value(M32_SIMPLE_PRODUCTS_QUESTION_ES)
     app.button(key="m32-prepare-natural-sql").click().run()
@@ -144,6 +193,7 @@ def test_streamlit_simple_copy_flow_uses_the_same_confirmed_non_execution_path(
     assert app.button(key="m32-optional-validation-disabled").disabled
     execution_metric = next(item for item in app.metric if item.label == "Ejecutado")
     assert execution_metric.value == "No"
+    _assert_exact_copy_and_download_bytes(app, storages)
 
     app.text_area(key="m32-natural-sql-text").set_value(M32_AMBIGUOUS_DATE_QUESTION_ES).run()
 

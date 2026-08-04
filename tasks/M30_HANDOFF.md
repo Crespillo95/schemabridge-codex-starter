@@ -9,15 +9,18 @@
   exact commit `23dea0f` passes its clean-room gate, and D137/D138 filesystem and subprocess-output
   hardening pass the current 174-test M30 cut. D139 hotfix `664b90f` upgrades only the exact runtime
   lock to `cryptography==50.0.0`, passes the 4,073-test full local implementation gate and completes
-  the bounded exact-hotfix local/recorded browser regression. The managed/operated browser campaign
-  and every external campaign control remain pending or blocked
+  the bounded exact-hotfix local/recorded browser regression. D140 moves direct and Trivy-transitive
+  actions to reviewed Node-24 releases, adds a closed SHA-to-version policy and proves Streamlit's
+  real download bytes for simple and advanced SQL. Its 171-test focal cut, 174-test M30 cut, runtime
+  wheel, two full 4,076-test gates and desktop/390×844 browser regression pass. The managed/operated
+  browser campaign and every external campaign control remain pending or blocked
 - Recommended operator decision: keep draft PR #1 open for review; do not merge, tag or dispatch
   Phase 1a, and retain M30, pilot, commercial availability, production and release
   **NO-GO**
 - Implementation commits on the delivery branch: `785a052` (qsp3), `23dea0f` (Phase 1b
   preparation) and `664b90f` (D139 dependency hotfix)
 - GitHub delivery: draft PR #1 on `agent/ignore-node-modules`; do not merge or tag
-- Proposed commit message: `docs: record M30 hotfix and browser regression`
+- Proposed commit message: `ci: move reviewed actions to Node 24`
 
 ## Implemented
 
@@ -90,6 +93,15 @@
   after HIGH GHSA-g6cj-pr64-35w5. Only `requirements/runtime.txt` and `uv.lock` changed; exact hashed
   exports, vulnerability audit, targeted auth/OIDC/readiness checks, static supply-chain policy,
   clean runtime-wheel smoke, full local gate and independent byte-level diff review pass.
+- Upgraded checkout, Python/uv setup, upload/download and Trivy to their minimum reviewed Node-24
+  releases under D140. CI now fixes Trivy scanner `v0.69.3` explicitly; the release and M30
+  workflows self-bind SHA-256 `cf817243...8d643d` and `7419abb1...e61f6f`. Static policy admits
+  only the closed action SHA/release pairs, so a syntactically valid unreviewed SHA or stale version
+  comment fails closed.
+- Added acceptance over Streamlit's real in-memory media store. Both simple and advanced artifacts
+  prove that downloaded bytes equal displayed SQL encoded as UTF-8, the visible SHA and filename
+  derive from those bytes, MIME is `text/plain`, and no BOM/newline/placeholders are introduced.
+  No SQL is executed and the external clipboard/destination matrix remains required.
 - Added the commercial operating model: roles/RACI and signature gates, tenant setup/onboarding,
   bounded daily M32 use, incident/DR objectives, offboarding and pilot scorecard. It explicitly says
   the current manuals are not an integrated end-to-end commercial surface.
@@ -123,7 +135,10 @@
   mandatory managed composition.
 - `src/schemabridge/entrypoints/streamlit/natural_sql.py`: exact managed target identity and explicit
   unbound/non-commercial presentation.
-- `scripts/verify_supply_chain.py`: exact workflow bytes/topology/actions/sign-job policy.
+- `.github/workflows/ci.yml` and `.github/workflows/release-evidence.yml`: reviewed direct and
+  transitive Node-24 actions with the prior Trivy scanner version retained explicitly.
+- `scripts/verify_supply_chain.py`: exact workflow bytes/topology/actions/sign-job policy plus the
+  closed action SHA-to-reviewed-release allowlist.
 - `requirements/runtime.txt` and `uv.lock`: exact `cryptography==50.0.0` hotfix and hashes; no other
   package changed.
 - `docs/commercial/`, `docs/06_SECURITY.md`, `docs/12_RUNBOOK.md`, `docs/13_UI_SPEC.md`,
@@ -134,6 +149,8 @@
 - `tests/m32_target_support.py`, `tests/unit/test_natural_sql_target_binding.py` and the updated M32
   unit/acceptance/Streamlit cuts: exact target propagation, route drift, substitution,
   cross-connection and unavailable-target failures.
+- `tests/acceptance/test_m32_streamlit_copyable_sql.py` and `tests/unit/test_supply_chain.py`: real
+  download-byte fidelity plus unreviewed-action and SHA/version mismatch regressions.
 - `tasks/CURRENT_TASK.md`, `tasks/PROJECT_STATE.md`, `tasks/WORK_QUEUE.md`, `tasks/M30_HANDOFF.md`
   and `tasks/DECISION_LOG.md`: current candidate state, bounded local evidence and D132–D138.
 
@@ -200,6 +217,19 @@
 | Exact-`664b90f` Codex in-app-browser regression | bounded local/recorded pass | Desktop simple 25-line and advanced 106-line paths, ambiguity and unsupported fail-closed, 390×844 iframe no-overflow layout/navigation and empty warning/error logs; no managed target or execution |
 | D139 documentation/readiness/release/supply-chain selection | pass twice | 242 passed in 36.81 seconds after the browser, decision, state and handoff update; closing rerun passed 242 in 36.82 seconds after recording the full gate |
 | Final D139 evidence-tree `make check` | pass | Supply-chain/release audit, 745-file format/Ruff, strict Mypy over 366 sources, performance and 4,073 functional tests pass with 250 deselections in 946.75 seconds; dirty-tree warning is expected before the evidence commit |
+| D140 supply-chain/copy-download focal cut | pass | 171 tests in 11.50 seconds with an isolated writable uv cache; covers exact reviewed action pairs and real Streamlit bytes for simple/advanced SQL |
+| D140 `make supply-chain-static` | pass | Static policy and release audit pass over 1,060 candidates/23 licenses; dirty-tree warning is expected before commit |
+| D140 Actionlint/ShellCheck | pass | Official Actionlint 1.7.12 plus ShellCheck 0.11.0 report zero findings across all three workflows after the sole documented `concurrency.queue` schema exclusion |
+| D140 `.venv/bin/pytest -q -k m30` | pass | 174 passed and 4,152 deselected in 173.87 seconds; trust, control and capability remain unchanged |
+| D140 `make runtime-wheel-smoke` | pass | Clean wheel validates migrations 1–15 and every runtime entrypoint |
+| D140 implementation-tree `make check` | pass | Supply-chain/release audit, 745-file format/Ruff, strict Mypy over 366 sources, performance and 4,076 functional tests pass with 250 deselections in 864.50 seconds |
+| D140 Codex in-app-browser regression | bounded local/recorded pass | Advanced 106-line path, exact confirmation, real download event, ambiguity fail-closed, native 390×844 no-overflow and empty warning/error logs; clipboard content remained unobservable and is not claimed |
+| D140 final evidence-tree `make check` | pass | After recording the browser evidence, the same supply-chain/release, 745-file format/Ruff, strict 366-source Mypy, performance and 4,076-test gate passed again with 250 deselections in 907.58 seconds |
+| Post-D140 236-test documentation/readiness/supply-chain cut, first attempt | fail (environment) | One supply-chain test could not run `uv export` through the sandbox-restricted global cache; 235 tests passed. The separate static policy command passed and no product assertion failed |
+| Post-D140 isolated-cache 236-test cut | pass | Exact rerun with `UV_CACHE_DIR=/private/tmp/schemabridge-uv-cache` passed all 236 tests in 41.34 seconds |
+| Post-D140 `make supply-chain-static` and `git diff --check` | pass | Static/release policy passes over 1,060 candidates/23 licenses; expected dirty-tree warning before commit; no whitespace errors |
+| Final pre-commit `make m30-readiness` | expected NO-GO | `blocked_prerequisites`, `campaign_executable=false` and `release_decision=no_go`; local report artifacts only |
+| Final handoff documentation contract | pass | Four commercial-operations documentation tests pass after recording the browser and full-gate evidence |
 
 ## Automated test results
 
@@ -224,6 +254,8 @@
 - Acceptance tests: Phase-1a clean synthetic subjects authenticate bytes while execution/release
   remain blocked. The qsp3 acceptance cuts prove exact target propagation and `executed=false`;
   unavailable, substituted, cross-connection, semantic-stale and route-drift states return no SQL.
+  D140 additionally validates the real Streamlit media bytes, MIME, filename and visible digest for
+  both supported reference queries without executing them.
 - Coverage: not rerun for this vertical; no new coverage claim.
 - Browser: exact hotfix commit `664b90f` completed the local/recorded in-app-browser regression.
   Desktop covered the 25-line simple and 106-line advanced standalone paths, pre-confirmation
@@ -232,6 +264,14 @@
   logs. Direct viewport override was ignored by the browser runtime and nested-frame text injection
   was not used, so the mobile evidence is layout/navigation only. Managed rotation remains AppTest
   evidence. A managed/operated browser PASS and integrated commercial surface remain absent.
+- D140 browser: the current implementation tree repeats the advanced no-SQL-before-confirmation and
+  106-line standalone path, fires the real download, preserves `executed=false`, and returns no
+  artifact for `date_meaning`. The native 390×844 viewport has no document/body overflow and no
+  warning/error logs. Clipboard content was not observable through the internal browser and remains
+  pending; real media-store bytes are proven separately by AppTest.
+- D140 final evidence tree: after the browser record was written, the complete local quality gate
+  passed again with 4,076 functional tests and 250 deselections in 907.58 seconds; hosted evidence
+  for the exact published head is still pending.
 
 ## Operator manual test
 
@@ -374,6 +414,12 @@ Phase-1b policy preparation — also not a receipt or dispatch authority:
 - Reason: a post-`communicate()` size check allowed unbounded allocation before rejection, and the
   candidate-inspection cleanup needed the same directly testable timeout/descriptor contract.
 - Logged in: D138; it changes no trust fact, control result, capability or release decision.
+- Decision: move only to the minimum reviewed Node-24 action releases, retain the exact Trivy
+  scanner snapshot and require an exact SHA/release pair for every remote action.
+- Reason: the hosted run showed forced Node-20 compatibility execution, while a full SHA plus an
+  arbitrary version comment did not prove review provenance. Larger major-version jumps would add
+  unrelated artifact/cache behavior changes.
+- Logged in: D140; it changes no trust fact, control result, capability or release decision.
 
 ## Known limitations or unverified items
 
@@ -399,7 +445,8 @@ Phase-1b policy preparation — also not a receipt or dispatch authority:
 - The exact-`664b90f` local/recorded browser regression and post-remediation AppTest are not a
   managed/operated browser PASS. Exact `23dea0f` passes its historical clean gate; the current
   D137/D138 implementation passes its 174-test M30 cut, and D139 passes the 4,073-test full local
-  gate. Managed browser evidence remains required before M30 acceptance.
+  gate. D140 proves server-side download marshalling but not clipboard or destination fidelity.
+  Managed browser evidence remains required before M30 acceptance.
 - PostgreSQL is the only output dialect. Arbitrary SQL, cross-database portability, federation,
   more than three tables/two joins and unsupported families are not certified.
 - Managed staging/production now rejects an absent or stale target binding. Local/recorded mode may

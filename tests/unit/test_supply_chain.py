@@ -309,6 +309,44 @@ def test_mutable_action_and_runtime_image_references_are_rejected(tmp_path: Path
 
 
 @pytest.mark.parametrize(
+    ("reference", "reviewed_version", "expected_code"),
+    (
+        (
+            "actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "v5.0.1",
+            "action_not_reviewed",
+        ),
+        (
+            supply_chain._CHECKOUT_ACTION,
+            "v4.2.2",
+            "action_reviewed_version_mismatch",
+        ),
+    ),
+)
+def test_remote_actions_require_an_exact_reviewed_sha_and_release_pair(
+    tmp_path: Path,
+    reference: str,
+    reviewed_version: str,
+    expected_code: str,
+) -> None:
+    workflow_directory = tmp_path / ".github" / "workflows"
+    workflow_directory.mkdir(parents=True)
+    (workflow_directory / "ci.yml").write_text(
+        "name: CI\n"
+        "on: [push]\n"
+        "permissions: {contents: read}\n"
+        "jobs:\n"
+        "  quality:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        f"      - uses: {reference} # {reviewed_version}\n",
+        encoding="utf-8",
+    )
+
+    assert expected_code in {finding.code for finding in verify_workflows(tmp_path)}
+
+
+@pytest.mark.parametrize(
     ("before", "after", "expected_code"),
     [
         (
@@ -350,6 +388,11 @@ def test_mutable_action_and_runtime_image_references_are_rejected(tmp_path: Path
             "          cache-dir: .local/trivy-cache\n",
             "          cache-dir: .cache/trivy\n",
             "trivy_cache_path_invalid",
+        ),
+        (
+            "          version: v0.69.3\n",
+            "          version: latest\n",
+            "trivy_version_invalid",
         ),
         (
             ".venv/bin/pip-audit --disable-pip --require-hashes --format json \\\n",
@@ -1005,7 +1048,7 @@ def test_m30_make_path_arguments_are_not_shell_interpreted(
         ),
         (
             "      - name: Generate the registry-image CycloneDX SBOM\n"
-            "        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0\n",
+            "        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0\n",
             "      - name: Generate the registry-image CycloneDX SBOM\n"
             "        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3\n",
             "release_action_allowlist_invalid",

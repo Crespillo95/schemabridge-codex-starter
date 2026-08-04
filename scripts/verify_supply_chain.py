@@ -181,21 +181,38 @@ WATCHDOG_BUILT_REQUIREMENT = (
 _FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _SHA256_REFERENCE = re.compile(r"^sha256:[0-9a-f]{64}$")
-_REVIEWED_VERSION = re.compile(r"#\s*(?:reviewed\s+)?v?\d+(?:\.\d+){0,3}\b", re.IGNORECASE)
+_REVIEWED_VERSION = re.compile(
+    r"#\s*(?:reviewed\s+)?(?P<version>v?\d+(?:\.\d+){0,3})\s*$",
+    re.IGNORECASE,
+)
 _REQUIREMENT = re.compile(
     r"^(?P<name>[A-Za-z0-9_.-]+)==(?P<version>[^\s;]+)(?:\s*;\s*(?P<marker>.+?))?$"
 )
 _HASH = re.compile(r"--hash=sha256:([0-9a-f]{64})\b")
 _FROM = re.compile(r"^\s*FROM\s+([^\s]+)", re.IGNORECASE)
 _DIRECT_NAME = re.compile(r"^\s*([A-Za-z0-9_.-]+)")
+_CHECKOUT_ACTION = "actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd"
+_SETUP_PYTHON_ACTION = "actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c"
+_SETUP_UV_ACTION = "astral-sh/setup-uv@eb1897b8dc4b5d5bfe39a428a8f2304605e0983c"
 _ATTEST_ACTION = "actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373"
 _BUILD_PUSH_ACTION = "docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a"
 _SETUP_BUILDX_ACTION = "docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c"
-_TRIVY_ACTION = "aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1"
-_UPLOAD_ARTIFACT_ACTION = "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"
-_DOWNLOAD_ARTIFACT_ACTION = "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"
-_RELEASE_WORKFLOW_SHA256 = "9979c54be6ba39d1d7b606e6d882aa10e9868bb9d003482b30a780ee104d1f26"
-_M30_CAMPAIGN_WORKFLOW_SHA256 = "8944a48a3a14fe0c2aca4edca2d0a7bed00d0a0ce7fc699f5ff420ff5668d3d0"
+_TRIVY_ACTION = "aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25"
+_UPLOAD_ARTIFACT_ACTION = "actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f"
+_DOWNLOAD_ARTIFACT_ACTION = "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131"
+_REVIEWED_REMOTE_ACTION_VERSIONS = {
+    _CHECKOUT_ACTION: "v5.0.1",
+    _SETUP_PYTHON_ACTION: "v6.0.0",
+    _SETUP_UV_ACTION: "v7.0.0",
+    _ATTEST_ACTION: "v4.1.1",
+    _BUILD_PUSH_ACTION: "v7.3.0",
+    _SETUP_BUILDX_ACTION: "v4.2.0",
+    _TRIVY_ACTION: "v0.36.0",
+    _UPLOAD_ARTIFACT_ACTION: "v6.0.0",
+    _DOWNLOAD_ARTIFACT_ACTION: "v7.0.0",
+}
+_RELEASE_WORKFLOW_SHA256 = "cf81724399d11f96ec4b09be33a5634fb4a1d2eaffd37da91ecf9705ae8d643d"
+_M30_CAMPAIGN_WORKFLOW_SHA256 = "7419abb1fd87e66e4f24e4102c6efe28cad8f1dd7937342cadd5fddd8ce61f6f"
 _RELEASE_TRIGGER = {
     "workflow_dispatch": {
         "inputs": {
@@ -567,7 +584,8 @@ def _remote_action_findings(
             findings.append(Finding("action_ref_missing", f"{relative}:{line_number}", reference))
             continue
         action, revision = reference.rsplit("@", maxsplit=1)
-        if not action or _FULL_SHA.fullmatch(revision) is None:
+        immutable_reference = bool(action and _FULL_SHA.fullmatch(revision) is not None)
+        if not immutable_reference:
             findings.append(
                 Finding(
                     "action_not_sha_pinned",
@@ -575,12 +593,35 @@ def _remote_action_findings(
                     "remote actions require a full 40-character commit SHA",
                 )
             )
-        if not separator or _REVIEWED_VERSION.search(f"#{comment}") is None:
+        reviewed_version = _REVIEWED_VERSION.search(f"#{comment}") if separator else None
+        if reviewed_version is None:
             findings.append(
                 Finding(
                     "action_reviewed_version_missing",
                     f"{relative}:{line_number}",
                     "the reviewed release must be retained in an inline comment",
+                )
+            )
+        if not immutable_reference:
+            continue
+        expected_version = _REVIEWED_REMOTE_ACTION_VERSIONS.get(reference)
+        if expected_version is None:
+            findings.append(
+                Finding(
+                    "action_not_reviewed",
+                    f"{relative}:{line_number}",
+                    "the immutable action is absent from the closed reviewed-action allowlist",
+                )
+            )
+        elif (
+            reviewed_version is not None
+            and reviewed_version.group("version").casefold() != expected_version.casefold()
+        ):
+            findings.append(
+                Finding(
+                    "action_reviewed_version_mismatch",
+                    f"{relative}:{line_number}",
+                    f"the reviewed release comment must be {expected_version}",
                 )
             )
     return tuple(findings)
@@ -809,9 +850,9 @@ def _m30_campaign_workflow_findings(
         else ()
     )
     if actions != (
-        "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
-        "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
-        "astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e",
+        _CHECKOUT_ACTION,
+        _SETUP_PYTHON_ACTION,
+        _SETUP_UV_ACTION,
         _UPLOAD_ARTIFACT_ACTION,
         _DOWNLOAD_ARTIFACT_ACTION,
         _ATTEST_ACTION,
@@ -1045,6 +1086,14 @@ def _trivy_cache_findings(
                         "Trivy caches must stay in the ignored .local artifact directory",
                     )
                 )
+            if not isinstance(inputs, dict) or inputs.get("version") != "v0.69.3":
+                findings.append(
+                    Finding(
+                        "trivy_version_invalid",
+                        f"{relative}:{job_name}:step-{step_index}",
+                        "Trivy actions must retain the reviewed v0.69.3 scanner snapshot",
+                    )
+                )
     return tuple(findings)
 
 
@@ -1233,10 +1282,10 @@ def _release_attestation_findings(
     expected_steps: Mapping[str, tuple[tuple[str, str], ...]] = {
         "audit": (("run", "Verify authoritative clean external state before any build"),),
         "prepare": (
-            ("uses", "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"),
+            ("uses", _CHECKOUT_ACTION),
             ("run", "Verify canonical release source and protected policies"),
-            ("uses", "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065"),
-            ("uses", "astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e"),
+            ("uses", _SETUP_PYTHON_ACTION),
+            ("uses", _SETUP_UV_ACTION),
             ("uses", _SETUP_BUILDX_ACTION),
             ("run", "Install and verify frozen inputs"),
             ("run", "Build the wheel once"),

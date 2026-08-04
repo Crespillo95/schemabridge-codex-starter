@@ -180,7 +180,7 @@ artifact/provider/target/corpus/owner/control freezes and workflow-attested byte
 Every corpus slice is equally Spanish/English and every supported advanced family now has
 standard/high/critical cases, preventing monolingual slices and a vacuous critical threshold. The
 split workflow SHA-256 is
-`8944a48a3a14fe0c2aca4edca2d0a7bed00d0a0ce7fc699f5ff420ff5668d3d0`; candidate code runs only in
+`7419abb1fd87e66e4f24e4102c6efe28cad8f1dd7937342cadd5fddd8ce61f6f`; candidate code runs only in
 the read-only validation job. The signing job never checks out or executes candidate code. The
 detached-bundle verifier pins exact GitHub attestation facts and official platform-specific `gh`
 2.96.0 executable bytes, records verifier/bundle/certificate/timestamp hashes and uses private
@@ -263,6 +263,22 @@ runtime-wheel smoke and `make check` pass; the full gate retains 4,073 functiona
 deselections. Clean `make m30-readiness` on `664b90f` passes clean-tree/source-contract, fails only
 non-main/non-tagged candidate identity, leaves 24 controls `missing_external`, performs zero
 external calls/writes and returns `no_go`.
+
+D140 removes the hosted Node-20 compatibility boundary without broadening product authority.
+Checkout, Python/uv setup, upload/download and Trivy now use their minimum reviewed Node-24
+releases; Trivy remains fixed to scanner `v0.69.3`. Release workflow SHA-256 is
+`cf81724399d11f96ec4b09be33a5634fb4a1d2eaffd37da91ecf9705ae8d643d`; the M30 manifest workflow
+uses the hash above. Static policy now requires every remote action to be both full-SHA pinned and
+present in a closed SHA-to-reviewed-release map with the exact matching inline version. A focal
+171-test cut, the 174-test M30 cut, runtime-wheel smoke and two full 4,076-test local gates pass;
+the final evidence-tree run completed in 907.58 seconds after the browser record was written.
+Streamlit acceptance also reads its real in-memory media
+file and proves exact UTF-8 byte/display/SHA/filename/MIME fidelity for both simple and advanced
+SQL, with no BOM, added newline, placeholders or execution. These local checks do not prove the
+operated clipboard/browser/destination matrix or satisfy any of the 24 external controls. The
+current in-app browser repeats the advanced 106-line no-SQL-before-confirmation path, fires a real
+download event, blocks `date_meaning`, reports no warning/error logs and has no overflow at native
+390×844. Clipboard content remained unobservable and is not claimed.
 
 Phase 0 commit `c7e72cc97e4226b2d953f5c1e8ef55178a1598f5` and warmup commit
 `3f57a2ea89220ff0c68ac58f0f8e668069e93f81` are published on

@@ -325,7 +325,7 @@ jobs:
                 )
                 and .scanner_evidence.trivy.action == "aquasecurity/trivy-action"
                 and .scanner_evidence.trivy.action_revision
-                  == "57a97c7e7821a5776cebc9bb87c984fa69cba8f1"
+                  == "ed142fd0673e97e23eac54620cfb913e5ce36c25"
                 and .scanner_evidence.trivy.tool == "trivy"
                 and .scanner_evidence.trivy.tool_version == "0.69.3"
                 and (
@@ -596,7 +596,7 @@ jobs:
       PREPARATION_DIRECTORY: .local/prepublication
       PREPARED_DIRECTORY: .local/prepared-release
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -809,10 +809,10 @@ jobs:
               ] | length)"'
           )"
           test "$required_jobs" = "3:3:3"
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: "3.12"
-      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+      - uses: astral-sh/setup-uv@eb1897b8dc4b5d5bfe39a428a8f2304605e0983c # v7.0.0
         with:
           version: "0.11.30"
           enable-cache: true
@@ -863,7 +863,7 @@ jobs:
           )" = "$SOURCE_REVISION"
           printf 'id=%s\n' "$image_id" >> "$GITHUB_OUTPUT"
       - name: Generate the unpublished runtime-image CycloneDX SBOM
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: image
           image-ref: ${{ env.LOCAL_IMAGE_NAME }}
@@ -872,7 +872,7 @@ jobs:
           output: .local/prepublication/runtime-image.cdx.json
           version: v0.69.3
       - name: Scan the unpublished runtime image
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: image
           image-ref: ${{ env.LOCAL_IMAGE_NAME }}
@@ -1063,7 +1063,7 @@ jobs:
           test "$actual_entries" = "$expected_entries"
       - name: Upload the immutable prepared release artifact
         id: upload_prepared
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: prepared-release-${{ github.run_id }}-${{ github.run_attempt }}
           path: .local/prepared-release/
@@ -1721,7 +1721,7 @@ jobs:
             jq -r '.auths["ghcr.io"] | type == "object"' "$DOCKER_CONFIG/config.json"
           )" = "true"
       - name: Generate the registry-image CycloneDX SBOM
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: image
           image-ref: ${{ env.IMAGE_NAME }}@${{ env.IMAGE_DIGEST }}
@@ -1730,7 +1730,7 @@ jobs:
           output: .local/raw-evidence/runtime-image.cdx.json
           version: v0.69.3
       - name: Block vulnerable registry image
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: image
           image-ref: ${{ env.IMAGE_NAME }}@${{ env.IMAGE_DIGEST }}
@@ -1793,7 +1793,7 @@ jobs:
           )"
           observed_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
           jq -nS \
-            --arg action_revision "57a97c7e7821a5776cebc9bb87c984fa69cba8f1" \
+            --arg action_revision "ed142fd0673e97e23eac54620cfb913e5ce36c25" \
             --arg database_sha256 "$database_sha256" \
             --arg downloaded_at "$downloaded_at" \
             --arg metadata_sha256 "$metadata_sha256" \
@@ -2093,7 +2093,7 @@ jobs:
             jq -ce '
               select(
                 .action == "aquasecurity/trivy-action"
-                and .action_revision == "57a97c7e7821a5776cebc9bb87c984fa69cba8f1"
+                and .action_revision == "ed142fd0673e97e23eac54620cfb913e5ce36c25"
                 and .tool == "trivy"
                 and .tool_version == "0.69.3"
                 and (
@@ -2233,7 +2233,7 @@ jobs:
           test "$actual_entries" = "$expected_entries"
       - name: Upload the immutable canonical release payload
         id: upload_release
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: release-payload-${{ github.run_id }}-${{ github.run_attempt }}
           path: .local/release-payload/

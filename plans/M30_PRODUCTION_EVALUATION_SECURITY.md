@@ -6,8 +6,10 @@
   published on draft PR #1. Exact commit `23dea0f` passes its historical clean-room gate; current
   D137 descriptor I/O and D138 bounded subprocess streaming pass the 174-test M30 cut. D139 exact
   runtime-lock hotfix `664b90f` passes hashed supply-chain checks, the 4,073-test full local gate and
-  the bounded local/recorded browser regression. No externally authenticated manifest, managed
-  browser or operated receipt exists, so M30, campaign and release remain blocked
+  the bounded local/recorded browser regression. D140 upgrades the direct and Trivy-transitive
+  GitHub Actions boundary to reviewed Node-24 releases, binds each admitted SHA to its exact release
+  comment and proves the real Streamlit download bytes locally. No externally authenticated
+  manifest, managed browser or operated receipt exists, so M30, campaign and release remain blocked
 - Release decision: **NO-GO**
 - Candidate SKU: PostgreSQL copy-first private beta, isolated per customer
 - Depends on: accepted M29 contracts in the target environment and accepted M35 registry lifecycle
@@ -370,6 +372,11 @@ artifacts.
   and `psql` matrix, with human-visible environment/database/schema/read-only identity bound to
   the same governed target fingerprint;
 - release risk register and product/semantic/security/operations/release go/no-go signatures.
+
+The local Streamlit acceptance may prove that its real media store receives exactly the displayed
+UTF-8 SQL bytes, SHA-256-derived filename and `text/plain` MIME without a BOM or added newline. It
+does not replace the operated clipboard/download/browser matrix, the paste into pgAdmin/DBeaver/
+`psql`, or the target-identity evidence above.
 
 ## Acceptance criteria
 

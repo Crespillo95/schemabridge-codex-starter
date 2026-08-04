@@ -846,6 +846,37 @@ responsive regression subset. It does not prove a managed target, destination ex
 independent download/clipboard bytes, the full focus/accessibility/browser matrix, an operated M30
 control or commercial release readiness.
 
+### 2026-08-04 D140 Node-24/download-fidelity regression — not operated M30 evidence
+
+After the reviewed GitHub Action upgrade and local download-byte acceptance, Codex's in-app
+browser exercised the real Streamlit entrypoint again on the D140 implementation tree. The process
+used an isolated draft store, `recorded` execution, the deterministic fake interpreter and
+loopback port 8510; its health endpoint returned `ok`. This profile has no managed target, provider
+call, source execution or commercial authority.
+
+At 1280×720 the advanced Spanish reference exposed its typed 3-model/11-field/2-join preview and no
+SQL before exact confirmation. After confirming the fingerprint, it rendered the same 106-line
+PostgreSQL statement with `aggregated`/`windowed` CTEs, approved joins, `COUNT DISTINCT`, `HAVING`,
+ranking, percentage, running sum, top-three filter and `LIMIT 100`. The UI reported PostgreSQL/v2,
+`Ejecutado=No`, target `Sin ligar`, two independent AST validations and a disabled optional
+validation/execution control. The browser emitted a real download event from the visible standalone
+SQL button.
+
+The internal browser's hidden code-toolbar click did not make clipboard text observable, so this
+run does **not** claim clipboard fidelity. The companion AppTest acceptance uses Streamlit's real
+`MemoryMediaFileStorage` and proves for simple and advanced artifacts that download bytes equal the
+displayed SQL encoded as UTF-8, the visible SHA-256 and filename derive from those bytes, MIME is
+`text/plain`, and no BOM, trailing newline or driver placeholder is introduced. That local
+server-side proof still does not replace the external clipboard/download and pgAdmin/DBeaver/`psql`
+destination matrix.
+
+`Muestra las ventas por fecha.` returned `date_meaning` with no SQL block, confirmation or download.
+The browser's native viewport override then reported exactly 390×844; document and body client/
+scroll widths were all 390, Query Studio and the ambiguity remained visible, and the blocked state
+still had zero SQL, download and confirmation controls. Desktop and responsive warning/error logs
+were empty. This is a current-byte local/recorded regression only; every operated M30 control and
+commercial/production/release decision remains **NO-GO**.
+
 ## M34 governed-publication browser acceptance
 
 Run the isolated synthetic presentation only after the final M34 application bytes:
