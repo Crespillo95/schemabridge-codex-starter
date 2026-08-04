@@ -18,7 +18,7 @@
   Phase 1a, and retain M30, pilot, commercial availability, production and release
   **NO-GO**
 - Implementation commits on the delivery branch: `785a052` (qsp3), `23dea0f` (Phase 1b
-  preparation) and `664b90f` (D139 dependency hotfix)
+  preparation), `664b90f` (D139 dependency hotfix) and `1c6e38b` (D140 Node-24/download fidelity)
 - GitHub delivery: draft PR #1 on `agent/ignore-node-modules`; do not merge or tag
 - Proposed commit message: `ci: move reviewed actions to Node 24`
 
