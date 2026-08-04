@@ -2,10 +2,11 @@
 
 - Current milestone: M30 — Production evaluation and security verification
 - Status: Phase 0, Phase 1a, fail-closed Phase 1b policy preparation, local descriptor-anchored
-  filesystem hardening and the qsp3 target-bound copy-SQL vertical are integrated over the
-  published draft-PR baseline; exact commit `23dea0f` passes its clean-room gate, while the current
-  filesystem delta/full gate and managed/operated browser remain pending. Campaign, pilot,
-  commercial availability, production and release remain blocked
+  filesystem/subprocess hardening and the qsp3 target-bound copy-SQL vertical are integrated over
+  the published draft-PR baseline; exact commit `23dea0f` passes its clean-room gate and the current
+  D137/D138 implementation passes the 174-test M30 cut and 4,073-test full local gate. The managed/operated
+  browser remains pending; campaign, pilot, commercial availability, production and release remain
+  blocked
 - Plan: `plans/M30_PRODUCTION_EVALUATION_SECURITY.md`
 - Machine contract: `plans/M30_CAMPAIGN_CONTRACT.yml`
 - Handoff: `tasks/M30_HANDOFF.md`
@@ -26,13 +27,15 @@ it can be accepted; repository evidence alone cannot do that.
   only NO-GO. The contract freezes the qsp3/M26/target-bound-plan/artifact-rerun policy.
 - Phase 1a: canonical external manifest, structural JSON Schema plus authoritative validator,
   artifact/provider/target/corpus/owner/control freezes and a maximum 30-day UTC window.
-- Phase 1b policy preparation is included under D135/D137: manifest schema v2 binds one canonical
+- Phase 1b policy preparation is included under D135/D137/D138: manifest schema v2 binds one canonical
   external policy; the policy freezes the exact 24-control DAG, receipt kinds, evidence subjects,
   producer workflows, authorization stages and five-role quorum. Its only composed use case
   validates policy binding and always keeps external trust/receipt authentication disabled, 0/24,
   no capabilities and `no_go`; the receipt adjudicator remains deliberately uncomposed. External
   reads and report publication now use fail-closed per-component dirfds, stable owner/mode/link/time
-  identities, nonblocking leaves, same-dirfd publication, fsync and final read-back.
+  identities, nonblocking leaves, same-dirfd publication, fsync and final read-back. Git and GitHub
+  subprocess output is drained through selectors with exact byte ceilings, monotonic deadlines,
+  process-group termination and synchronous direct-child reaping on every exceptional path.
 - Exact corpus matrix: every slice has equal Spanish/English counts; simple families are standard;
   every advanced family has standard/high/critical slices; ambiguity, unsupported and adversarial
   families/risk levels are closed. Totals remain exactly 500 ES + 500 EN.
@@ -80,11 +83,12 @@ it can be accepted; repository evidence alone cannot do that.
   campaign selection passes 103 tests. Focal Ruff, formatting, mypy over seven qsp3 source files
   plus the contract model, and `git diff --check` pass. These are bounded implementation checks,
   not external M30 evidence.
-- The pre-closing-review D137 snapshot passed the M30 cut with 159 tests and 4,149 deselections in
-  279.25 seconds. After independent review exposed the final-read path-order, JSON-last repair,
-  unsafe-temp-parent and Git-index gaps, the corrected current bytes pass 63 focused unit/
-  acceptance tests plus focal format/Ruff/Mypy/diff. Exact current M30/full gates remain pending.
-  This validates policy preparation only, not a receipt or external control.
+- Final D137/D138 bytes pass `.venv/bin/pytest -q -k m30` with 174 tests and 4,149 deselections in
+  286.66 seconds. `make check` passes supply-chain and release audits, formatting, Ruff, strict Mypy
+  over 366 sources, the isolated performance node and 4,073 functional tests with 250 deselections
+  in 1,272.00 seconds. Independent reviews report no P0–P3 in either bounded subprocess delta on
+  the current 0/24, no-capability surface. This validates local policy preparation only, not a
+  receipt or external control.
 - Codex in-app-browser evidence is bounded and pre-final: local/recorded desktop advanced, 390×844
   no-overflow and `date_meaning` ambiguity were observed with clean console; managed rotation is
   post-remediation AppTest only. On 2026-08-03 the requested final retry connected to the browser
@@ -107,7 +111,8 @@ it can be accepted; repository evidence alone cannot do that.
   protected independently reviewed gate and must not be dispatched.
 - Independent qsp3 review reports P0=0/P1=0. Phase-1b remediation closes the earlier direct
   PASS/hash/case/attempt/DAG/clock findings. D137 closes external read/report redirection and
-  JSON-last repair defects while keeping trust, measurement, ledger, dedicated evaluator
+  JSON-last repair defects; D138 closes pre-limit subprocess buffering and proves bounded group
+  cleanup while keeping trust, measurement, ledger, dedicated evaluator
   isolation and append-only retention outside the composed authority path. A malicious same-UID
   co-tenant can still ABA-substitute private verifier paths; this is a conditional P1 before
   commercial authority and requires evaluator isolation or a reviewed fd-input/fd-exec verifier.

@@ -7,6 +7,8 @@ import json
 import platform
 import shutil
 import subprocess
+import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -395,6 +397,178 @@ def test_safe_gh_executes_verified_snapshot_when_original_path_is_replaced(
     assert isinstance(completed.args, tuple)
     assert completed.args[0] != str(fake_gh.resolve())
     assert fake_gh.read_bytes() == substituted_bytes
+
+
+def test_safe_gh_stops_before_buffering_unbounded_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_gh = tmp_path / "bin/gh"
+    fake_gh.parent.mkdir()
+    fake_gh.write_bytes(b"#!/bin/sh\nhead -c 65537 /dev/zero\n")
+    fake_gh.chmod(0o755)
+    machine = platform.machine()
+    if machine in {"aarch64", "arm64"}:
+        machine = "arm64"
+    elif machine in {"amd64", "x86_64"}:
+        machine = "x86_64"
+    platform_label = campaign_adapter._GH_PLATFORM_LABELS[(platform.system(), machine)]
+    monkeypatch.setattr(
+        campaign_adapter,
+        "_GH_OFFICIAL_EXECUTABLE_SHA256",
+        {platform_label: hashlib.sha256(fake_gh.read_bytes()).hexdigest()},
+    )
+    monkeypatch.setattr(
+        shutil,
+        "which",
+        lambda executable, *, path=None: str(fake_gh),
+    )
+
+    with pytest.raises(subprocess.SubprocessError, match="output exceeded its bound"):
+        campaign_adapter._run_safe_gh(tmp_path, "--version")
+
+
+def test_bounded_gh_reader_reaps_process_when_a_pipe_is_missing() -> None:
+    process = subprocess.Popen(
+        ("/bin/sh", "-c", "sleep 30"),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+    with pytest.raises(subprocess.SubprocessError, match="pipes are unavailable"):
+        campaign_adapter._communicate_bounded(
+            process,
+            timeout_seconds=1.0,
+            maximum_stdout_bytes=16,
+            maximum_stderr_bytes=16,
+        )
+
+    assert process.poll() is not None
+    assert process.stdout is not None
+    assert process.stdout.closed
+
+
+def test_bounded_gh_reader_reaps_process_group_on_timeout(tmp_path: Path) -> None:
+    marker = tmp_path / "descendant-heartbeat"
+    child = (
+        "import time; "
+        f"handle = open({str(marker)!r}, 'ab', buffering=0); "
+        "exec(\"while True:\\n handle.write(b'x')\\n time.sleep(0.01)\")"
+    )
+    leader = (
+        "import os, subprocess, sys; "
+        f"subprocess.Popen((sys.executable, '-c', {child!r}), "
+        "stdout=sys.stdout, stderr=sys.stderr); "
+        "os._exit(0)"
+    )
+    process = subprocess.Popen(
+        (sys.executable, "-c", leader),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+
+    with pytest.raises(subprocess.SubprocessError, match="timed out"):
+        campaign_adapter._communicate_bounded(
+            process,
+            timeout_seconds=1.0,
+            maximum_stdout_bytes=16,
+            maximum_stderr_bytes=16,
+        )
+
+    assert process.poll() is not None
+    assert process.stdout is not None
+    assert process.stdout.closed
+    assert process.stderr is not None
+    assert process.stderr.closed
+    deadline = time.monotonic() + 1.0
+    while not marker.exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert marker.exists()
+    time.sleep(0.05)
+    stopped_size = marker.stat().st_size
+    time.sleep(0.1)
+    assert marker.stat().st_size == stopped_size
+
+
+def test_bounded_gh_reader_accepts_exact_output_limits() -> None:
+    writer = "import os; os.write(1, b'x' * 16); os.write(2, b'y' * 8)"
+    process = subprocess.Popen(
+        (sys.executable, "-c", writer),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+
+    stdout, stderr = campaign_adapter._communicate_bounded(
+        process,
+        timeout_seconds=1.0,
+        maximum_stdout_bytes=16,
+        maximum_stderr_bytes=8,
+    )
+
+    assert stdout == b"x" * 16
+    assert stderr == b"y" * 8
+
+
+def test_bounded_gh_reader_rejects_stderr_overflow() -> None:
+    writer = "import os; os.write(2, b'x' * 17)"
+    process = subprocess.Popen(
+        (sys.executable, "-c", writer),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+
+    with pytest.raises(subprocess.SubprocessError, match="output exceeded its bound"):
+        campaign_adapter._communicate_bounded(
+            process,
+            timeout_seconds=1.0,
+            maximum_stdout_bytes=16,
+            maximum_stderr_bytes=16,
+        )
+
+    assert process.poll() is not None
+
+
+def test_bounded_gh_reader_reaps_process_when_selector_creation_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    process = subprocess.Popen(
+        ("/bin/sh", "-c", "sleep 30"),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+
+    def fail_to_create_selector() -> None:
+        raise OSError("synthetic descriptor exhaustion")
+
+    monkeypatch.setattr(
+        campaign_adapter.selectors,
+        "DefaultSelector",
+        fail_to_create_selector,
+    )
+
+    with pytest.raises(OSError, match="descriptor exhaustion"):
+        campaign_adapter._communicate_bounded(
+            process,
+            timeout_seconds=1.0,
+            maximum_stdout_bytes=16,
+            maximum_stderr_bytes=16,
+        )
+
+    assert process.poll() is not None
+    assert process.stdout is not None
+    assert process.stdout.closed
+    assert process.stderr is not None
+    assert process.stderr.closed
 
 
 @pytest.mark.parametrize(

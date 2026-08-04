@@ -598,20 +598,90 @@ def test_git_timeout_kills_descendants_that_hold_stdout(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    child = "import time; time.sleep(60)"
+    marker = tmp_path / "descendant-heartbeat"
+    child = (
+        "import time; "
+        f"handle = open({str(marker)!r}, 'ab', buffering=0); "
+        "exec(\"while True:\\n handle.write(b'x')\\n time.sleep(0.01)\")"
+    )
     leader = (
         "import os, subprocess, sys; "
         f"subprocess.Popen((sys.executable, '-c', {child!r}), stdout=sys.stdout); "
         "os._exit(0)"
     )
     monkeypatch.setattr(m30_adapter, "_SAFE_GIT_PREFIX", (sys.executable, "-c", leader))
-    monkeypatch.setattr(m30_adapter, "_GIT_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(m30_adapter, "_GIT_TIMEOUT_SECONDS", 1.0)
     started = time.monotonic()
 
     with pytest.raises(subprocess.TimeoutExpired):
         m30_adapter._run_safe_git(tmp_path, "ignored")
 
     assert time.monotonic() - started < 2
+    deadline = time.monotonic() + 1.0
+    while not marker.exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert marker.exists()
+    time.sleep(0.05)
+    stopped_size = marker.stat().st_size
+    time.sleep(0.1)
+    assert marker.stat().st_size == stopped_size
+
+
+def test_git_output_is_rejected_before_unbounded_buffering(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    writer = "import os; os.write(1, b'x' * 33)"
+    monkeypatch.setattr(m30_adapter, "_SAFE_GIT_PREFIX", (sys.executable, "-c", writer))
+    monkeypatch.setattr(m30_adapter, "_MAX_GIT_OUTPUT_BYTES", 32)
+
+    with pytest.raises(subprocess.SubprocessError, match="output exceeded its bound"):
+        m30_adapter._run_safe_git(tmp_path, "ignored")
+
+
+def test_git_reader_reaps_process_when_stdout_pipe_is_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_process = subprocess.Popen(
+        (sys.executable, "-c", "import time; time.sleep(30)"),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    monkeypatch.setattr(m30_adapter.subprocess, "Popen", lambda *_args, **_kwargs: real_process)
+
+    with pytest.raises(subprocess.SubprocessError, match="pipe is unavailable"):
+        m30_adapter._run_safe_git(tmp_path, "ignored")
+
+    assert real_process.poll() is not None
+
+
+def test_git_reader_reaps_process_when_selector_creation_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_process = subprocess.Popen(
+        (sys.executable, "-c", "import time; time.sleep(30)"),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    monkeypatch.setattr(m30_adapter.subprocess, "Popen", lambda *_args, **_kwargs: real_process)
+
+    def fail_to_create_selector() -> None:
+        raise OSError("synthetic descriptor exhaustion")
+
+    monkeypatch.setattr(m30_adapter.selectors, "DefaultSelector", fail_to_create_selector)
+
+    with pytest.raises(OSError, match="descriptor exhaustion"):
+        m30_adapter._run_safe_git(tmp_path, "ignored")
+
+    assert real_process.poll() is not None
+    assert real_process.stdout is not None
+    assert real_process.stdout.closed
 
 
 def test_candidate_inspection_rejects_a_repository_subdirectory_as_root(tmp_path: Path) -> None:

@@ -7,11 +7,13 @@ import json
 import os
 import platform
 import secrets
+import selectors
 import shutil
 import signal
 import stat
 import subprocess
 import tempfile
+import time
 from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
@@ -458,12 +460,12 @@ def _run_safe_gh(root: Path, *arguments: str) -> subprocess.CompletedProcess[byt
             )
         except FileNotFoundError as error:
             raise _TrustProviderUnavailable("GitHub CLI is unavailable") from error
-        try:
-            stdout, stderr = process.communicate(timeout=_GH_TIMEOUT_SECONDS)
-        except subprocess.TimeoutExpired as error:
-            _kill_process_group(process)
-            process.communicate()
-            raise subprocess.SubprocessError("GitHub attestation verification timed out") from error
+        stdout, stderr = _communicate_bounded(
+            process,
+            timeout_seconds=_GH_TIMEOUT_SECONDS,
+            maximum_stdout_bytes=65_536,
+            maximum_stderr_bytes=16_384,
+        )
         _validate_trusted_gh_executable(executable)
     if len(stdout) > 65_536 or len(stderr) > 16_384:
         raise subprocess.SubprocessError("GitHub attestation verifier output exceeded its bound")
@@ -473,6 +475,84 @@ def _run_safe_gh(root: Path, *arguments: str) -> subprocess.CompletedProcess[byt
         stdout=stdout,
         stderr=stderr,
     )
+
+
+def _communicate_bounded(
+    process: subprocess.Popen[bytes],
+    *,
+    timeout_seconds: float,
+    maximum_stdout_bytes: int,
+    maximum_stderr_bytes: int,
+) -> tuple[bytes, bytes]:
+    stdout_stream = process.stdout
+    stderr_stream = process.stderr
+    stdout = bytearray()
+    stderr = bytearray()
+    selector: selectors.BaseSelector | None = None
+    deadline = time.monotonic() + timeout_seconds
+    try:
+        selector = selectors.DefaultSelector()
+        if stdout_stream is None or stderr_stream is None:
+            raise subprocess.SubprocessError("bounded GitHub CLI pipes are unavailable")
+        streams = (
+            (stdout_stream, stdout, maximum_stdout_bytes),
+            (stderr_stream, stderr, maximum_stderr_bytes),
+        )
+        for stream, target, limit in streams:
+            os.set_blocking(stream.fileno(), False)
+            selector.register(stream, selectors.EVENT_READ, (target, limit))
+        while selector.get_map():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.SubprocessError("GitHub attestation verification timed out")
+            events = selector.select(remaining)
+            if not events:
+                raise subprocess.SubprocessError("GitHub attestation verification timed out")
+            for key, _mask in events:
+                try:
+                    target, limit = key.data
+                    chunk = os.read(
+                        key.fd,
+                        min(64 * 1024, limit - len(target) + 1),
+                    )
+                except BlockingIOError:
+                    continue
+                if not chunk:
+                    selector.unregister(key.fileobj)
+                    continue
+                target.extend(chunk)
+                if len(target) > limit:
+                    raise subprocess.SubprocessError(
+                        "GitHub attestation verifier output exceeded its bound"
+                    )
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.SubprocessError("GitHub attestation verification timed out")
+        try:
+            process.wait(timeout=remaining)
+        except subprocess.TimeoutExpired as error:
+            raise subprocess.SubprocessError("GitHub attestation verification timed out") from error
+    except BaseException:
+        _kill_process_group(process)
+        try:
+            process.wait(timeout=5.0)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            try:
+                process.wait(timeout=1.0)
+            except subprocess.TimeoutExpired as cleanup_error:
+                raise subprocess.SubprocessError(
+                    "GitHub attestation verifier could not be reaped"
+                ) from cleanup_error
+        raise
+    finally:
+        if selector is not None:
+            selector.close()
+        if stdout_stream is not None:
+            stdout_stream.close()
+        if stderr_stream is not None:
+            stderr_stream.close()
+    return bytes(stdout), bytes(stderr)
 
 
 def _trusted_gh_executable() -> str:

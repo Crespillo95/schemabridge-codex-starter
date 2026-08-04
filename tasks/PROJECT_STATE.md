@@ -187,7 +187,7 @@ detached-bundle verifier pins exact GitHub attestation facts and official platfo
 snapshots plus sanitized config. Even success is only workflow-attested bytes:
 `campaign_executable=false`, `release_decision=no_go`, zero controls passed and 24 remaining.
 
-Under D135/D137, Phase 1b includes only a fail-closed policy-preparation boundary. Manifest schema v2
+Under D135/D137/D138, Phase 1b includes only a fail-closed policy-preparation boundary. Manifest schema v2
 binds a canonical external policy that freezes the exact 24-node DAG, receipt kinds, evidence
 subjects, immutable producer workflows, authorization stages and five-role quorum. The composed
 CLI validates that binding and always reports `external_policy_trust_authenticated=false`,
@@ -200,8 +200,12 @@ nonblocking no-follow leaves, exact owner/mode/link/size/time stability, same-di
 local replacement, fsync, JSON-last republication and held-descriptor/path read-back after the
 final exact read. It rejects unsafe temp parents, orphan markers and local report names that are
 not both ignored/untracked. A pre-closing snapshot passed the exact M30 selection with 159 tests;
-the corrected current bytes pass 63 focused unit/acceptance tests plus format/Ruff/Mypy/diff.
-Exact current M30/full gates remain pending. The receipt adjudicator remains uncomposed: independent trust, cryptographic
+the corrected D137 bytes pass 63 focused unit/acceptance tests plus format/Ruff/Mypy/diff. D138
+adds selector-based exact output ceilings, monotonic timeouts, process-group termination and
+synchronous direct-child reaping to Git and GitHub CLI subprocesses. The current M30 cut passes
+174 with 4,149 deselections in 286.66 seconds; the full local gate passes supply-chain/release,
+format/Ruff/Mypy, performance and 4,073 functional tests with 250 deselections in 1,272.00 seconds.
+The receipt adjudicator remains uncomposed: independent trust, cryptographic
 verification, raw-snapshot derivation, a dedicated evaluator/mount policy and authenticated CAS
 anti-replay retention remain mandatory before any control or capability can be accepted. A
 same-UID verifier-subprocess pathname window and hostile bind mounts into checkout subdirectories
@@ -238,8 +242,9 @@ selection passes 103. Focal formatting/Ruff, mypy over seven qsp3 files plus the
 rotation is AppTest only, not managed browser evidence. Exact commit `23dea0f` passes a dedicated
 clean-room `make check`: supply-chain/release audit, formatting, Ruff, strict Mypy over 366 source
 files, the isolated performance node and 4,044 functional tests with 250 deselections in 1,023.35
-seconds. Subsequent documentation-only evidence corrections receive dedicated documentation,
-readiness and diff checks and do not alter implementation code. The
+seconds. The documentation-only evidence correction immediately following that commit received
+dedicated documentation, readiness and diff checks. Later D137/D138 implementation changes and
+their current/final gates are recorded separately above. The
 2026-08-03 final retry found no available in-app browser instance, so a managed/operated browser
 campaign remains pending. These checks do not satisfy any of the 24
 external controls or change the M30/M31, commercial, production and release **NO-GO**.
@@ -2003,8 +2008,9 @@ M29 prerequisites and live evaluation/security inputs; production/release remain
 M30 Phase 0, Phase 1a, fail-closed Phase 1b policy preparation and managed qsp3 current-target
 binding are published on draft PR #1 under D130/D132/D133/D135. Exact commit `23dea0f` passes its
 local clean-room gate with 4,044 functional tests, while the managed/operated browser campaign and
-all external controls remain absent. D137 descriptor I/O is integrated locally, passes its focused
-gate and awaits exact current M30/full validation. None of this accepts M30. The current source inventory contains
+all external controls remain absent. D137 descriptor I/O and D138 bounded subprocess streaming are
+integrated locally; the current 174-test M30 cut and 4,073-test full local gate pass. None of this
+accepts M30. The current source inventory contains
 41 exact paths and the fail-closed development preflight remains unable to satisfy any of the 24
 external controls. GitHub `main` remains unprotected with zero environments/rulesets/tags, so the
 attestation workflow must not be dispatched. Campaign remains blocked on an exact clean tagged-main

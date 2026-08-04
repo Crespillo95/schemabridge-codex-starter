@@ -6,12 +6,13 @@ import hashlib
 import json
 import os
 import re
+import selectors
 import shutil
 import signal
 import stat
 import subprocess
 import tempfile
-import threading
+import time
 import tomllib
 from pathlib import Path
 
@@ -563,38 +564,65 @@ def _run_safe_git(root: Path, *arguments: str) -> subprocess.CompletedProcess[by
         env=environment,
         start_new_session=True,
     )
-    timed_out = threading.Event()
-
-    def terminate_for_timeout() -> None:
-        timed_out.set()
-        _kill_process_group(process)
-
-    timer = threading.Timer(_GIT_TIMEOUT_SECONDS, terminate_for_timeout)
-    timer.daemon = True
-    timer.start()
+    stdout_stream = process.stdout
+    selector: selectors.BaseSelector | None = None
+    stdout = bytearray()
+    deadline = time.monotonic() + _GIT_TIMEOUT_SECONDS
     try:
-        assert process.stdout is not None
-        stdout = process.stdout.read(_MAX_GIT_OUTPUT_BYTES + 1)
-        overflow = len(stdout) > _MAX_GIT_OUTPUT_BYTES
-        if overflow:
-            _kill_process_group(process)
-        returncode = process.wait()
+        selector = selectors.DefaultSelector()
+        if stdout_stream is None:
+            raise subprocess.SubprocessError("bounded Git candidate inspection pipe is unavailable")
+        os.set_blocking(stdout_stream.fileno(), False)
+        selector.register(stdout_stream, selectors.EVENT_READ)
+        while selector.get_map():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(_SAFE_GIT_PREFIX, _GIT_TIMEOUT_SECONDS)
+            events = selector.select(remaining)
+            if not events:
+                raise subprocess.TimeoutExpired(_SAFE_GIT_PREFIX, _GIT_TIMEOUT_SECONDS)
+            for key, _mask in events:
+                try:
+                    chunk = os.read(
+                        key.fd,
+                        min(64 * 1024, _MAX_GIT_OUTPUT_BYTES - len(stdout) + 1),
+                    )
+                except BlockingIOError:
+                    continue
+                if not chunk:
+                    selector.unregister(key.fileobj)
+                    continue
+                stdout.extend(chunk)
+                if len(stdout) > _MAX_GIT_OUTPUT_BYTES:
+                    raise subprocess.SubprocessError(
+                        "Git candidate inspection output exceeded its bound"
+                    )
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(_SAFE_GIT_PREFIX, _GIT_TIMEOUT_SECONDS)
+        process.wait(timeout=remaining)
+    except BaseException:
+        _kill_process_group(process)
+        try:
+            process.wait(timeout=5.0)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            try:
+                process.wait(timeout=1.0)
+            except subprocess.TimeoutExpired as cleanup_error:
+                raise subprocess.SubprocessError(
+                    "Git candidate inspection process could not be reaped"
+                ) from cleanup_error
+        raise
     finally:
-        timer.cancel()
-        if process.poll() is None:
-            _kill_process_group(process)
-            process.wait()
-        if process.stdout is not None:
-            process.stdout.close()
-        timer.join()
-    if timed_out.is_set():
-        raise subprocess.TimeoutExpired(_SAFE_GIT_PREFIX, _GIT_TIMEOUT_SECONDS)
-    if overflow:
-        raise subprocess.SubprocessError("Git candidate inspection output exceeded its bound")
+        if selector is not None:
+            selector.close()
+        if stdout_stream is not None:
+            stdout_stream.close()
     return subprocess.CompletedProcess(
         args=(*_SAFE_GIT_PREFIX, *arguments),
-        returncode=returncode,
-        stdout=stdout,
+        returncode=process.returncode,
+        stdout=bytes(stdout),
         stderr=b"",
     )
 

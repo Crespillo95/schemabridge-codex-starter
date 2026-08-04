@@ -6,14 +6,15 @@
   Phase 1b policy preparation + descriptor-anchored local I/O + schema-v2 qsp3 target-bound
   copy-SQL hardening
 - Status: partial; preparation/authentication and qsp3 target binding are published on draft PR #1,
-  exact commit `23dea0f` passes its clean-room gate, and D137 filesystem hardening is integrated
-  locally with the current full gate pending. The managed/operated browser campaign and every
-  external campaign control remain pending or blocked
+  exact commit `23dea0f` passes its clean-room gate, and D137/D138 filesystem and subprocess-output
+  hardening pass the current 174-test M30 cut and 4,073-test full local implementation gate. The
+  managed/operated browser campaign and every external campaign control remain pending or blocked
 - Recommended operator decision: keep draft PR #1 open for review; do not merge, tag or dispatch
   Phase 1a, and retain M30, pilot, commercial availability, production and release
   **NO-GO**
 - Published implementation commits: `785a052` (qsp3) and `23dea0f` (Phase 1b preparation)
 - GitHub delivery: draft PR #1 on `agent/ignore-node-modules`; do not merge or tag
+- Proposed commit message: `fix: bound M30 verifier subprocess output`
 
 ## Implemented
 
@@ -62,6 +63,15 @@
   fail closed without passing any control. Closing review additionally forced a final path recheck
   after the second read, safe temporary-parent validation, JSON-last republication, orphan-marker
   rejection and two-file Git ignore/index checks.
+- Closed bounded-output enforcement before buffering under D138. The GitHub CLI verifier now drains
+  `stdout` and `stderr` through nonblocking selectors with exact byte ceilings and a monotonic
+  deadline; candidate Git inspection uses the same bounded pattern. Timeout, overflow, missing
+  pipes, selector failure and all other exceptional exits signal the isolated process group, reap
+  the direct child synchronously and close descriptors. A failure to reap is surfaced as a cleanup
+  error; otherwise the original failure propagates. Descendant-heartbeat regressions prove that
+  same-process-group children stop rather than only the leader. This is POSIX implementation
+  evidence, not external verifier authority, and does not close D137's same-UID pathname ABA
+  boundary or a hostile child that creates a new session.
 - Added a mandatory managed semantic/target boundary: staging/production gates the complete active
   registry through M26 before target/provider access, gates selected dependencies after
   interpretation/at confirmation/before generation and then resolves the exact current registry-v2
@@ -84,6 +94,8 @@
 - `src/schemabridge/domain/production_campaign.py`: manifest/corpus/owner/authentication invariants.
 - `src/schemabridge/application/production_campaign.py`: validation and authentication use cases.
 - `src/schemabridge/adapters/evaluation/m30_campaign.py`: filesystem, GitHub CLI and report adapters.
+- `src/schemabridge/adapters/evaluation/m30_readiness.py`: bounded Git candidate inspection and
+  process-group cleanup.
 - `src/schemabridge/application/ports/production_evidence.py` and `src/schemabridge/bootstrap.py`:
   ports and composition-root builders.
 - `scripts/m30_validate_campaign_manifest.py`,
@@ -114,7 +126,7 @@
   unit/acceptance/Streamlit cuts: exact target propagation, route drift, substitution,
   cross-connection and unavailable-target failures.
 - `tasks/CURRENT_TASK.md`, `tasks/PROJECT_STATE.md`, `tasks/WORK_QUEUE.md`, `tasks/M30_HANDOFF.md`
-  and `tasks/DECISION_LOG.md`: current candidate state, bounded local evidence and D132–D137.
+  and `tasks/DECISION_LOG.md`: current candidate state, bounded local evidence and D132–D138.
 
 ## Commands executed
 
@@ -142,14 +154,22 @@
 | Streamlit copy-first selection | pass | 4 passed, including purge after managed target rotation |
 | Consolidated M26/qsp3/M32 selection | pass | 124 passed in 6.82 seconds |
 | Schema-v2 M30 readiness/campaign selection | pass | 103 passed in 89.65 seconds |
-| `.venv/bin/pytest -q -k m30` | pass, superseded snapshot | 159 passed, 4,149 deselected in 279.25 seconds before the D137 closing-review corrections; exact current rerun pending |
-| Phase-1b policy unit selection | pass | 24 passed; includes ancestor/leaf/target/destination races and no receipt/control accepted |
-| Phase-1a authentication/CLI selection | pass | 45 passed after anchored `gh` bounds and macOS canonical-temp repair |
+| `.venv/bin/pytest -q -k m30` | pass, superseded snapshot | 159 passed, 4,149 deselected in 279.25 seconds before the D137 closing-review corrections |
+| Phase-1b policy unit selection | pass | 28 passed in 70.89 seconds; includes ancestor/leaf/target/destination races and no receipt/control accepted |
+| Phase-1a authentication/CLI selection | pass | 53 passed in 96.45 seconds after anchored `gh` bounds, bounded subprocess cleanup and macOS canonical-temp repair |
 | D137 corrected focal unit/acceptance cut | pass | 63 passed in 128.33 seconds after final path/JSON/temp/Git-index regressions; no receipt/control accepted |
 | D137 focal format/Ruff/Mypy/diff | pass | Adapter and adversarial test format/lint pass; strict adapter Mypy and `git diff --check` pass |
 | Independent D137 review | blocked for commercial authority | P0=0; final-read and JSON-last P2 findings fixed. One conditional P1 remains for same-UID `Popen`/`gh` pathname ABA and requires isolated evaluator or reviewed fd-input/fd-exec consumption |
+| D138 GitHub helper regressions | pass | 6 current regressions cover exact limits, stdout/stderr overflow, timeout, missing-pipe and selector-failure cleanup |
+| D138 Git regressions | pass | 4 current regressions cover descendant-held stdout timeout, pre-buffer overflow, missing-pipe and selector-failure cleanup; the timeout case also passed eight repeated isolated runs on the earlier closing snapshot |
+| D138 two-module cut | pass, independent review | 101 passed in 106.34 seconds: 40 campaign CLI/failure tests plus 61 readiness tests; reviewers also exercised limits, descendant groups and descriptor stability |
+| D138 focal format/Ruff/Mypy/diff | pass | Four changed Python files are formatted; Ruff, strict Mypy over both adapters and `git diff --check` pass |
+| Independent D138 reviews | pass | Both reviews report P0/P1/P2/P3=0 for the current bounded-subprocess deltas; POSIX-only and same-UID/mount D137 deployment limits remain explicit |
+| Current `.venv/bin/pytest -q -k m30` | pass | 174 passed, 4,149 deselected in 286.66 seconds after D138 and all closing-review regressions |
+| Final implementation-tree `make check` | pass | Supply-chain/release audit, 745-file formatting/Ruff, strict Mypy over 366 sources, performance and 4,073 functional tests passed with 250 deselections in 1,272.00 seconds; dirty-tree warning expected before commit |
+| Final D138 documentation closure | pass | Four commercial-documentation contracts, strict Mypy over both adapters, format/Ruff over the four changed Python files and `git diff --check` pass on the final pre-commit tree |
 | Qsp3/contract focal format, Ruff and mypy | pass | Seven qsp3 source files plus the contract model pass |
-| Final documentation patch `git diff --check` | pass | Six documentation/state files only; no whitespace errors |
+| Exact `7dea1a4` documentation patch `git diff --check` | pass | Historical six-file documentation/state correction; no whitespace errors |
 | Codex in-app-browser local/recorded subset | bounded pre-final observation | Advanced desktop, 390×844 no-overflow and `date_meaning`; clean console; not managed/final-byte evidence |
 | Final Codex in-app-browser retry | unavailable | Runtime connected, but browser inventory was empty; no substitute browser used and no PASS claimed |
 | Final implementation-snapshot `make check` | pass | Supply-chain/release audit, Ruff, Mypy over 366 source files, performance and 4,044 functional tests pass; 250 deselected in 1,176.63 seconds |
@@ -157,10 +177,10 @@
 | Timed-out Streamlit AppTest, isolated rerun | pass | 1 passed in 2.01 seconds without a code or assertion change |
 | Clean-room qsp3-parent `make check`, isolated rerun | pass | Exact `785a052`: 4,012 passed and 249 deselected in 934.84 seconds; supply chain, release audit, Ruff, Mypy over 364 files and performance pass |
 | Exact Phase-1b focal unit/acceptance cut | pass | Exact `23dea0f`: 33 passed in 56.51 seconds; preparation only, no receipt/control accepted |
-| Exact current-head clean-room `make check` | pass | Exact `23dea0f`: 4,044 passed and 250 deselected in 1,023.35 seconds; supply chain, release audit over 1,060 files/23 licenses, Ruff over 745 files, Mypy over 366 source files and performance pass |
-| Exact current-head independent review | pass with known P2 | `23dea0f` composed surface P0=0/P1=0; adjudication/capabilities remain uncomposed and pathname-race hardening remains required |
+| Exact `23dea0f` clean-room `make check` | pass | Exact `23dea0f`: 4,044 passed and 250 deselected in 1,023.35 seconds; supply chain, release audit over 1,060 files/23 licenses, Ruff over 745 files, Mypy over 366 source files and performance pass |
+| Exact `23dea0f` independent review | pass with known P2 | `23dea0f` composed surface P0=0/P1=0; adjudication/capabilities remain uncomposed and pathname-race hardening remains required |
 | Final documentation/readiness contract selection | pass | 62 passed; commercial documentation and M30 readiness contracts cover the final evidence wording |
-| Final documentation snapshot `make m30-readiness` | pass with explicit NO-GO | 41 source paths, 24 `missing_external` controls, zero source/DataHub writes or network calls, `campaign_executable=false`, `release_decision=no_go` |
+| Final current-tree `make m30-readiness` | pass with explicit NO-GO | `blocked_prerequisites`; 41 source paths, 3 failed repository gates, 1 passed repository gate, 24 `missing_external` controls, zero source/DataHub writes, database or network calls, `campaign_executable=false`, `release_decision=no_go` |
 
 ## Automated test results
 
@@ -168,13 +188,15 @@
   M30/commercial/supply-chain selection, 19 in the final verifier/CLI/workflow selection, 4
   commercial-documentation contracts and the final corpus mutation regression. Current qsp3 cuts
   pass 16 specific, 74 broad, 96 with M26/governed execution/recipes, four Streamlit and 124 in the
-  consolidated selection. Schema-v2 M30 contract/readiness/campaign passes 103; the exact current
-  M30 cut passes 145 and the focused Phase-1b policy selection passes 32.
+  consolidated selection. Schema-v2 M30 contract/readiness/campaign passes 103; the current M30
+  cut passes 174 on the 4,323-case snapshot, the current policy/authentication cuts pass 28/53 and
+  the current readiness module passes 61.
 - `make check`: exact commit `23dea0f` passes a dedicated clean-room run: supply-chain/release
   audit, formatting, Ruff, strict Mypy over 366 source files, the isolated performance node and
   4,044 functional tests with 250 deselections in 1,023.35 seconds. The later documentation-only
-  evidence correction receives dedicated documentation/readiness/diff checks. The D137 filesystem
-  cut currently passes 63 focused unit/acceptance tests; its exact M30/full gate remains pending.
+  evidence correction receives dedicated documentation/readiness/diff checks. Current D137/D138
+  implementation passes 174 M30 tests and the full local gate: supply-chain/release audit,
+  formatting, Ruff, strict Mypy, performance and 4,073 functional tests with 250 deselections.
   PR CI executes a merge ref; an exact clean tagged-main production candidate remains absent.
 - Integration tests: Phase 1a adds no service adapter. Qsp3 composes the governed execution-target
   resolver in managed mode and exercises exact synthetic registry-v2 target contracts, but no
@@ -325,6 +347,11 @@ Phase-1b policy preparation — also not a receipt or dispatch authority:
   redirect/block/overwrite races without pretending portable POSIX state defeats a hostile
   same-UID verifier process or mount administrator.
 - Logged in: D137; it changes no trust fact, control result, capability or release decision.
+- Decision: enforce Git and GitHub CLI output ceilings during streaming, signal each isolated
+  process group and synchronously reap its direct child on every exceptional exit.
+- Reason: a post-`communicate()` size check allowed unbounded allocation before rejection, and the
+  candidate-inspection cleanup needed the same directly testable timeout/descriptor contract.
+- Logged in: D138; it changes no trust fact, control result, capability or release decision.
 
 ## Known limitations or unverified items
 
@@ -349,7 +376,8 @@ Phase-1b policy preparation — also not a receipt or dispatch authority:
   browser/accessibility, IAM/network/secrets/SIEM/restore, pentest and owner decisions are absent.
 - The pre-final local/recorded browser observation and post-remediation AppTest are not a
   current-final-byte managed/operated browser PASS. Exact `23dea0f` passes its historical clean
-  gate, while the current D137 full gate is pending; browser evidence remains separate.
+  gate; the current D137/D138 implementation passes its 174-test M30 cut and 4,073-test full local gate.
+  Browser evidence remains separate and is still required before M30 acceptance.
 - PostgreSQL is the only output dialect. Arbitrary SQL, cross-database portability, federation,
   more than three tables/two joins and unsupported families are not certified.
 - Managed staging/production now rejects an absent or stale target binding. Local/recorded mode may

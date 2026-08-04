@@ -3,9 +3,10 @@
 ## Status
 
 - State: Phase 0, Phase 1a, fail-closed Phase 1b policy preparation and qsp3 target binding are
-  published on draft PR #1. Exact commit `23dea0f` passes its local clean-room gate; D137
-  descriptor hardening is integrated locally and its current full gate is pending. No externally
-  authenticated manifest or operated receipt exists, so M30, campaign and release remain blocked
+  published on draft PR #1. Exact commit `23dea0f` passes its historical clean-room gate; current
+  D137 descriptor I/O and D138 bounded subprocess streaming pass the 174-test M30 cut and the
+  4,073-test full local implementation gate. No externally authenticated manifest or operated
+  receipt exists, so M30, campaign and release remain blocked
 - Release decision: **NO-GO**
 - Candidate SKU: PostgreSQL copy-first private beta, isolated per customer
 - Depends on: accepted M29 contracts in the target environment and accepted M35 registry lifecycle
@@ -244,6 +245,12 @@ ignored local destination, JSON-last commit, `fsync` and final read-back. Unsupp
 semantics fail closed. The deterministic report always retains zero of 24 controls, no campaign
 capability, `campaign_executable=false` and `release_decision=no_go`. It also records
 `external_policy_trust_authenticated=false` and `receipt_authentication_enabled=false`.
+
+Git and GitHub CLI subprocesses drain bounded output through nonblocking POSIX selectors under one
+monotonic deadline. Overflow, timeout, missing pipes, selector failure or cancellation terminates
+the isolated process group, synchronously reaps the direct child and closes its streams. This
+prevents unbounded buffering and descendant-held-pipe stalls; it does not authenticate the private
+pathname consumed by the subprocess.
 
 The pure contract-level adjudicator for `signed_campaign_manifest` is deliberately not composed by
 the CLI or an application port. It cannot become an operated adjudicator until an independently

@@ -1397,6 +1397,11 @@ pilot evidence remain mandatory commercial/production gates.
   File/directory `fsync`, final descriptor-relative read-back and a path-binding recheck after the
   second exact read are mandatory. Different external bytes, symlinks, hardlinks, FIFOs, unsafe
   modes, unsafe temporary parents and unsupported filesystem primitives fail closed.
+- Under D138, Git and GitHub CLI output is drained concurrently through nonblocking POSIX selectors
+  under one monotonic deadline. Each read is the smaller of 64 KiB or the remaining ceiling plus
+  one byte, so overflow is detected with constant bounded memory. Timeout, missing pipes, selector
+  failure or any exceptional exit terminates the isolated process group, synchronously reaps the
+  direct child and closes all present streams; cleanup itself has bounded waits and fails closed.
 - D137 closes D135's in-operation external checked-pathname redirection family; it does not make
   local files durable commercial authority. Same-UID ABA substitution of the private paths
   consumed by `Popen`/`gh` can change the verifier executable or its manifest/bundle inputs and is
