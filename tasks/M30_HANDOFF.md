@@ -7,14 +7,17 @@
   copy-SQL hardening
 - Status: partial; preparation/authentication and qsp3 target binding are published on draft PR #1,
   exact commit `23dea0f` passes its clean-room gate, and D137/D138 filesystem and subprocess-output
-  hardening pass the current 174-test M30 cut and 4,073-test full local implementation gate. The
-  managed/operated browser campaign and every external campaign control remain pending or blocked
+  hardening pass the current 174-test M30 cut. D139 hotfix `664b90f` upgrades only the exact runtime
+  lock to `cryptography==50.0.0`, passes the 4,073-test full local implementation gate and completes
+  the bounded exact-hotfix local/recorded browser regression. The managed/operated browser campaign
+  and every external campaign control remain pending or blocked
 - Recommended operator decision: keep draft PR #1 open for review; do not merge, tag or dispatch
   Phase 1a, and retain M30, pilot, commercial availability, production and release
   **NO-GO**
-- Published implementation commits: `785a052` (qsp3) and `23dea0f` (Phase 1b preparation)
+- Implementation commits on the delivery branch: `785a052` (qsp3), `23dea0f` (Phase 1b
+  preparation) and `664b90f` (D139 dependency hotfix)
 - GitHub delivery: draft PR #1 on `agent/ignore-node-modules`; do not merge or tag
-- Proposed commit message: `fix: bound M30 verifier subprocess output`
+- Proposed commit message: `docs: record M30 hotfix and browser regression`
 
 ## Implemented
 
@@ -83,6 +86,10 @@
   credential is added.
 - Retained unbound local/recorded composition only as visibly non-commercial deterministic evidence;
   it is not an alternate managed or tenant-facing mode.
+- Upgraded the exact transitive runtime lock from `cryptography==49.0.0` to `50.0.0` under D139
+  after HIGH GHSA-g6cj-pr64-35w5. Only `requirements/runtime.txt` and `uv.lock` changed; exact hashed
+  exports, vulnerability audit, targeted auth/OIDC/readiness checks, static supply-chain policy,
+  clean runtime-wheel smoke, full local gate and independent byte-level diff review pass.
 - Added the commercial operating model: roles/RACI and signature gates, tenant setup/onboarding,
   bounded daily M32 use, incident/DR objectives, offboarding and pilot scorecard. It explicitly says
   the current manuals are not an integrated end-to-end commercial surface.
@@ -117,6 +124,8 @@
 - `src/schemabridge/entrypoints/streamlit/natural_sql.py`: exact managed target identity and explicit
   unbound/non-commercial presentation.
 - `scripts/verify_supply_chain.py`: exact workflow bytes/topology/actions/sign-job policy.
+- `requirements/runtime.txt` and `uv.lock`: exact `cryptography==50.0.0` hotfix and hashes; no other
+  package changed.
 - `docs/commercial/`, `docs/06_SECURITY.md`, `docs/12_RUNBOOK.md`, `docs/13_UI_SPEC.md`,
   `docs/14_BROWSER_ACCEPTANCE.md`, `docs/19_COMMERCIAL_USAGE.md`, `README.md` and the M30 plan: accurate
   product, operator and NO-GO boundary.
@@ -181,6 +190,16 @@
 | Exact `23dea0f` independent review | pass with known P2 | `23dea0f` composed surface P0=0/P1=0; adjudication/capabilities remain uncomposed and pathname-race hardening remains required |
 | Final documentation/readiness contract selection | pass | 62 passed; commercial documentation and M30 readiness contracts cover the final evidence wording |
 | Final current-tree `make m30-readiness` | pass with explicit NO-GO | `blocked_prerequisites`; 41 source paths, 3 failed repository gates, 1 passed repository gate, 24 `missing_external` controls, zero source/DataHub writes, database or network calls, `campaign_executable=false`, `release_decision=no_go` |
+| Exact D139 lock refresh and hashed export | pass | Only `cryptography` changed 49.0.0 → 50.0.0; runtime export SHA-256 `e106fa...719a`, `uv.lock` SHA-256 `9ff9a7...9f85` |
+| `pip check` plus exact hashed `pip-audit` exports | pass | No broken requirements and no known vulnerabilities; installed `cryptography==50.0.0` |
+| Targeted auth/OIDC/readiness/supply-chain Pytest cut | pass | 277 passed in 10.60 seconds |
+| D139 `make supply-chain-static` | pass | Supply-chain policy and release audit pass over 1,060 candidate files and 23 licenses |
+| D139 `make runtime-wheel-smoke` | pass | Clean wheel install validates migrations 1–15, runtime entrypoints and `cryptography==50.0.0` |
+| D139 exact implementation-tree `make check` | pass | Supply-chain/release audit, 745-file format/Ruff, strict Mypy over 366 sources, performance and 4,073 functional tests pass with 250 deselections in 909.30 seconds |
+| Clean `make m30-readiness` on `664b90f` | pass with explicit NO-GO | Clean-tree/source-contract pass; branch/tag fail; 24 controls `missing_external`; zero writes/database/network calls; `campaign_executable=false`, `release_decision=no_go` |
+| Exact-`664b90f` Codex in-app-browser regression | bounded local/recorded pass | Desktop simple 25-line and advanced 106-line paths, ambiguity and unsupported fail-closed, 390×844 iframe no-overflow layout/navigation and empty warning/error logs; no managed target or execution |
+| D139 documentation/readiness/release/supply-chain selection | pass twice | 242 passed in 36.81 seconds after the browser, decision, state and handoff update; closing rerun passed 242 in 36.82 seconds after recording the full gate |
+| Final D139 evidence-tree `make check` | pass | Supply-chain/release audit, 745-file format/Ruff, strict Mypy over 366 sources, performance and 4,073 functional tests pass with 250 deselections in 946.75 seconds; dirty-tree warning is expected before the evidence commit |
 
 ## Automated test results
 
@@ -206,26 +225,29 @@
   remain blocked. The qsp3 acceptance cuts prove exact target propagation and `executed=false`;
   unavailable, substituted, cross-connection, semantic-stale and route-drift states return no SQL.
 - Coverage: not rerun for this vertical; no new coverage claim.
-- Browser: before the final P1 remediation, Codex's in-app browser observed the local/recorded
-  advanced desktop path, 390×844 no-overflow and `date_meaning` ambiguity with empty warning/error
-  console, 106 SQL lines only after confirmation, no placeholders, download visible,
-  `Ejecutado=No`, `Sin ligar` and non-commercial warning. Post-remediation managed rotation is
-  AppTest only. The 2026-08-03 final retry found an empty in-app-browser inventory. A
-  current-final-byte managed/operated browser PASS and integrated commercial surface remain absent.
+- Browser: exact hotfix commit `664b90f` completed the local/recorded in-app-browser regression.
+  Desktop covered the 25-line simple and 106-line advanced standalone paths, pre-confirmation
+  no-SQL, `executed=false`, `date_meaning` and `unsupported_request`; both blocked cases returned no
+  SQL. A real 390×844 same-engine frame had `clientWidth=scrollWidth=390` and empty warning/error
+  logs. Direct viewport override was ignored by the browser runtime and nested-frame text injection
+  was not used, so the mobile evidence is layout/navigation only. Managed rotation remains AppTest
+  evidence. A managed/operated browser PASS and integrated commercial surface remain absent.
 
 ## Operator manual test
 
-Qsp3 local/recorded observation completed pre-final; managed/operated verification remains
+The qsp3 exact-hotfix local/recorded bounded subset is complete; managed/operated verification remains
 **PENDING**:
 
-- observed: no SQL/download before confirmation; 106 visible standalone lines, no `%s`/`$1`,
-  download visible, optional execution disabled, `Ejecutado=No`, `Sin ligar`/non-commercial after
-  confirmation; 390×844 had no overflow; `date_meaning` had no confirmation/SQL/download; console
-  warnings/errors were empty;
+- observed on `664b90f`: no SQL/download before confirmation; 25-line simple and 106-line advanced
+  standalone output, visible download, optional execution disabled, `Ejecutado=No`, `Sin ligar`/
+  non-commercial after confirmation; `date_meaning` and `unsupported_request` had no SQL; desktop
+  had no overflow and browser warning/error logs were empty;
+- responsive: an actual 390×844 same-engine iframe rendered Query Studio, loaded the demo through
+  keyboard activation and retained exact 390-pixel document/main scroll widths. Because the
+  browser's direct viewport override and nested-frame text injection were unreliable, this proves
+  layout/navigation only, not a mobile SQL-generation or accessibility PASS;
 - post-remediation automation: four Streamlit AppTests include target rotation after an artifact and
   prove SQL/download are purged with a sanitized error;
-- the final Codex in-app-browser retry connected to its runtime but exposed no browser instance, so
-  it could not execute the managed matrix and was not replaced with another browser surface;
 - this does not prove current-final-byte managed or operated behavior.
 
 Remaining managed procedure:
@@ -374,10 +396,10 @@ Phase-1b policy preparation — also not a receipt or dispatch authority:
   append-only/CAS retention remain mandatory before commercial evidence consumption.
 - The 1,000-case blind corpus, exact provider/target operation, equivalence, scale/soak,
   browser/accessibility, IAM/network/secrets/SIEM/restore, pentest and owner decisions are absent.
-- The pre-final local/recorded browser observation and post-remediation AppTest are not a
-  current-final-byte managed/operated browser PASS. Exact `23dea0f` passes its historical clean
-  gate; the current D137/D138 implementation passes its 174-test M30 cut and 4,073-test full local gate.
-  Browser evidence remains separate and is still required before M30 acceptance.
+- The exact-`664b90f` local/recorded browser regression and post-remediation AppTest are not a
+  managed/operated browser PASS. Exact `23dea0f` passes its historical clean gate; the current
+  D137/D138 implementation passes its 174-test M30 cut, and D139 passes the 4,073-test full local
+  gate. Managed browser evidence remains required before M30 acceptance.
 - PostgreSQL is the only output dialect. Arbitrary SQL, cross-database portability, federation,
   more than three tables/two joins and unsupported families are not certified.
 - Managed staging/production now rejects an absent or stale target binding. Local/recorded mode may

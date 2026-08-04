@@ -1,6 +1,6 @@
 # Project state
 
-Last updated: 2026-08-03
+Last updated: 2026-08-04
 
 ## Accepted milestone
 
@@ -245,9 +245,24 @@ files, the isolated performance node and 4,044 functional tests with 250 deselec
 seconds. The documentation-only evidence correction immediately following that commit received
 dedicated documentation, readiness and diff checks. Later D137/D138 implementation changes and
 their current/final gates are recorded separately above. The
-2026-08-03 final retry found no available in-app browser instance, so a managed/operated browser
-campaign remains pending. These checks do not satisfy any of the 24
-external controls or change the M30/M31, commercial, production and release **NO-GO**.
+2026-08-03 final retry found no available in-app browser instance. On 2026-08-04 the exact D139
+hotfix commit `664b90f` completed a new local/recorded in-app-browser regression: desktop simple
+and advanced paths produced the expected 25-line and 106-line standalone artifacts only after
+confirmation; ambiguity and unsupported requests returned no SQL; a real 390×844 same-engine frame
+had `clientWidth=scrollWidth=390`; and warning/error logs were empty. The frame controller could
+not inject text reliably, so the mobile result is layout/navigation evidence, not a second SQL
+happy path. A managed/operated browser campaign remains pending. These checks do not satisfy any
+of the 24 external controls or change the M30/M31, commercial, production and release **NO-GO**.
+
+D139 upgrades only the exact runtime lock from `cryptography==49.0.0` to `50.0.0` after HIGH
+GHSA-g6cj-pr64-35w5. Runtime export SHA-256 is
+`e106fa7a4e39e7d1ec7823dc9d82049f551bf8dc37a59639c808b3dc709d719a`; `uv.lock` SHA-256 is
+`9ff9a7dfadf2f434ec17e29b30f43fe5b578fa074f979876da79ebbbd1429f85`. Exact hashed exports,
+`pip check`, `pip-audit`, 277 auth/OIDC/readiness/supply-chain tests, static policy, clean
+runtime-wheel smoke and `make check` pass; the full gate retains 4,073 functional tests and 250
+deselections. Clean `make m30-readiness` on `664b90f` passes clean-tree/source-contract, fails only
+non-main/non-tagged candidate identity, leaves 24 controls `missing_external`, performs zero
+external calls/writes and returns `no_go`.
 
 Phase 0 commit `c7e72cc97e4226b2d953f5c1e8ef55178a1598f5` and warmup commit
 `3f57a2ea89220ff0c68ac58f0f8e668069e93f81` are published on
@@ -2007,10 +2022,11 @@ commercial limitations are recorded in `tasks/M35_HANDOFF.md`. M30 remains block
 M29 prerequisites and live evaluation/security inputs; production/release remain NO-GO.
 M30 Phase 0, Phase 1a, fail-closed Phase 1b policy preparation and managed qsp3 current-target
 binding are published on draft PR #1 under D130/D132/D133/D135. Exact commit `23dea0f` passes its
-local clean-room gate with 4,044 functional tests, while the managed/operated browser campaign and
-all external controls remain absent. D137 descriptor I/O and D138 bounded subprocess streaming are
-integrated locally; the current 174-test M30 cut and 4,073-test full local gate pass. None of this
-accepts M30. The current source inventory contains
+local clean-room gate with 4,044 functional tests. D137 descriptor I/O and D138 bounded subprocess
+streaming pass the current 174-test M30 cut; D139 exact lock hotfix `664b90f` passes supply-chain,
+runtime-wheel, the 4,073-test full local gate and bounded exact-hotfix desktop/responsive browser
+regression. The managed/operated browser campaign and all external controls remain absent. None of
+this accepts M30. The current source inventory contains
 41 exact paths and the fail-closed development preflight remains unable to satisfy any of the 24
 external controls. GitHub `main` remains unprotected with zero environments/rulesets/tags, so the
 attestation workflow must not be dispatched. Campaign remains blocked on an exact clean tagged-main

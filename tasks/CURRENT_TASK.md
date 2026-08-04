@@ -4,9 +4,10 @@
 - Status: Phase 0, Phase 1a, fail-closed Phase 1b policy preparation, local descriptor-anchored
   filesystem/subprocess hardening and the qsp3 target-bound copy-SQL vertical are integrated over
   the published draft-PR baseline; exact commit `23dea0f` passes its clean-room gate and the current
-  D137/D138 implementation passes the 174-test M30 cut and 4,073-test full local gate. The managed/operated
-  browser remains pending; campaign, pilot, commercial availability, production and release remain
-  blocked
+  D137/D138 implementation passes the 174-test M30 cut. Security hotfix commit `664b90f` upgrades
+  only the exact runtime lock to `cryptography==50.0.0`, passes the 4,073-test full local gate and
+  has an exact local/recorded desktop/responsive browser regression. The managed/operated browser,
+  campaign, pilot, commercial availability, production and release remain blocked
 - Plan: `plans/M30_PRODUCTION_EVALUATION_SECURITY.md`
 - Machine contract: `plans/M30_CAMPAIGN_CONTRACT.yml`
 - Handoff: `tasks/M30_HANDOFF.md`
@@ -62,6 +63,10 @@ it can be accepted; repository evidence alone cannot do that.
   execution capability.
 - Local/recorded composition may remain unbound for deterministic development evidence only and is
   labelled explicitly as non-commercial; it is not an alternate tenant-facing operating mode.
+- D139 refreshes only the exact runtime dependency lock from `cryptography==49.0.0` to `50.0.0`
+  after HIGH GHSA-g6cj-pr64-35w5. Exact exports, `pip check`, `pip-audit`, targeted auth/OIDC/
+  readiness tests, static policy and clean runtime-wheel smoke pass without changing product scope
+  or any M30 trust fact.
 - Commercial operating-model documents cover roles/RACI, setup, tenant onboarding, daily bounded
   M32 use, incidents/DR, offboarding and a pilot scorecard while explicitly remaining non-executable
   end-to-end until OpenAPI/payloads and an integrated commercial surface exist.
@@ -89,18 +94,29 @@ it can be accepted; repository evidence alone cannot do that.
   in 1,272.00 seconds. Independent reviews report no P0–P3 in either bounded subprocess delta on
   the current 0/24, no-capability surface. This validates local policy preparation only, not a
   receipt or external control.
-- Codex in-app-browser evidence is bounded and pre-final: local/recorded desktop advanced, 390×844
-  no-overflow and `date_meaning` ambiguity were observed with clean console; managed rotation is
-  post-remediation AppTest only. On 2026-08-03 the requested final retry connected to the browser
-  runtime but returned an empty browser inventory, so no current-final-byte managed/operated
-  browser PASS is claimed.
+- Exact hotfix commit `664b90f` passes hashed lock export, `pip check`, vulnerability audit, 277
+  targeted auth/OIDC/readiness/supply-chain tests, static policy, clean runtime-wheel smoke and
+  `make check`: formatting/Ruff over 745 files, strict Mypy over 366 sources, performance and 4,073
+  functional tests with 250 deselections. Its clean readiness report passes the clean-tree/source
+  gates, fails only branch/tag repository gates, leaves all 24 controls `missing_external`, performs
+  zero writes/network/database calls and returns `release_decision=no_go`.
+- Codex's in-app browser completed the exact-`664b90f` local/recorded regression. Desktop covered
+  25-line simple and 106-line advanced standalone PostgreSQL, pre-confirmation no-SQL, exact
+  confirmation, `executed=false`, `date_meaning` and `unsupported_request`; both blocked paths
+  returned no SQL. A same-engine 390×844 iframe verified Query Studio layout/navigation and
+  `clientWidth=scrollWidth=390`; desktop and responsive warning/error logs were empty. The browser
+  runtime ignored its direct viewport override and nested-frame text injection was not used, so
+  mobile SQL generation, managed target operation, clipboard/download bytes and the complete
+  accessibility matrix remain pending. No current-final-byte managed/operated browser PASS is
+  claimed.
 - Exact commit `23dea0f` passes a dedicated clean-room `make check`: supply-chain/release audit,
   formatting, Ruff, strict Mypy over 366 source files, the isolated performance node and 4,044
   functional tests pass with 250 deselections in 1,023.35 seconds. The later documentation-only
   evidence correction receives dedicated documentation/readiness/diff checks; PR merge-ref CI and
   exact tagged-main candidate evidence remain separate.
 - Draft PR #1 publishes `785a052` (qsp3 target binding) and `23dea0f` (fail-closed Phase 1b policy
-  preparation). Run `30847018014` is correlated to head `23dea0f` but executes merge ref `00f72c1`;
+  preparation); D139 hotfix `664b90f` is the implementation head for this evidence closure.
+  Run `30847018014` is correlated to head `23dea0f` but executes merge ref `00f72c1`;
   it must not be described as exact-head or tagged-main candidate evidence.
 - Hosted PR run `30826970514` passed quality, PostgreSQL integration and supply chain for branch
   head `e49e5d7d52f9e4005e4d469b24e7b23797a59aeb`, but its test checkout/evaluation subject is PR merge

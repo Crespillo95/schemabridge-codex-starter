@@ -4,9 +4,10 @@
 
 - State: Phase 0, Phase 1a, fail-closed Phase 1b policy preparation and qsp3 target binding are
   published on draft PR #1. Exact commit `23dea0f` passes its historical clean-room gate; current
-  D137 descriptor I/O and D138 bounded subprocess streaming pass the 174-test M30 cut and the
-  4,073-test full local implementation gate. No externally authenticated manifest or operated
-  receipt exists, so M30, campaign and release remain blocked
+  D137 descriptor I/O and D138 bounded subprocess streaming pass the 174-test M30 cut. D139 exact
+  runtime-lock hotfix `664b90f` passes hashed supply-chain checks, the 4,073-test full local gate and
+  the bounded local/recorded browser regression. No externally authenticated manifest, managed
+  browser or operated receipt exists, so M30, campaign and release remain blocked
 - Release decision: **NO-GO**
 - Candidate SKU: PostgreSQL copy-first private beta, isolated per customer
 - Depends on: accepted M29 contracts in the target environment and accepted M35 registry lifecycle

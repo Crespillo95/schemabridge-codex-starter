@@ -809,6 +809,43 @@ in-app-browser or operated-destination PASS. The final-byte managed/operated tar
 simple/v1-v2, physical-only, unsupported, injection, provider-failure, focus/clipboard and full
 supported-browser/accessibility matrix stays open for M30.
 
+### 2026-08-04 post-hotfix local/recorded regression — not operated M30 evidence
+
+Codex's in-app browser exercised the real Streamlit entrypoint on exact clean commit `664b90f`
+after the bounded `cryptography==50.0.0` lock refresh. The process used an isolated local draft
+store, `recorded` execution, the deterministic fake Query Studio interpreter and loopback port
+8510; the health endpoint returned `ok`. This profile performs no managed-target or source
+execution and remains visibly non-commercial.
+
+At 1280×720, the exact simple Spanish request produced a governed preview before SQL and, only
+after exact confirmation, a 25-line standalone PostgreSQL artifact with `commerce.products`,
+`LIMIT 50`, double AST validation, `executed=false` and SHA-256
+`f744de53b374ae4964f53839dbf7fc66d33f982d29b7afde7eefb076a9313f02`. The exact advanced
+Spanish request exposed its 3-model/11-field/2-join plan, completed-order filter, grouped metrics,
+`COUNT DISTINCT`, `HAVING`, ranking, percent-of-total, running sum and top-three filter before any
+SQL. Confirmation then produced the expected 106-line two-CTE PostgreSQL artifact with SHA-256
+`ec589a1527d0d641f4f7f7eb7e052ca1ace5b092013b437da72542ce4145d4f3`. Both paths kept optional
+execution disabled and reported `Ejecutado=No` and target `Sin ligar`/local-recorded. Desktop
+document and body widths were 1280 with no horizontal overflow.
+
+`Muestra las ventas por fecha.` returned `date_meaning`; the requested Cartesian product returned
+`unsupported_request`. Neither blocked path exposed SQL, confirmation or download. Browser
+warning/error logs were empty for the desktop and responsive sessions.
+
+The in-app browser viewport capability accepted a 390×844 request but the runtime continued to
+report 1280×720. The responsive check therefore used a same-engine local harness containing the
+unchanged application in a real 390×844 iframe. Inside that frame, the document and Streamlit app
+were exactly 390 pixels wide, the main container had `clientWidth=scrollWidth=390`, Query Studio
+and its enabled input controls rendered, the demo loaded through keyboard activation and there
+was no horizontal overflow. Nested-frame text injection was not used after the browser controller
+reported an active-element mismatch, so the mobile evidence is layout/navigation evidence rather
+than a second full SQL-generation journey.
+
+This closes the exact-hotfix local/recorded simple, advanced, ambiguity, unsupported, desktop and
+responsive regression subset. It does not prove a managed target, destination execution,
+independent download/clipboard bytes, the full focus/accessibility/browser matrix, an operated M30
+control or commercial release readiness.
+
 ## M34 governed-publication browser acceptance
 
 Run the isolated synthetic presentation only after the final M34 application bytes:
