@@ -323,6 +323,19 @@ def test_distributed_rate_limit_is_principal_and_tenant_scoped() -> None:
     assert capacity.admit_api_request(other_workspace, "actor_primary").allowed
 
     with psycopg.connect(MIGRATOR_DSN) as connection:
+        initial_window = connection.execute(
+            """
+            SELECT window_started_at
+            FROM schemabridge_control.api_rate_limit_windows
+            WHERE workspace_id = %s
+              AND principal_digest = %s
+              AND operation_scope = 'authenticated_api'
+            ORDER BY window_started_at DESC
+            LIMIT 1
+            """,
+            (workspace_id, _digest("actor_primary")),
+        ).fetchone()
+        assert initial_window is not None
         connection.execute(
             """
             UPDATE schemabridge_control.tenant_capacity_policies
@@ -335,9 +348,31 @@ def test_distributed_rate_limit_is_principal_and_tenant_scoped() -> None:
             (workspace_id,),
         )
     lowered = capacity.admit_api_request(workspace_id, "actor_primary")
-    assert not lowered.allowed
-    assert lowered.used == 3
     assert lowered.limit == 1
+    with psycopg.connect(MIGRATOR_DSN) as connection:
+        lowered_window = connection.execute(
+            """
+            SELECT window_started_at
+            FROM schemabridge_control.api_rate_limit_windows
+            WHERE workspace_id = %s
+              AND principal_digest = %s
+              AND operation_scope = 'authenticated_api'
+            ORDER BY window_started_at DESC
+            LIMIT 1
+            """,
+            (workspace_id, _digest("actor_primary")),
+        ).fetchone()
+    assert lowered_window is not None
+    if lowered_window == initial_window:
+        assert not lowered.allowed
+        assert lowered.used == 3
+    else:
+        assert lowered.allowed
+        assert lowered.used == 1
+        next_request = capacity.admit_api_request(workspace_id, "actor_primary")
+        assert not next_request.allowed
+        assert next_request.used == 1
+        assert next_request.limit == 1
 
     snapshot = capacity.inspect(workspace_id)
     assert snapshot.policy.api_requests_per_minute == 1
