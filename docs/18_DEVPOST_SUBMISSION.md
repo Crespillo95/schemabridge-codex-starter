@@ -1,91 +1,138 @@
 # M18 Devpost submission copy
 
-> **DRAFT — DO NOT SUBMIT YET.** Replace the three pending link fields only after the same clean
-> release commit is tagged, deployed, pushed, and tested. Do not remove this warning while the
-> M18 manifest says `release_ready: false`.
+> **DRAFT — DO NOT SUBMIT YET.** The manifest is release-ready and the source is frozen/tagged.
+> Replace the two pending public-link fields only after account-owned deployment/upload and
+> signed-out testing, then complete the owner's Devpost eligibility and legal attestations.
 
 ## Submission fields
 
 - Project name: **SchemaBridge**
 - Challenge category: **Agents That Do Real Work**
-- Elevator pitch: **SchemaBridge turns inconsistent physical schemas into human-approved semantic
-  context, then compiles business questions into explainable, independently validated read-only SQL
-  and writes reusable decisions back to DataHub.**
+- Elevator pitch: **SchemaBridge turns inconsistent schemas into approved semantic context,
+  compiles business questions into safe SQL, and writes reusable decisions back to DataHub.**
 - Repository: https://github.com/Crespillo95/schemabridge-codex-starter
 - Live project URL: **PENDING — public M17 deployment not created**
-- Public video URL: **PENDING — final recording/upload not performed**
-- Release tag: **PENDING — do not tag an uncommitted tree**
+- Public video URL: **PENDING — verified final export awaits owner-account upload**
+- Reserved Devpost project URL: https://devpost.com/software/schemabridge
+- Release commit: `c5817af6d01b8a98cd7f1950d57e1be667614696`
+- Release tag: `devpost-m18-c5817af`
+
+The Devpost draft already exists as submission `1109948`. The elevator pitch, project story,
+repository URL, and public tags `postgresql`, `python`, `datahub`, `streamlit`, and `sqlglot` are
+saved. The Additional info tab is prefilled with the challenge category, repository, examples URL,
+and DataHub Core/MCP selections but is intentionally unsaved until the owner supplies residence,
+submission-period attestation, and Feedback Prize choice.
 
 ## About the project
 
-### The problem
+### Inspiration
 
-The same customer key may appear as `"00000000123"`, `123`, or `123.0`; the same-looking field name
-may mean something else; and a valid one-to-many join can silently duplicate a metric. Catalog
-metadata helps an agent find tables, but it does not automatically establish that two fields are
-semantically equivalent, which normalization is approved, or how fanout must be handled.
+A customer key can be `"00000000123"` in one system, `123` in another, and `123.0` in a third.
+Similar names can still mean different things, while a valid one-to-many join can silently
+overcount a metric. Catalog discovery helps an agent find tables, but it does not by itself prove
+semantic equivalence, approved normalization, or safe fanout handling.
 
-### What SchemaBridge does
+SchemaBridge was built to govern that missing semantic layer before an agent generates SQL.
 
-SchemaBridge reads bounded metadata and governance context from DataHub through its MCP Server. It
-proposes logical fields and join contracts with evidence, confidence, missing evidence, risks, and
-closed normalization steps. A steward must explicitly approve semantic decisions and every DataHub
-mutation.
+### What it does
 
-An analyst then submits a guided or natural-language request. The language model, when enabled, can
+SchemaBridge is a DataHub-native governed semantic query agent. It reads bounded catalog and
+governance context through DataHub MCP, then proposes logical fields and join contracts with
+evidence, confidence, missing evidence, risks, and closed normalization steps. A steward explicitly
+approves every semantic decision and every DataHub mutation.
+
+An analyst can then submit a guided or natural-language request. When an LLM is enabled, it may
 return only a validated typed intent—never executable SQL, physical assets, tools, or approvals.
 SchemaBridge resolves current approved mappings and join versions, detects fanout, compiles a
-restricted query plan into deterministic PostgreSQL, independently reparses the final SQL AST, and
-runs a bounded preview as a dedicated read-only database user.
+restricted query plan into deterministic parameterized PostgreSQL, independently reparses the
+final SQL AST, and runs only a bounded preview as a dedicated read-only database user.
 
 For the request “Count customers by registration date when they are a secondary holder of an
 account,” the synthetic demo returns `2`, `1`, and `1` for January 1–3, 2026. It visibly rejects
-`127.5`, `NaN`, and `NULL` join keys. Approved mappings, join documents, workflow context, and a
-SQL-free query recipe can be written to DataHub and retrieved by a later workflow. Reuse never
-executes saved SQL; the current request is planned, compiled, guarded, and approved again.
+`127.5`, `NaN`, and `NULL` join keys rather than truncating, repairing, or hiding them.
 
-### Why DataHub matters
+With explicit approval, mappings, joins, decision context, and a SQL-free query recipe can be
+written back to DataHub and retrieved by a later workflow. Reuse never executes saved SQL: the
+current request is planned, compiled, guarded, and approved again.
 
-DataHub is both the governed read context and the approved knowledge store. SchemaBridge uses MCP
-for catalog discovery and schema inspection, and bounded approval-gated DataHub adapters for logical
-model relationships, glossary/structured context, decision documents, join contracts, and reusable
-query recipes. Missing lineage or query history is reported as missing evidence instead of being
-fabricated.
+### How we built it
+
+SchemaBridge uses a ports-and-adapters architecture:
+
+- Pure Pydantic domain models define mappings, approvals, transformations, joins, requests, query
+  plans, and validation.
+- Application use cases depend only on typed ports.
+- Adapters integrate DataHub Core/MCP/SDK, PostgreSQL, SQLGlot, optional OpenAI structured outputs,
+  SQLite, and deterministic recordings/fakes.
+- Streamlit and Typer are thin entrypoints; `bootstrap.py` is the only composition root.
+- A deterministic compiler produces SQL from a typed plan, and an independent AST policy allows
+  exactly one read-only `SELECT` or `WITH … SELECT` over approved assets.
+
+The public Docker fallback is secret-free and clearly labels recorded synthetic catalog/source
+observations, deterministic typed intent, and fake local publication. The complete DataHub Core
+v1.6.0 plus PostgreSQL integration remains reproducible locally; there is no silent live-to-fake
+fallback.
+
+### DataHub integration
+
+DataHub is essential in three places:
+
+1. **Read:** MCP catalog discovery and bounded schema/governance retrieval. Missing lineage or
+   query history remains explicit missing evidence.
+2. **Act and write:** approval-gated logical-model context, structured properties, decision
+   documents, join contracts, and query recipes with target-level audit results.
+3. **Reuse:** a fresh workflow retrieves governed context from DataHub, then replans and revalidates
+   instead of trusting saved SQL.
 
 DataHub's Analytics Agent already provides catalog-grounded plain-English analytics. SchemaBridge's
-original contribution is the governed semantic reconciliation layer that creates and versions the
+contribution is the governed semantic reconciliation layer that creates and versions the
 equivalences, normalization policies, and fanout-safe joins that a downstream analytics agent needs
 when physical schemas disagree.
 
-### How it was built
+### Challenges
 
-SchemaBridge uses a ports-and-adapters architecture. Pure Pydantic domain models define mappings,
-approvals, transformations, joins, requests, query plans, and validation. Application use cases
-depend on typed ports. Adapters integrate DataHub Core/MCP/SDK, PostgreSQL, SQLGlot, optional OpenAI
-structured outputs, SQLite, and deterministic recordings/fakes. Streamlit and Typer are thin
-entrypoints; `bootstrap.py` is the only composition root.
+The hardest parts were keeping semantic confidence separate from approval, preventing the LLM from
+producing executable SQL, making fanout mitigation exact rather than heuristic, preserving unsafe
+identifiers as visible rejections, and proving a real approval-gated DataHub write/read-back/restart
+path without putting credentials in the public demo.
 
-The public fallback is a secret-free Docker image with clearly labeled recorded synthetic catalog
-and source observations. The complete DataHub + PostgreSQL integration remains reproducible
-locally. There is no silent live-to-fake fallback.
+A strict clean-room run also found two valuable release issues: the semantic registry had to be
+published explicitly after a fresh DataHub reset, and a fixed-minute rate-limit integration test
+had to accept the two legitimate outcomes when CI crossed a minute boundary.
 
-### Verified results
+### Accomplishments
 
-The small synthetic evaluation reports raw counts only: mapping precision/recall/F1 are `3/4 =
-0.750`, with one retained false positive and one retained false negative; join path is `5/5`,
-cardinality and recipe reuse are `2/2`, typed intent is `1/1` with four intentional M27 skips, query
-result and source rejection are `5/5`, and the independent SQL guard rejects `38/38` malicious
-cases. The optional live LLM evaluation was not run and is not mixed with deterministic evidence.
+Frozen source `c5817af` passes:
 
-### Limitations
+- 4,094 unit tests;
+- 184 integration tests and 66 acceptance tests;
+- 4,340 coverage tests at 81.32%;
+- fresh PostgreSQL 16.13 and DataHub Core v1.6.0 bootstrap;
+- 11 synthetic datasets and 121 metadata events;
+- read-only MCP checks with mutation tools absent;
+- approval-gated registry publication/read-back as 7 models, 31 mappings, 5 joins, and 37 decisions;
+- DataHub restart persistence and context reuse;
+- hosted supply-chain, quality, integration, acceptance, and coverage CI; and
+- a human Safari journey through interpretation, planning, SQL safety, exact results, rejections,
+  publication, decisions, and relationships.
 
-This is a hackathon MVP, not production-ready enterprise infrastructure. PostgreSQL is the only
-executable dialect; queries use at most three tables/two joins and a restricted expression set; semantic and
-catalog writes require a human; the fixture is small and tuned; full planning mappings are a
-clearly labeled synthetic registry; and DataHub plus the local audit ledger do not offer one
-distributed transaction. Field definitions are governed and visible, but registry-wide matching
-from a brief description remains M27. The hosted fallback does not claim live DataHub, PostgreSQL,
-or LLM connectivity.
+The release tree/history scan covers 1,071 files, 23 direct dependency licenses, 41 external links,
+and 43 Git revisions.
+
+### What we learned
+
+Governed agentic analytics needs more than text-to-SQL quality. It needs explicit semantic
+authority, deterministic compilation, independent enforcement at the final SQL boundary, auditable
+human decisions, and a reusable context store. Missing evidence is useful information and should
+never be silently invented.
+
+### What's next
+
+This hackathon MVP is PostgreSQL-only, limited to three tables/two joins and a restricted expression
+set, and evaluated on a small tuned synthetic fixture. Production still requires protected release
+controls, an independent blind evaluation and security review, operated infrastructure/IAM/
+observability evidence, and a pilot. Those boundaries are documented rather than presented as
+completed work.
 
 ## Built with
 
@@ -107,12 +154,13 @@ or LLM connectivity.
 ### Docker path
 
 ```bash
-git clone https://github.com/Crespillo95/schemabridge-codex-starter.git
+git clone --branch devpost-m18-c5817af \
+  https://github.com/Crespillo95/schemabridge-codex-starter.git
 cd schemabridge-codex-starter
 make judge-build
 docker run -d --name schemabridge-judge \
   -p 127.0.0.1:7860:7860 schemabridge-judge:local
-make judge-smoke
+python3 scripts/smoke_deployment.py --url http://127.0.0.1:7860
 ```
 
 ### Full local DataHub path

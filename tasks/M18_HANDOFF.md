@@ -3,143 +3,143 @@
 ## Summary
 
 - Milestone: M18 — README, examples, video, and Devpost submission package
-- Status: partial — local candidate and DataHub evidence pass; immutable release/publication pending
-- Recommended operator decision: needs manual test
-- Proposed commit message: `release: harden M18 judge candidate`
+- Status: partial — frozen source/local evidence complete; owner-account publication and external acceptance pending
+- Recommended operator decision: needs manual account/external tests before Devpost submission
+- Proposed commit message: `docs: record final M18 release evidence`
 
 ## Implemented
 
-- Hardened the public recorded Docker surface, dependency installation, Streamlit privacy/error
-  presentation, English north-star copy, and judge-focused workflow.
-- Extended the release audit across human-facing links and high-confidence Git-history secret
-  patterns without printing candidate secret contents.
-- Exercised the full recorded browser flow and the separate pinned DataHub Core v1.6.0 read,
-  approval-gated write, read-back, restart, and reuse path using synthetic data only.
-- Updated disclosure, runbooks, Devpost/video material, state, decisions, release packaging, generated
-  development evidence, tests, and reviewed DataHub screenshots.
-- Defined a two-commit release identity: immutable source/build/tag commit first; evidence-only commit
-  generated from that clean source second.
+- Froze and pushed source `c5817af6d01b8a98cd7f1950d57e1be667614696`; published annotated
+  tag `devpost-m18-c5817af` pointing exactly to that source.
+- Completed the strict clean-room from empty PostgreSQL/DataHub volumes, including approval-gated
+  registry publication, integration, acceptance, coverage, evaluation, restart persistence,
+  Streamlit health, and release/history/link/license scans.
+- Built and smoke-tested the final `linux/amd64` secret-free recorded judge image as non-root user;
+  image digest is `sha256:b8ee73024ed6a33e32033bde69974dcb1c969e2a54875753dbb0a6cbd08b65f7`.
+- Completed the exact north-star journey in Safari WebDriver, captured ten release Streamlit views,
+  and retained six genuine pinned local DataHub views. Privacy and rights review passes.
+- Regenerated the complete final example package with `release_ready: true` and source revision
+  `c5817af`; package SHA-256 is
+  `5b4a2fa1a8a01920ac54ba0f5efc2155236d268f32d8cc19d4a0ff7c2bbcc0e9`.
+- Produced a silent, English-captioned H.264 1920×1080 video at exactly 2:55. SHA-256 is
+  `754b4f36e588da941a225ed35c313d4dd0656b443d740186e01a05a4d88bfdaa`.
+- Prepared an exact-commit Hugging Face Docker Space package. Public Space upload is blocked on the
+  owner's Hugging Face authentication; YouTube and Devpost are authenticated separately in Chrome.
+- Updated existing Devpost draft `1109948`: elevator pitch, 5,788-character project story, tags,
+  and repository are saved; category/repo/examples/DataHub Core+MCP are prefilled but deliberately
+  unsaved beside the owner's residence, creation-period attestation, and Feedback Prize choice.
+- Verified YouTube Studio and Devpost are authenticated in Chrome. The verified MP4 upload is
+  blocked only because the ChatGPT Chrome extension lacks file-URL access; the required setting and
+  exact upload metadata are documented.
+- Updated GitHub repository description and topics. Public repo and detected Apache-2.0 license
+  remain verified.
 
 ## Files changed
 
-- `Dockerfile`, `.streamlit/config.toml`, `scripts/package_huggingface_space.sh`: reproducible and
-  privacy-reduced judge image/package.
-- `src/schemabridge/application/ui_workflow.py`, `src/schemabridge/bootstrap.py`,
-  `src/schemabridge/entrypoints/streamlit/`: exact English request and focused judge workflow.
-- `scripts/release_audit.py`, `Makefile`: external-link and Git-history release auditing.
-- `tests/`: release-audit, web/UI, exact-copy, workflow-focus, and isolated live-registry coverage.
-- `README.md`, `HACKATHON_DISCLOSURE.md`, `docs/`, `plans/M18_SUBMISSION_PACKAGE.md`: judge story,
-  operational truth, submission checklist, and reviewed DataHub evidence.
-- `examples/`: regenerated development-only evaluation/package evidence; clean-release regeneration
-  remains required.
-- `tasks/CURRENT_TASK.md`, `tasks/PROJECT_STATE.md`, `tasks/DECISION_LOG.md`: current M18 state while
-  preserving M30 commercial/production NO-GO.
+- `README.md`: frozen source/tag and final local judge evidence; release screenshot and tag checkout.
+- `examples/final/`: release-ready generated evaluation summary and manifest.
+- `docs/screenshots/m18/*.png`, `docs/screenshots/m18/README.md`: final release UI evidence and inventory.
+- `docs/15_SUBMISSION_CHECKLIST.md`: exact source/tag/image/package/video evidence and remaining owner checks.
+- `docs/18_DEVPOST_SUBMISSION.md`: exact source identity and final paste copy with only public links pending.
+- `docs/18_VIDEO_PRODUCTION.md`: exact export properties, checksum, mode labels, and privacy review.
+- `plans/M18_SUBMISSION_PACKAGE.md`: current acceptance status and final local evidence.
+- `tasks/CURRENT_TASK.md`, `tasks/PROJECT_STATE.md`, `tasks/DECISION_LOG.md`: D145–D147 and current M18 state.
+- `tasks/M18_HANDOFF.md`: this handoff.
 
 ## Commands executed
 
 | Command | Result | Notes |
 |---|---|---|
-| `make judge-build` | pass | Linux AMD64 image; Python 3.13.13, Streamlit 1.60.0, SQLGlot 29.0.1 |
-| `make judge-smoke` | pass | Local health and root page |
-| `.venv/bin/pytest -m acceptance -k deployed` | pass | Deployed recorded flow |
-| human browser north-star run | pass | Exact `2/1/1`; `127.5`, `NaN`, `NULL`; no developer popup |
-| `make datahub-health` plus catalog/MCP/registry checks | pass | 11 datasets; read-only MCP; registry 7/31/5/37 |
-| DataHub restart plus live acceptance | pass | Registry/reuse survived restart; 3 tests passed |
-| `.venv/bin/pytest -m integration` | pass | 184 passed, 3 explicit skips |
-| `.venv/bin/pytest -m acceptance` | pass | 66 passed, 1 explicit skip |
-| `make evaluate` | pass | Small deterministic synthetic fixture only |
-| `.venv/bin/pytest -q tests/unit/test_release_audit.py` | pass | 16 passed |
-| release/UI/web focused selection | pass | 34 passed |
-| `.venv/bin/python scripts/release_audit.py --check-external --check-history` | pass | 1,068 files, 23 licenses, 41 links, 39 revisions; dirty-tree warning only |
-| `git diff --check` | pass | No whitespace errors |
-| `make check` | pass | Static gates, isolated performance, then 4,080 passed/250 deselected in 898.48 s |
-| first clean `make release-clean` at `7f298b4` | fail | 180 integration passed/3 skipped; 4 live-registry reads found the reset orchestration gap |
-| corrected prepare/publish/read-back focal | pass | Exact audited publish; registry 7/31/5/37; affected integration 4 passed/1 IAM skip |
-| corrected `make check` | pass | 4,082 passed/250 deselected in 950.53 s, including 2 clean-room ordering tests |
-| corrected strict clean-room rerun | not run | Requires the superseding clean source commit |
+| `SCHEMABRIDGE_RELEASE_DATAHUB_CONFIRMATION=publish-approved-registry-version make release-clean` | pass | Exact source `c5817af`; complete fresh-service strict gate |
+| `.venv/bin/python scripts/release_audit.py --require-release --check-external --check-history` | pass | 1,071 files, 23 licenses, 41 links, 43 revisions |
+| `gh run view 31003886659 ...` | pass | Hosted supply-chain, quality, PostgreSQL/DataHub integration/acceptance/coverage all green; head `c5817af` |
+| `docker build --platform linux/amd64 --build-arg SCHEMABRIDGE_RELEASE_REF=c5817af ...` | pass | Digest `sha256:b8ee73…b65f7`, release ref exact |
+| final container health and deployment smoke | pass | Non-root `user`; healthy; root page returned successfully |
+| Safari WebDriver north-star journey | pass | Interpretation, plan, SQL guard, `2/1/1`, three rejections, publication, decisions, relationships, reset |
+| `make submission-package` | pass | 11 outputs; release-ready manifest bound to `c5817af` |
+| `scripts/package_huggingface_space.sh c5817af...` | pass | Secret-free Docker Space package; exact `RELEASE_COMMIT` |
+| `ffprobe ...` and `shasum -a 256 ...mp4` | pass | 175 s; H.264 1920×1080 30 fps; checksum recorded above |
+| annotated tag creation/push | pass | `devpost-m18-c5817af` resolves to exact source commit |
+| public tag clone, build, and documented smoke | pass after docs correction | Clean detached source; initial `make judge-smoke` exposed absent `.venv`; stdlib `python3 scripts/smoke_deployment.py` passes and is now the judge instruction |
+| `git diff --check` | pending on evidence-only commit | Run after public URLs/final evidence edits |
 
 ## Automated test results
 
-- Focused tests: release-audit 16 passed; affected release/UI/web selection 34 passed.
-- `make check`: pass; supply-chain and release policy, format (745 files), Ruff, strict Mypy (366
-  source files), one isolated performance test, and 4,080 functional tests passed with 250
-  deselected in 898.48 seconds.
-- Corrected `make check`: pass; 746 formatted files, Ruff, strict Mypy over 366 sources, isolated
-  performance, and 4,082 functional tests passed with 250 deselected in 950.53 seconds.
-- Integration tests: 184 passed, 3 explicit skips (historical superseded v1 fixture, separately
-  provisioned M34 document-publisher IAM, unavailable retained M27 browser corpus).
-- Clean-room integration on source `7f298b4`: 180 passed, 3 skipped, 4 failed because the fresh
-  DataHub reset had not published the registry prerequisite. The corrected explicit prepare,
-  approval-gated publish, read-back, and affected integration cut passes; full rerun is pending.
-- Acceptance tests: 66 passed, 1 superseded historical skip; post-restart live cut 3 passed.
-- Coverage, where applicable: the repository gate does not emit a coverage percentage in this
-  configuration; correctness uses the complete selected functional suite plus the isolated
-  performance node.
+- Focused tests: all release-clean prerequisite/focal suites pass.
+- `make check`: pass inside strict clean-room; format, Ruff, strict Mypy, supply-chain/release policy,
+  performance node, 4,094 passed and 250 deselected in 942.70 seconds.
+- Integration tests: 184 passed, 3 explicit skips in 202.66 seconds.
+- Acceptance tests: 66 passed, 1 explicit skip in 50.80 seconds.
+- Coverage: 4,340 passed, 3 skipped, 1 deselected; 81.32% against an 80% threshold.
+- Post-restart: four live integration tests pass; DataHub catalog/MCP/registry checks pass.
+- Hosted CI: run `31003886659` completed successfully in all three jobs.
 
 ## Operator manual test
 
-1. From the clean source commit, build the judge image and run the complete English north-star flow.
-2. Publish that exact package to the public Hugging Face Docker Space and repeat it signed out from
-   a second device/network.
-3. Open every repository, example, demo, video, and Devpost link signed out and compare claims with
-   the image, manifest, and video.
-4. Ask an unfamiliar reviewer the five questions in `docs/15_SUBMISSION_CHECKLIST.md` using only the
-   final README and video.
+1. Authorize the Hugging Face CLI, publish the prepared public Docker Space, and repeat the
+   north-star path signed out after a cold start.
+2. Upload the already verified local video to public YouTube or Vimeo and watch it signed out with
+   sound muted.
+3. Ask one unfamiliar person the five questions in `docs/15_SUBMISSION_CHECKLIST.md` using only the
+   public README/video; record their verbatim answers.
+4. Test repo, demo, video, and Devpost links from a second device/network; complete the Devpost
+   eligibility/legal attestations and submit.
 
 Expected result:
 
 ```text
-The reviewer identifies semantic ambiguity, DataHub-governed mappings/joins, deterministic SQL
-compilation and AST validation, the 2/1/1 distinct-customer result, and explicit invalid-key
-rejections. The public demo needs no login or secrets and matches the recorded release identity.
+The public demo requires no login/payment, displays recorded/fake modes, returns 2/1/1, exposes
+127.5/NaN/NULL rejections, and matches source c5817af. The reviewer identifies semantic ambiguity,
+DataHub-governed mappings/joins, deterministic compilation plus independent AST validation, and the
+concrete result. Every public link works signed out.
 ```
 
 ## Architecture and security review
 
-- Dependency direction: unchanged; Streamlit invokes application use cases through the composition
-  root and no business rule moved into the entrypoint.
-- Source database writes: none; public runtime contains no source database credential.
-- SQL/LLM validation: the LLM does not emit executable SQL; typed intent, deterministic compiler,
-  two independent AST checks, allowlists, limits, timeout, and fanout policy remain enforced.
-- DataHub mutation approval: exact explicit approval, pseudonymous authenticated actor, immutable
-  audit facts, read-back, and idempotent replay passed locally; public runtime uses fake labeled
-  publication and carries no writer credential.
-- Secrets/proprietary data: synthetic data only; candidate screenshots reviewed; release tree,
-  direct dependency licenses, external links, and Git history scan pass on the dirty candidate.
-- Fanout/semantic risks: one-to-many expansion requires approved `COUNT DISTINCT`; name similarity
-  alone never establishes equivalence and ambiguity remains human-confirmed.
+- Dependency direction: unchanged; evidence-only changes do not alter the ports-and-adapters boundaries.
+- Source database writes: none; the public image contains no source or DataHub writer credential.
+- SQL/LLM validation: typed intent only, deterministic compiler, independent SQL AST guard,
+  allowlists/limits/timeout, and explicit fanout mitigation remain enforced.
+- DataHub mutation approval: real local writer path required exact confirmation/approval/audit and
+  read-back; public fallback is clearly labeled fake local publication.
+- Secrets/proprietary data: synthetic data only; strict tree/history scan and media review pass.
+- Fanout/semantic risks: approved one-to-many contract requires exact `COUNT DISTINCT`; name
+  similarity never grants equivalence and ambiguity still requires a human.
 
 ## Decisions made
 
-- Decision: public hackathon service uses recorded synthetic catalog/result evidence while live
-  DataHub proof remains a separate local pinned-stack artifact.
-- Reason: a free public single-container service cannot honestly or safely embed DataHub/source
-  credentials, yet judges still receive a stable functional path and inspectable real integration.
-- Logged in: D141–D143 in `tasks/DECISION_LOG.md`.
+- Decision: keep the public hackathon topology secret-free/recorded while retaining separate genuine
+  local DataHub read/write/restart/reuse evidence.
+- Decision: use non-production annotated tag `devpost-m18-c5817af`, not M30's stable SemVer channel.
+- Decision: accept both real fixed-minute-window outcomes in the CI test without changing runtime policy.
+- Reason: the public service must be stable and credential-free; release identity must not imply M30
+  production acceptance; a time-boundary test must assert semantics rather than scheduler timing.
+- Logged in: D141 and D145–D148 in `tasks/DECISION_LOG.md`.
 
 ## Known limitations or unverified items
 
-- No public Hugging Face URL, public YouTube/Vimeo video, Devpost project URL, release tag, or final
-  clean manifest exists yet.
-- Final Streamlit screenshots must be recaptured from the immutable clean source image.
-- Public signed-out/cold-start/second-network checks and unfamiliar-reviewer comprehension are not
-  yet performed.
-- M18 is not production acceptance: M30 remains 0/24 external controls and commercial/production
-  NO-GO.
+- Public Hugging Face, YouTube/Vimeo, and Devpost URLs are not yet available.
+- The Devpost slug `https://devpost.com/software/schemabridge` is reserved but redirects signed-out
+  visitors to login while the submission remains a draft.
+- Signed-out cold-start, second-network/device, and unfamiliar-reviewer checks remain unperformed.
+- The video is an edited progression of genuine captured release/DataHub states with burned captions,
+  not a narrated continuous cursor recording; it truthfully labels local live versus recorded modes.
+- This is a hackathon MVP with PostgreSQL-only bounded execution and small tuned synthetic evaluation.
+- M18 does not satisfy M30: all 24 commercial/production external controls remain NO-GO.
 
 ## Blockers
 
-- Owner-scoped Hugging Face authentication is required to create/upload the public Space.
-- Owner YouTube/Vimeo and Devpost sessions plus legal/eligibility attestations cannot be fabricated
-  by repository automation.
-- Release identity now depends on the superseding clean source commit and strict clean-release
-  proof; `7f298b4` must not be tagged or deployed.
+- Owner Hugging Face login is required for public Space creation/upload.
+- The authenticated Chrome YouTube session needs the ChatGPT extension's
+  `Allow access to file URLs` permission before automated upload.
+- Devpost eligibility/legal attestations and final submission cannot be delegated or fabricated.
+- An unfamiliar human and a second network/device are required for the checklist's external acceptance.
 
 ## Next milestone readiness
 
-- Dependencies satisfied: local M18 source/UX/DataHub evidence passes and the first clean-room run
-  exposed a now-remediated orchestration prerequisite; the superseding full gate/freeze remain.
-- Recommended next prompt: continue M18 freeze, publish the exact Space/video, run signed-out human
-  acceptance, and complete Devpost without changing executable source.
-- Required operator prerequisites: scoped Hugging Face login, YouTube/Vimeo login, Devpost login,
-  unfamiliar reviewer, and second network/device.
+- Dependencies satisfied: exact source/tag, local image, strict gates, generated artifacts, screenshots,
+  and final local video are complete.
+- Recommended next prompt: authorize the three owner accounts, publish the prepared artifacts, perform
+  external acceptance, and close the evidence-only commit without changing source.
+- Required operator prerequisites: Hugging Face login, Chrome file-URL access, Devpost owner
+  attestations, unfamiliar reviewer, and second device/network.

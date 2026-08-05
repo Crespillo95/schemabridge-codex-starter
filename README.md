@@ -8,12 +8,13 @@ request into deterministic PostgreSQL, independently validates the final SQL AST
 standalone query to copy into another PostgreSQL client. A bounded read-only preview is optional;
 approved semantic context can be written back to DataHub through its separate approval path.
 
-> Hackathon release status (2026-08-05): the public repository and Apache-2.0 license are verified.
-> The pinned recorded judge image passes local build, smoke, acceptance, and human browser tests.
-> The full synthetic DataHub/PostgreSQL path also passes ingest, least-privilege MCP reads,
-> approval-gated write/read-back, restart persistence, and context reuse. No public demo URL,
-> public video, clean release commit, or tag is claimed yet; the generated M18 manifest remains
-> development evidence until those operator steps are complete. M20–M29 are
+> Hackathon release status (2026-08-05): source release
+> [`c5817af`](https://github.com/Crespillo95/schemabridge-codex-starter/tree/devpost-m18-c5817af)
+> is frozen under annotated tag `devpost-m18-c5817af`. Its strict clean-room gate, hosted CI,
+> `linux/amd64` image, generated M18 manifest, Safari north-star test, screenshots, and 2:55
+> captioned video export pass. The full synthetic DataHub/PostgreSQL path also passes ingest,
+> least-privilege MCP reads, approval-gated write/read-back, restart persistence, and context reuse.
+> Public demo/video URLs and the owner's Devpost attestations remain account-gated. M20–M29 are
 > accepted locally within their stated synthetic/local scopes; the corrective hosted M29 rerun and
 > every external production/release gate remain open. M32—the bounded simple/advanced
 > natural-language to copyable PostgreSQL capability described below—is accepted locally for its
@@ -57,7 +58,7 @@ approved Customer key, and returns:
 It separately reports `127.5` (`non_integral_identifier`), `NaN`
 (`non_finite_identifier`), and `NULL` (`null_join_key`) instead of repairing or hiding them.
 
-![Validated synthetic result and rejection evidence](docs/screenshots/m14/validated-result.jpg)
+![Validated synthetic result from the final release image](docs/screenshots/m18/m18-validated-result.png)
 
 Inspect the generated [request](examples/final/analytical-request-secondary-holders.yml),
 [resolved plan](examples/final/resolved-query-plan-secondary-holders.yml),
@@ -65,29 +66,28 @@ Inspect the generated [request](examples/final/analytical-request-secondary-hold
 [validation report](examples/final/query-validation-report.yml), and
 [rejection report](examples/final/rejected-records.csv) without running the project.
 
-## Prepared judge quick test
+## Judge quick test
 
-This is the exact clean-checkout command to run after the release commit is pushed; it is not yet a
-verified remote-release instruction. The secret-free Docker path uses recorded synthetic catalog
-and result evidence, a deterministic typed intent parser, the real planner/compiler/SQL guard, and
-fake local publication. Every mode is visible in the UI; it never presents the recording as live
-DataHub, PostgreSQL, or LLM output.
+The secret-free Docker path uses recorded synthetic catalog and result evidence, a deterministic
+typed intent parser, the real planner/compiler/SQL guard, and fake local publication. Every mode is
+visible in the UI; it never presents the recording as live DataHub, PostgreSQL, or LLM output.
 
 ```bash
 git clone https://github.com/Crespillo95/schemabridge-codex-starter.git
 cd schemabridge-codex-starter
+git checkout devpost-m18-c5817af
 make judge-build
 docker run -d --name schemabridge-judge \
   -p 127.0.0.1:7860:7860 schemabridge-judge:local
-make judge-smoke
+python3 scripts/smoke_deployment.py --url http://127.0.0.1:7860
 ```
 
 Open `http://localhost:7860`, select **Load demo scenario**, confirm the distinct-customer
 interpretation, and approve the bounded preview. **Reset demo** starts fresh local workflow state;
 it does not mutate a source database or DataHub.
 
-The public judge URL is intentionally absent until the exact release commit is deployed and tested
-from incognito plus a second network. Build, cold-start, rollback, and status procedures are in
+The public judge URL is added here only after the exact release package is deployed and tested
+signed out. Build, cold-start, rollback, and status procedures are in
 [M17 judge operations](docs/17_JUDGE_OPERATIONS.md).
 
 ## Why DataHub is essential

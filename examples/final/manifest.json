@@ -16,9 +16,9 @@
       "sha256": "ccc78bffdbe580262571926d7ae6f2854b29f6bb51af883e3116825f6402bf5a"
     },
     {
-      "bytes": 1647,
+      "bytes": 1648,
       "path": "evaluation-summary.md",
-      "sha256": "0355109388c53324254192b95ebd4a279039a0a1afaf343159e7b47549b6c7d7"
+      "sha256": "f9e230e39703f9f09363b6c508501d134a22b75d653a0d4a17c24a95d12f658f"
     },
     {
       "bytes": 1198,
@@ -53,10 +53,10 @@
   ],
   "development_generation_command": "make submission-package-dev",
   "generation_command": "make submission-package",
-  "notice": "Development evidence only; regenerate after the release commit.",
-  "package_sha256": "60fe38be7a8a52635b2156e3ce3cc1edd48d5e1445e04db176ea94d113c7b994",
-  "release_label": "c31fdf15a1b94659cba463deba74d96d6fac1ec2-dirty-development",
-  "release_ready": false,
+  "notice": "Release evidence from a clean commit.",
+  "package_sha256": "5b4a2fa1a8a01920ac54ba0f5efc2155236d268f32d8cc19d4a0ff7c2bbcc0e9",
+  "release_label": "c5817af6d01b8a98cd7f1950d57e1be667614696",
+  "release_ready": true,
   "schema_version": 1,
-  "source_revision": "c31fdf15a1b94659cba463deba74d96d6fac1ec2"
+  "source_revision": "c5817af6d01b8a98cd7f1950d57e1be667614696"
 }

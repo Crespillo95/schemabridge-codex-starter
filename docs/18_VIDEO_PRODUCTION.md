@@ -1,6 +1,35 @@
 # M18 video production package
 
-Status: **script/captions ready; recording, edit, upload, and public verification pending**.
+Status: **final local export verified; public upload and signed-out verification pending**.
+
+Final local export:
+
+- Source release: `c5817af6d01b8a98cd7f1950d57e1be667614696`
+- Duration: `175.000000` seconds (2:55)
+- Video: H.264, 1920 × 1080, 30 fps
+- SHA-256: `754b4f36e588da941a225ed35c313d4dd0656b443d740186e01a05a4d88bfdaa`
+- Audio/music: none
+- Captions: English, burned into the video from `docs/18_CAPTIONS.srt`
+- Mode labels: `LIVE LOCAL DATAHUB | SYNTHETIC` and
+  `RECORDED HOSTED FALLBACK | RELEASE c5817af`
+
+Frames at 0:05, 1:20, 2:05, 2:25, and 2:53 were visually reviewed. The export contains genuine
+captured release UI and local DataHub states, no changed functional values, and no credential,
+personal data, local path, notification, proprietary data, music, or third-party footage.
+
+## Public upload metadata
+
+- Title: `SchemaBridge — Governed Semantic Query Agent for DataHub | Devpost 2026`
+- Description: `SchemaBridge governs semantic mappings and fanout-safe joins in DataHub before
+  compiling a business question into independently validated read-only PostgreSQL. This 2:55 demo
+  uses only synthetic data and clearly labels live local DataHub versus the recorded public
+  fallback. Source: https://github.com/Crespillo95/schemabridge-codex-starter — release:
+  devpost-m18-c5817af.`
+- Audience: not made for children; this is a technical software demonstration.
+- Visibility: public.
+- Music/audio: none; English captions are burned in.
+- Upload state: YouTube Studio owner session is authenticated, but the ChatGPT Chrome extension
+  requires `Allow access to file URLs` before it can pass the verified MP4 to the file chooser.
 
 The final video must show the release functioning, remain below 3:00, be understandable with audio
 off, and use no music. Record from the clean release commit after the public deployment is stable.

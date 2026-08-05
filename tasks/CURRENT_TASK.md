@@ -1,10 +1,10 @@
 # Current task
 
 - Current milestone: M18 — README, examples, video, and Devpost submission package
-- Status: local release candidate audited; clean freeze and account-owned publication pending
+- Status: source release audited/tagged; account-owned publication and external acceptance pending
 - Plan: `plans/M18_SUBMISSION_PACKAGE.md`
 - Handoff: `tasks/M18_HANDOFF.md`
-- Hackathon submission GO: **NO — public URL, video, release/tag, and final human checks pending**
+- Hackathon submission GO: **NO — public demo/video URLs, external checks, and owner attestations pending**
 - Commercial/production GO: **NO — M30 remains 0/24 external controls and is not changed by M18**
 
 ## Objective
@@ -13,7 +13,13 @@ Freeze a truthful judge-first release, publish the secret-free recorded Docker d
 public sub-three-minute video, and complete the DataHub Devpost submission without converting local
 or synthetic evidence into a production claim.
 
-## Completed on the current candidate
+## Completed on the frozen source release
+
+- Froze source commit `c5817af6d01b8a98cd7f1950d57e1be667614696`, pushed it, passed hosted
+  PR CI run `31003886659`, and published annotated tag `devpost-m18-c5817af` pointing exactly to it.
+- Ran the full strict clean-room from empty service volumes with explicit synthetic registry
+  publication confirmation. Unit, integration, acceptance, coverage, evaluation, Streamlit smoke,
+  restart persistence, starter integrity, and strict release scan all pass.
 
 - Corrected public Streamlit privacy/UX configuration: minimal toolbar, no developer error details
   or links, no usage telemetry, English north-star text, and one active-workflow focus.
@@ -27,7 +33,7 @@ or synthetic evidence into a production claim.
 - Human-tested the recorded Docker UI through interpretation, one-to-many fanout mitigation,
   independent SQL safety checks, exact `2/1/1` result, `127.5`/`NaN`/`NULL` rejection, and fake
   approval-gated publication. No Streamlit developer popup was visible.
-- Captured candidate Streamlit and live DataHub screenshots from synthetic state only; privacy and
+- Captured final Streamlit and live DataHub screenshots from synthetic state only; privacy and
   rights review is recorded in `docs/screenshots/m18/README.md`.
 - Started pinned DataHub Core v1.6.0, ingested/profiled 11 synthetic datasets through 121 events,
   provisioned separate mode-0600 reader/writer identities, and verified MCP search/schema reads
@@ -43,8 +49,21 @@ or synthetic evidence into a production claim.
 - Corrected one live integration test that attempted to reissue the stable existing actor's
   approval ID from a new empty ledger. The test now uses a distinct stable authenticated local
   operator and preserves all fail-closed production semantics and idempotence assertions.
+- Regenerated `examples/final/` with `release_ready: true` and source revision `c5817af`; package
+  SHA-256 is `5b4a2fa1a8a01920ac54ba0f5efc2155236d268f32d8cc19d4a0ff7c2bbcc0e9`.
+- Human-tested the exact final image in Safari through reset, interpretation, governed plan, SQL
+  safety, execution, rejection evidence, publication, decisions, relationships, and fresh reset.
+- Exported and visually reviewed a silent English-captioned 1920×1080 H.264 video at exactly 2:55;
+  SHA-256 is `754b4f36e588da941a225ed35c313d4dd0656b443d740186e01a05a4d88bfdaa`.
+- Updated the existing Devpost draft `1109948`: final elevator pitch, 5,788-character verified
+  project story, public tags, and repository URL are saved. Category, repository, examples, and
+  DataHub Core/MCP are prefilled in Additional info but remain unsaved beside owner-only eligibility
+  fields. Reserved public slug is `https://devpost.com/software/schemabridge`.
+- Verified Chrome has authenticated YouTube Studio and Devpost sessions. Video upload is prepared
+  but file selection remains blocked until the user grants the ChatGPT Chrome extension access to
+  file URLs. Hugging Face is not authenticated in Safari, in-app browser, or Chrome.
 
-## Current automated evidence
+## Final automated evidence
 
 - Focused release/UI/web tests: 34 passed before the live-service cut.
 - DataHub-specific integration: 9 passed, 1 explicit M34 publisher-IAM skip.
@@ -52,34 +71,32 @@ or synthetic evidence into a production claim.
 - Full integration: 184 passed, 3 explicit skips.
 - Live post-restart acceptance: 3 passed.
 - Docker build/smoke/deployed acceptance and manual browser north-star: passed.
-- Final current-byte `make check` passes supply-chain/release policy, formatting, Ruff, strict Mypy,
-  isolated performance, and 4,080 functional tests with 250 deselected in 898.48 seconds.
-- First clean source `7f298b4` passed its clean unit gate and fresh PostgreSQL/DataHub bootstrap,
-  but correctly failed 4/184 integrations because the reset script had not published the semantic
-  registry that those tests require. The corrected clean-room now requires an exact separate
-  synthetic DataHub confirmation, validates no-write prepare output, publishes through the audited
-  use case, verifies 7/31/5/37 read-back, and passes the affected 4-test cut. `7f298b4` is
-  superseded. The corrected full gate passes 4,082 tests with 250 deselected in 950.53 seconds;
-  clean-room rerun is pending on the replacement commit.
-- Clean release package, clean-checkout clone, and public URL/video checks remain pending until the
-  source release identity is frozen.
+- Strict `make release-clean` on `c5817af` passes: 4,094 unit tests, 184 integration tests with 3
+  explicit skips, 66 acceptance tests with 1 explicit skip, and 4,340 coverage tests with 3 skips
+  and 1 deselection at 81.32%. Fresh PostgreSQL 16.13, DataHub Core v1.6.0 ingest/reader/writer,
+  registry 7/31/5/37, evaluation, restart/reuse, Streamlit smoke, and final scan all pass.
+- Independent strict audit passes 1,071 files, 23 direct dependency licenses, 41 external links,
+  and 43 Git-history revisions.
+- Hosted run `31003886659` passes `supply-chain`, `quality`, and `postgres-integration`, including
+  complete coverage and evaluation on the PR merge ref associated with head `c5817af`.
+- Final `linux/amd64` image digest is
+  `sha256:b8ee73024ed6a33e32033bde69974dcb1c969e2a54875753dbb0a6cbd08b65f7`;
+  it ran as non-root user `user`, reached healthy status, and passed the deployment smoke.
 
-## Remaining release sequence
+## Remaining account/external sequence
 
-1. Commit and push the fully gated candidate, wait for hosted CI, then regenerate `examples/final/` from the
-   clean source commit with `release_ready: true`.
-2. Authenticate the installed `hf` CLI using the owner's scoped Hugging Face credential, create the
+1. Authenticate the installed `hf` CLI using the owner's account, create the
    public Docker Space, upload the exact commit package, and test it signed out.
-3. Record/edit the release UI plus real local DataHub evidence into a silent/captioned video below
-   three minutes; upload publicly to YouTube or Vimeo and verify duration/checksum/link.
-4. Obtain an unfamiliar human reviewer and second-network/device checks, then merge/tag/release,
-   update every pending URL/hash, and submit through the owner's Devpost session.
+2. Upload the verified local video to public YouTube or Vimeo and test the public link signed out.
+3. Obtain an unfamiliar human reviewer and second-network/device checks, update every pending URL,
+   merge the evidence-only commit, and submit through the owner's Devpost session.
 
 ## External/operator prerequisites
 
 - Hugging Face account authentication for one public Docker Space.
-- YouTube or Vimeo account authentication for the public video.
-- Devpost account authentication and the final legal/eligibility attestations.
+- YouTube Studio is authenticated; public upload still needs Chrome extension file-URL access.
+- Devpost is authenticated; final legal/eligibility attestations remain owner-only.
+- Chrome extension file-URL access for the already authenticated YouTube upload.
 - A person unfamiliar with the project plus a second network/device for the required manual review.
 
 ## Preserved production boundary

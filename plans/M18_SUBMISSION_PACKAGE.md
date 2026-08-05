@@ -1,6 +1,6 @@
 # M18: README, examples, video, and Devpost submission package
 
-- Status: local release candidate audited; clean freeze, public media, and public acceptance pending
+- Status: source release and local media audited; account-owned publication and public acceptance pending
 - Timebox: 5 hours
 - Recommended Codex: GPT-5.6 Sol — Extra High (xhigh)
 - Dependencies: M15–M17
@@ -33,11 +33,11 @@ Judges may decide from the description, images, README, and sub-three-minute vid
 
 ## Acceptance criteria
 
-- [ ] Every claim in README/Devpost/video corresponds to implemented, tested release behavior.
-- [ ] The repository is public, Apache-2.0, complete, and free of secrets/proprietary data.
+- [x] Every current non-public claim in README/Devpost/video corresponds to implemented, tested release behavior.
+- [x] The repository is public, Apache-2.0, complete, and free of secrets/proprietary data.
 - [ ] The live URL and all links work in incognito.
 - [ ] The video is public, under three minutes, readable, and shows the project functioning.
-- [ ] `examples/` contains final generated artifacts that a judge can inspect without running code.
+- [x] `examples/` contains final generated artifacts that a judge can inspect without running code.
 - [x] Materials are in English or include complete English translation.
 - [x] The submission clearly proves DataHub read, act/write, and reuse plus the semantic-layer differentiation.
 
@@ -53,11 +53,14 @@ Judges may decide from the description, images, README, and sub-three-minute vid
 - Full acceptance passes 66 with one superseded historical skip. Full integration passes 184 with
   three explicit skips: one superseded v1 fixture, one separately provisioned M34 publisher IAM
   path, and one retained historical browser corpus.
-- The final current-byte `make check` passes supply-chain/release policy, formatting, Ruff, strict
-  Mypy, the isolated performance node, and 4,080 functional tests with 250 deselected in 898.48
-  seconds.
-- Public Hugging Face deployment, public video, clean release identity, clean-checkout reproduction,
-  unfamiliar reviewer, and final Devpost submission remain external operator work.
+- Frozen source `c5817af` passes the complete strict clean-room gate: 4,094 unit tests, 184
+  integration tests, 66 acceptance tests, 4,340 coverage tests at 81.32%, fresh PostgreSQL/DataHub,
+  registry publication/read-back/restart, deterministic evaluation, Streamlit smoke, and final
+  release audit. Hosted PR CI run `31003886659` also passes all three jobs.
+- Annotated tag `devpost-m18-c5817af`, generated release-ready artifacts, ten final Streamlit
+  captures, and the verified 2:55 captioned local video export are complete.
+- Public Hugging Face deployment, public YouTube/Vimeo upload, unfamiliar reviewer, second-network
+  acceptance, and final Devpost submission remain account/external operator work.
 
 ## Required automated checks
 

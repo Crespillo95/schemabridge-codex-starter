@@ -1839,22 +1839,22 @@ M29 final-byte remediation status on 2026-07-30:
   cases with one retained homonym false positive and one hidden-synonym false negative; it cannot
   support production-quality or statistical-generalization claims.
 - Historical M15 optional live-LLM evaluation remains `not_run` in the M15 artifact and separate
-  from M27's signed provider campaign. Current generated release artifacts still identify
-  `working-tree-uncommitted`; they must be regenerated after the reviewed release commit before
-  any score is quoted as release evidence.
+  from M27's signed provider campaign. M18 release artifacts now bind clean source `c5817af` and
+  retain that explicit `not_run` state; no deterministic score is presented as live-provider evidence.
 - DataHub and the control database remain separate systems without a distributed transaction.
   Registry activation now commits its PostgreSQL authority/outbox first and reconciles DataHub
   explicitly. Other approved external publication families retain exact reservation, idempotent
   retry, and read-back contracts but do not claim cross-system atomicity.
 - A scoped writer token minted immediately before terminal provisioning failure might remain valid
   without a saved local reference; revoke it manually after such a failure.
-- The clean live-browser timing/recording and second-person judge explanation remain operator work.
-- The M18 artifact manifest and evaluation summary are development evidence from a dirty tree. They
-  must be regenerated after the release commit; no release tag/checksum sign-off exists yet.
-- The clean M14 synthetic screenshots were visually re-reviewed for credentials/proprietary data,
-  but no final M18 release/public-deployment screenshots have been captured.
-- The timed captions/video script exists, but no video file, duration/checksum, public upload,
-  muted-playback review, or rights review has been completed.
+- The final release browser journey, screenshots, and muted video frame review pass; the unfamiliar
+  second-person explanation and second-network/public-host checks remain operator work.
+- The M18 manifest, evaluation summary, annotated source tag, package checksum, and manifest-file
+  checksum bind clean release source `c5817af` under D143/D147.
+- Ten final Streamlit and six genuine local DataHub captures pass privacy/rights review. A future
+  public-host capture must still be checked after deployment.
+- The 175-second captioned video file, checksum, mode labels, muted-frame review, and rights review
+  pass locally; public YouTube upload and signed-out playback remain pending.
 - M20 alone isolates workflow control-plane state, not live data-plane credentials. Accepted-local
   M28 adds workspace/connection-qualified source and DataHub routes, but deployments must retain
   the historical single-scope restriction until M29's provider and infrastructure controls are
@@ -2048,20 +2048,20 @@ external controls. GitHub `main` remains unprotected with zero environments/rule
 attestation workflow must not be dispatched. Campaign remains blocked on an exact clean tagged-main
 candidate, exact-subject hosted artifacts, the blind corpus, operated target controls, independent
 assessment and owner signatures.
-M17/M18 release work remains independently blocked on a reviewed clean commit, strict
-`make release-clean`, exact-commit deployment, public/incognito and cold-start evidence, final
-media/links/checksums, and external reviewer sign-off.
+M17/M18 source release and local evidence are frozen and audited at `c5817af`; account-owned public
+deployment/video upload, signed-out/cold-start/second-network evidence, unfamiliar-reviewer
+sign-off, and Devpost eligibility/submission remain independently open.
 
-## M18 current release-candidate audit — 2026-08-05
+## M18 frozen source and local evidence audit — 2026-08-05
 
 - The recorded judge image now installs only the reviewed hashed dependency locks, contains its
   required migrations and Streamlit configuration, hides developer/error-link surfaces, and
   presents the exact north-star demo in English while keeping recorded/fake modes explicit.
-- A human in-app-browser run completed interpretation, approved one-to-many join plus `COUNT
-  DISTINCT`, independently guarded SQL, the exact `2/1/1` result, visible `127.5`/`NaN`/`NULL`
+- A human Safari WebDriver run against the final image completed interpretation, approved the
+  one-to-many join plus `COUNT DISTINCT`, independently guarded SQL, the exact `2/1/1` result, visible `127.5`/`NaN`/`NULL`
   rejections, and fake local publication. No developer popup, unexpected form, or browser warning
-  was observed. Candidate screenshots contain only synthetic state and have a recorded privacy and
-  rights review.
+  was observed. Ten final Streamlit screenshots contain only synthetic state and have a recorded
+  privacy and rights review.
 - Pinned DataHub Core v1.6.0 ingested/profiled 11 synthetic datasets through 121 events. Its
   dedicated MCP identity passed search and schema reads while mutation tools remained absent; the
   separate writer remained approval-gated.
@@ -2074,26 +2074,36 @@ media/links/checksums, and external reviewer sign-off.
   only as an exact assertion. The fresh-process integration uses a distinct stable authenticated
   test subject so an empty ledger cannot reissue another actor's immutable approval ID with a new
   timestamp.
-- Full acceptance passes 66 with one superseded historical v1 skip. Full integration passes 184
-  with three explicit skips: that same historical v1 fixture, the separately provisioned
-  document-only M34 publisher IAM path, and one unavailable retained M27 browser corpus. After a
-  complete DataHub restart, health/catalog/registry/MCP checks and three live north-star/reuse
-  acceptance cases pass again.
-- These results complete local DataHub read/act/write/reuse and release-candidate UX evidence. They
-  do not complete M18: clean commit/package, final screenshots, public Hugging Face URL, public
-  video, clean-checkout reproduction, unfamiliar reviewer, second-network/incognito validation,
-  merge/tag/release, and Devpost account submission remain pending. M30 stays 0/24 external
-  controls and commercial/production NO-GO.
-- The final M18 current-byte quality gate passes static supply-chain/release policy, formatting over
-  745 files, Ruff, strict Mypy over 366 source files, one isolated performance test, and 4,080
-  functional tests with 250 deselected in 898.48 seconds. This proves the dirty candidate bytes,
-  not yet a clean source commit or public release.
-- The first clean freeze `7f298b4` reproduced that unit gate with 4,080 passes, reset PostgreSQL and
-  DataHub from empty volumes, ingested 11 datasets and provisioned scoped identities, then failed
-  exactly four live-registry integrations with `REGISTRY_NOT_FOUND` while 180 integrations passed
-  and three skipped. The clean-room had omitted the approval-gated registry publication between
-  reset and read tests. D144 adds a pre-service exact confirmation, no-write prepare/fingerprint
-  validation, audited publication and 7/31/5/37 read-back before integration. The corrected segment
-  and affected 4-test integration cut pass. The corrected full gate passes 4,082 tests with 250
-  deselected in 950.53 seconds; `7f298b4` is superseded and the clean replacement proof remains
-  pending.
+- Exact source `c5817af6d01b8a98cd7f1950d57e1be667614696` is pushed and published under annotated
+  hackathon tag `devpost-m18-c5817af`. Hosted run `31003886659` passes supply-chain, quality, and
+  PostgreSQL/DataHub integration/acceptance/coverage for PR head `c5817af`.
+- Strict `make release-clean` passes 4,094 unit tests with 250 deselected, 184 integration tests
+  with three explicit skips, 66 acceptance tests with one skip, and 4,340 coverage tests with three
+  skips and one deselection at 81.32%. After a complete DataHub restart, health/catalog/registry/MCP
+  checks and four post-restart integration tests pass again.
+- Independent strict audit passes 1,071 files, 23 direct dependency licenses, 41 external links,
+  and 43 history revisions. The final `linux/amd64` image digest is
+  `sha256:b8ee73024ed6a33e32033bde69974dcb1c969e2a54875753dbb0a6cbd08b65f7`;
+  non-root execution, health, deployment smoke, and north-star flow pass.
+- `examples/final/` is regenerated with `release_ready: true`, source revision `c5817af`, package
+  SHA-256 `5b4a2fa1a8a01920ac54ba0f5efc2155236d268f32d8cc19d4a0ff7c2bbcc0e9`, and manifest-file
+  SHA-256 `c25baeef12c372b69fae0a114be94d3bc86a4049e4d4ea373d643475d14dae2a`.
+- The English-captioned, silent 1920×1080 H.264 video export is exactly 175 seconds and has SHA-256
+  `754b4f36e588da941a225ed35c313d4dd0656b443d740186e01a05a4d88bfdaa`; five timeline frames and
+  privacy/rights/mode labels were visually checked.
+- Public-tag clone and linux/amd64 build pass from a new directory. The rehearsal found that the
+  documented `make judge-smoke` expected a pre-existing `.venv`; judge documentation now invokes
+  the same standard-library smoke script with system `python3`, which passes against a healthy
+  non-root container without changing frozen source.
+- Existing Devpost draft `1109948` now saves the final pitch, 5,788-character evidence-backed story,
+  five public tags and repository URL. Additional info has safe technical fields prefilled but
+  remains unsaved beside owner-only residence, submission-period, optional Feedback Prize, and
+  final legal choices. The reserved slug redirects signed-out users until submission.
+- Chrome is authenticated to YouTube Studio and Devpost. YouTube upload is blocked only on the
+  extension's file-URL permission; Hugging Face remains unauthenticated across available browsers
+  and CLI. D148 preserves those account/legal boundaries.
+- Local source, DataHub read/act/write/reuse, release UX, artifacts, screenshots, and video evidence
+  are complete. Public Hugging Face and YouTube/Vimeo URLs, cold-start/signed-out/second-network
+  checks, unfamiliar-reviewer answers, Devpost account/legal eligibility, and final submission are
+  still owner/external blockers. M30 remains 0/24 external controls and commercial/production
+  NO-GO.

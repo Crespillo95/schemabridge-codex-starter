@@ -1,34 +1,39 @@
 # Final submission checklist
 
-Current sign-off: **NOT READY**. Repository visibility/license are verified and the development
-artifact package exists. Release commit/tag, public demo, final video, clean-checkout proof, and
-external reviewer evidence remain pending. Do not submit until every final checkbox is complete.
+Current sign-off: **NOT READY — owner/account checks remain**. The frozen source, strict clean-room
+gate, hosted CI, annotated tag, final artifact package, release screenshots, and local video export
+are verified. Public demo/video URLs, signed-out external acceptance, unfamiliar-reviewer evidence,
+Devpost eligibility attestations, and final submission remain pending.
 
 ## Release identity
 
-- Release commit: `PENDING`
-- Release tag: `PENDING`
+- Release commit: `c5817af6d01b8a98cd7f1950d57e1be667614696`
+- Release tag: `devpost-m18-c5817af` (annotated; resolves to the release commit)
 - `examples/final/manifest.json` package SHA-256:
-  `60fe38be7a8a52635b2156e3ce3cc1edd48d5e1445e04db176ea94d113c7b994` (development only;
-  regenerate after commit)
-- Video SHA-256 and duration: `PENDING`
+  `5b4a2fa1a8a01920ac54ba0f5efc2155236d268f32d8cc19d4a0ff7c2bbcc0e9`
+- Manifest file SHA-256: `c25baeef12c372b69fae0a114be94d3bc86a4049e4d4ea373d643475d14dae2a`
+- Video SHA-256 and duration:
+  `754b4f36e588da941a225ed35c313d4dd0656b443d740186e01a05a4d88bfdaa`,
+  `175.000000` seconds (2:55)
 - Public demo URL: `PENDING`
 - Public video URL: `PENDING`
 - Devpost project URL: `PENDING`
+- Reserved draft URL: `https://devpost.com/software/schemabridge` (currently redirects signed-out
+  visitors to login; do not claim it as public until final submission)
 
 ## Repository
 
 - [x] Public repository verified signed out on 2026-07-22.
 - [x] GitHub detects Apache-2.0 and `LICENSE` contains the full text.
 - [x] AI assistance and third-party dependencies are disclosed.
-- [ ] Strict release scan proves no secrets or employer data in the release tree and Git history.
+- [x] Strict release scan proves no secrets or employer data in the release tree and Git history.
 - [x] Setup, run, reset, modes, limitations, and troubleshooting are documented.
-- [ ] `examples/final/` is regenerated from the clean release commit with `release_ready: true`.
-- [ ] Release tag and commit hash are recorded above and in the Devpost copy.
+- [x] `examples/final/` is regenerated from the clean release commit with `release_ready: true`.
+- [x] Release tag and commit hash are recorded above and in the Devpost copy.
 
 ## Functionality
 
-- [ ] Strict clean-room run proves the complete north-star flow from the release commit.
+- [x] Strict clean-room run proves the complete north-star flow from the release commit.
 - [x] Live local DataHub read, approval-gated write, read-back, restart, and reuse are recorded.
 - [x] Logical concepts, mapping risks, join cardinality, and fanout mitigation are inspectable.
 - [x] Guided and deterministic natural-language paths have equivalent typed north-star plans.
@@ -40,11 +45,11 @@ external reviewer evidence remain pending. Do not submit until every final check
 
 - [x] Synthetic ground truth and difficult cases are checked in.
 - [x] `make evaluate` and both submission-package commands are documented.
-- [ ] Metrics and checksums are regenerated from the clean release commit.
+- [x] Metrics and checksums are regenerated from the clean release commit.
 - [x] Raw counts, retained failures, small-fixture limitation, and unrun live LLM are disclosed.
 - [x] Generated examples include mapping, model, join, request, plan, SQL, validation, rejection,
   write-back contract, evaluation summary, and manifest.
-- [ ] Final screenshots are captured from the release build and privacy/rights reviewed.
+- [x] Final screenshots are captured from the release build and privacy/rights reviewed.
 
 ## Devpost and video
 
@@ -52,11 +57,12 @@ external reviewer evidence remain pending. Do not submit until every final check
 - [x] English pitch, description, built-with tags, testing instructions, and disclosure are drafted.
 - [x] Copy differentiates the semantic-governance layer from DataHub Analytics Agent without
   disparaging or misrepresenting it.
+- [x] Devpost draft has the final elevator pitch, project story, public tags, and repository URL.
 - [ ] Every `PENDING` field in `docs/18_DEVPOST_SUBMISSION.md` is replaced with a tested value.
 - [ ] Repository, demo, video, and example links work signed out and from a second network/device.
-- [ ] Public video is below 3:00 and visibly shows the project functioning.
-- [ ] Captions/on-screen text make the complete story readable with sound muted.
-- [ ] Video has no unlicensed music, third-party footage, exposed credentials, proprietary data, or
+- [x] Final local video export is below 3:00 and visibly shows the project functioning.
+- [x] Captions/on-screen text make the complete story readable with sound muted.
+- [x] Video has no unlicensed music, third-party footage, exposed credentials, proprietary data, or
   unapproved marks/assets.
 
 ## Operator acceptance
@@ -71,7 +77,10 @@ external reviewer evidence remain pending. Do not submit until every final check
    - What concrete result did the demo produce? `PENDING REVIEWER ANSWER`
 
 2. Clone the public release tag into a new directory and run the README judge instructions
-   verbatim. Record command output and platform: `PENDING`.
+   verbatim. Record command output and platform: `PASS 2026-08-05 — macOS Apple silicon host,
+   Docker Desktop, clean public tag clone, linux/amd64 build, healthy non-root container, stdlib
+   deployment smoke passed. The first rehearsal exposed and corrected the undocumented .venv
+   assumption in the smoke command.`
 3. Let the hosted service sleep/restart if applicable, record cold-start duration, then disconnect
    one dependency and confirm the real status appears without silent fallback: `PENDING`.
 4. Open every final link in an incognito/signed-out browser, repeat the north-star path on another
