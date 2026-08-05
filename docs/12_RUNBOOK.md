@@ -1279,13 +1279,16 @@ metrics as release evidence.
 The strict release command requires an existing clean `HEAD` before it changes service state:
 
 ```bash
-make release-clean
+SCHEMABRIDGE_RELEASE_DATAHUB_CONFIRMATION=publish-approved-registry-version \
+  make release-clean
 ```
 
 It recreates `.venv`, installs all release extras, resets the synthetic PostgreSQL and DataHub
-stacks, ingests metadata, provisions scoped identities, runs every quality/integration/acceptance
-gate, evaluates deterministic fixtures, health-checks Streamlit, restarts and reads back DataHub,
-and scans the candidate tree. It intentionally destroys only these project-owned Docker volumes:
+stacks, ingests metadata, provisions scoped identities, prepares the exact registry without I/O,
+publishes it only under the explicit confirmation above, validates its read-back, runs every
+quality/integration/acceptance gate, evaluates deterministic fixtures, health-checks Streamlit,
+restarts and reads back DataHub, and scans the candidate tree. It intentionally destroys only
+these project-owned Docker volumes:
 
 - `schemabridge-demo_schemabridge_postgres_data`
 - `datahub_broker`
@@ -1298,7 +1301,8 @@ project-local state before using it outside the supplied synthetic environment.
 The original explicitly non-release development proof, before `HEAD` existed, was:
 
 ```bash
-bash scripts/release_clean_room.sh --allow-uncommitted
+SCHEMABRIDGE_RELEASE_DATAHUB_CONFIRMATION=publish-approved-registry-version \
+  bash scripts/release_clean_room.sh --allow-uncommitted
 ```
 
 That exact command completed from zero state on 2026-07-22. At that time strict
@@ -1341,9 +1345,9 @@ that scoped token before retrying because failed local state is deliberately not
 1. Review the complete candidate tree and `reports/release-audit.md`, challenge at least one audit
    finding against its cited reproduction, then create the initial release-candidate commit only if
    acceptable.
-2. Check free disk space, close competing services, and run `make release-clean` from that clean
-   commit. Preserve its complete output and confirm the final scanner names the same commit without
-   a dirty-tree warning.
+2. Check free disk space, close competing services, and run the exact confirmation-prefixed
+   `make release-clean` command above from that clean commit. Preserve its complete output and
+   confirm the final scanner names the same commit without a dirty-tree warning.
 3. From a clean browser, execute the north-star journey against live DataHub and PostgreSQL, record
    timing/manual interventions, and verify `2, 1, 1`, rejected-source reasons, reader identity,
    fanout mitigation, approval provenance, and recipe reuse after restart.

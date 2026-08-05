@@ -402,7 +402,7 @@ help:
 	  'make submission-package Generate final examples from a clean release commit' \
 	  'make submission-package-dev Generate explicitly non-release examples from this tree' \
 	  'make release-audit Scan architecture, secrets, links, artifacts, and licenses' \
-	  'make release-clean Run the strict clean-HEAD M16 release proof' \
+	  'make release-clean Run the strict clean-HEAD proof after explicit synthetic DataHub approval' \
 	  'make judge-build Build the recorded-mode public judge image' \
 	  'make judge-smoke Smoke-test PUBLIC_URL (default http://127.0.0.1:7860)' \
 	  'make demo-up     Start synthetic PostgreSQL' \

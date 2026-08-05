@@ -54,6 +54,13 @@ or synthetic evidence into a production claim.
 - Docker build/smoke/deployed acceptance and manual browser north-star: passed.
 - Final current-byte `make check` passes supply-chain/release policy, formatting, Ruff, strict Mypy,
   isolated performance, and 4,080 functional tests with 250 deselected in 898.48 seconds.
+- First clean source `7f298b4` passed its clean unit gate and fresh PostgreSQL/DataHub bootstrap,
+  but correctly failed 4/184 integrations because the reset script had not published the semantic
+  registry that those tests require. The corrected clean-room now requires an exact separate
+  synthetic DataHub confirmation, validates no-write prepare output, publishes through the audited
+  use case, verifies 7/31/5/37 read-back, and passes the affected 4-test cut. `7f298b4` is
+  superseded. The corrected full gate passes 4,082 tests with 250 deselected in 950.53 seconds;
+  clean-room rerun is pending on the replacement commit.
 - Clean release package, clean-checkout clone, and public URL/video checks remain pending until the
   source release identity is frozen.
 

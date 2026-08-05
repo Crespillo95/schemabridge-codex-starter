@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCHEMABRIDGE_RELEASE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCHEMABRIDGE_RELEASE_DATABASE_URL="postgresql://schemabridge_reader:schemabridge_reader@127.0.0.1:55433/schemabridge"
+SCHEMABRIDGE_RELEASE_REGISTRY_CONFIRMATION="publish-approved-registry-version"
 cd "$SCHEMABRIDGE_RELEASE_ROOT"
 
 SCHEMABRIDGE_ALLOW_UNCOMMITTED=0
@@ -30,6 +31,12 @@ else
   printf '%s\n' 'WARNING: development audit mode; results are not release-commit evidence.'
 fi
 
+if [[ "${SCHEMABRIDGE_RELEASE_DATAHUB_CONFIRMATION:-}" != "$SCHEMABRIDGE_RELEASE_REGISTRY_CONFIRMATION" ]]; then
+  printf '%s\n' \
+    'Set SCHEMABRIDGE_RELEASE_DATAHUB_CONFIRMATION=publish-approved-registry-version to approve the synthetic DataHub reset and audited registry publication.' >&2
+  exit 2
+fi
+
 printf '%s\n' '[1/9] Clean Python environment and complete dependency install'
 bash scripts/bootstrap.sh
 .venv/bin/python -m pip check
@@ -41,14 +48,42 @@ printf '%s\n' '[3/9] Clean synthetic PostgreSQL reset and health'
 make demo-reset
 make demo-health
 
-printf '%s\n' '[4/9] Clean DataHub reset, ingest, identities, and read checks'
+printf '%s\n' '[4/9] Clean DataHub reset, ingest, identities, approved registry, and read checks'
 make datahub-reset
 make datahub-health
 make datahub-init-admin
 make datahub-ingest
 make datahub-provision-mcp
 make datahub-provision-writer
+SCHEMABRIDGE_RELEASE_REGISTRY_PREPARE="$(.venv/bin/schemabridge registry-prepare --json)"
+SCHEMABRIDGE_RELEASE_REGISTRY_FINGERPRINT="$(
+  printf '%s\n' "$SCHEMABRIDGE_RELEASE_REGISTRY_PREPARE" |
+    .venv/bin/python -c '
+import json
+import re
+import sys
+
+payload = json.load(sys.stdin)
+fingerprint = payload.get("fingerprint")
+valid = (
+    payload.get("ok") is True
+    and payload.get("writes_performed") is False
+    and isinstance(fingerprint, str)
+    and re.fullmatch(r"[0-9a-f]{64}", fingerprint) is not None
+)
+if not valid:
+    raise SystemExit("registry-prepare did not return one validated no-write fingerprint")
+print(fingerprint)
+'
+)"
+unset SCHEMABRIDGE_RELEASE_REGISTRY_PREPARE
+.venv/bin/schemabridge registry-publish \
+  --fingerprint "$SCHEMABRIDGE_RELEASE_REGISTRY_FINGERPRINT" \
+  --confirm "$SCHEMABRIDGE_RELEASE_DATAHUB_CONFIRMATION" \
+  --json
+unset SCHEMABRIDGE_RELEASE_REGISTRY_FINGERPRINT
 make datahub-catalog-check
+make datahub-registry-check
 make datahub-mcp-check
 
 printf '%s\n' '[5/9] Integration, acceptance, and service-loaded coverage suites'

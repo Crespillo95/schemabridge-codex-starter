@@ -53,7 +53,10 @@
 | `.venv/bin/python scripts/release_audit.py --check-external --check-history` | pass | 1,068 files, 23 licenses, 41 links, 39 revisions; dirty-tree warning only |
 | `git diff --check` | pass | No whitespace errors |
 | `make check` | pass | Static gates, isolated performance, then 4,080 passed/250 deselected in 898.48 s |
-| `make release-clean` | not run | Requires the clean source commit |
+| first clean `make release-clean` at `7f298b4` | fail | 180 integration passed/3 skipped; 4 live-registry reads found the reset orchestration gap |
+| corrected prepare/publish/read-back focal | pass | Exact audited publish; registry 7/31/5/37; affected integration 4 passed/1 IAM skip |
+| corrected `make check` | pass | 4,082 passed/250 deselected in 950.53 s, including 2 clean-room ordering tests |
+| corrected strict clean-room rerun | not run | Requires the superseding clean source commit |
 
 ## Automated test results
 
@@ -61,8 +64,13 @@
 - `make check`: pass; supply-chain and release policy, format (745 files), Ruff, strict Mypy (366
   source files), one isolated performance test, and 4,080 functional tests passed with 250
   deselected in 898.48 seconds.
+- Corrected `make check`: pass; 746 formatted files, Ruff, strict Mypy over 366 sources, isolated
+  performance, and 4,082 functional tests passed with 250 deselected in 950.53 seconds.
 - Integration tests: 184 passed, 3 explicit skips (historical superseded v1 fixture, separately
   provisioned M34 document-publisher IAM, unavailable retained M27 browser corpus).
+- Clean-room integration on source `7f298b4`: 180 passed, 3 skipped, 4 failed because the fresh
+  DataHub reset had not published the registry prerequisite. The corrected explicit prepare,
+  approval-gated publish, read-back, and affected integration cut passes; full rerun is pending.
 - Acceptance tests: 66 passed, 1 superseded historical skip; post-restart live cut 3 passed.
 - Coverage, where applicable: the repository gate does not emit a coverage percentage in this
   configuration; correctness uses the complete selected functional suite plus the isolated
@@ -124,12 +132,13 @@ rejections. The public demo needs no login or secrets and matches the recorded r
 - Owner-scoped Hugging Face authentication is required to create/upload the public Space.
 - Owner YouTube/Vimeo and Devpost sessions plus legal/eligibility attestations cannot be fabricated
   by repository automation.
-- Release identity now depends on the pending clean source commit and strict clean-release proof.
+- Release identity now depends on the superseding clean source commit and strict clean-release
+  proof; `7f298b4` must not be tagged or deployed.
 
 ## Next milestone readiness
 
-- Dependencies satisfied: local M18 source/UX/DataHub evidence and the full current-byte gate pass;
-  clean freeze remains.
+- Dependencies satisfied: local M18 source/UX/DataHub evidence passes and the first clean-room run
+  exposed a now-remediated orchestration prerequisite; the superseding full gate/freeze remain.
 - Recommended next prompt: continue M18 freeze, publish the exact Space/video, run signed-out human
   acceptance, and complete Devpost without changing executable source.
 - Required operator prerequisites: scoped Hugging Face login, YouTube/Vimeo login, Devpost login,

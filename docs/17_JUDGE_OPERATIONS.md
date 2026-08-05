@@ -57,11 +57,16 @@ restart measurement, not a Hugging Face sleep/cold-start claim.
 Do not deploy the dirty working tree. After operator review and a focused commit:
 
 ```bash
-make release-clean
+SCHEMABRIDGE_RELEASE_DATAHUB_CONFIRMATION=publish-approved-registry-version \
+  make release-clean
 release_commit="$(git rev-parse --verify HEAD)"
 staging_directory="$(mktemp -d /tmp/schemabridge-space.XXXXXX)/space"
 scripts/package_huggingface_space.sh "$release_commit" "$staging_directory"
 ```
+
+The confirmation authorizes only the project-owned synthetic DataHub reset and the exact
+`registry-prepare` fingerprint publication recorded by the audit ledger. Missing or mismatched
+confirmation fails before the clean-room changes service state.
 
 The package script first proves the chosen commit contains every required M17 path, exports only
 that commit, installs that commit's Docker Space card as the root README, and records the exact

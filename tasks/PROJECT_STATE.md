@@ -2088,3 +2088,12 @@ media/links/checksums, and external reviewer sign-off.
   745 files, Ruff, strict Mypy over 366 source files, one isolated performance test, and 4,080
   functional tests with 250 deselected in 898.48 seconds. This proves the dirty candidate bytes,
   not yet a clean source commit or public release.
+- The first clean freeze `7f298b4` reproduced that unit gate with 4,080 passes, reset PostgreSQL and
+  DataHub from empty volumes, ingested 11 datasets and provisioned scoped identities, then failed
+  exactly four live-registry integrations with `REGISTRY_NOT_FOUND` while 180 integrations passed
+  and three skipped. The clean-room had omitted the approval-gated registry publication between
+  reset and read tests. D144 adds a pre-service exact confirmation, no-write prepare/fingerprint
+  validation, audited publication and 7/31/5/37 read-back before integration. The corrected segment
+  and affected 4-test integration cut pass. The corrected full gate passes 4,082 tests with 250
+  deselected in 950.53 seconds; `7f298b4` is superseded and the clean replacement proof remains
+  pending.
