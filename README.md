@@ -8,10 +8,12 @@ request into deterministic PostgreSQL, independently validates the final SQL AST
 standalone query to copy into another PostgreSQL client. A bounded read-only preview is optional;
 approved semantic context can be written back to DataHub through its separate approval path.
 
-> Release status (2026-08-03): the public repository and Apache-2.0 license are verified. The
-> recorded judge image passes local build/smoke tests, but no public demo URL, public video, clean
-> release commit, tag, operated production cluster, or production SLO is claimed. The generated
-> M18 manifest remains development evidence until those operator steps are complete. M20–M29 are
+> Hackathon release status (2026-08-05): the public repository and Apache-2.0 license are verified.
+> The pinned recorded judge image passes local build, smoke, acceptance, and human browser tests.
+> The full synthetic DataHub/PostgreSQL path also passes ingest, least-privilege MCP reads,
+> approval-gated write/read-back, restart persistence, and context reuse. No public demo URL,
+> public video, clean release commit, or tag is claimed yet; the generated M18 manifest remains
+> development evidence until those operator steps are complete. M20–M29 are
 > accepted locally within their stated synthetic/local scopes; the corrective hosted M29 rerun and
 > every external production/release gate remain open. M32—the bounded simple/advanced
 > natural-language to copyable PostgreSQL capability described below—is accepted locally for its
@@ -107,6 +109,13 @@ The checked-in [write-back artifact](examples/final/datahub-writeback.yml) exerc
 approval/audit contract with a clearly labeled fake and names the live integration command. The
 full local path performs and reads back the writes against synthetic DataHub Core; artifact
 generation itself never changes DataHub.
+
+![Approved immutable semantic registry in local DataHub Core](docs/screenshots/m18/m18-datahub-registry.jpg)
+
+![SQL-free validated query recipe persisted in local DataHub Core](docs/screenshots/m18/m18-datahub-query-recipe.jpg)
+
+Capture provenance and privacy review are recorded in
+[the M18 screenshot inventory](docs/screenshots/m18/README.md).
 
 ## Architecture and safety
 

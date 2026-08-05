@@ -44,9 +44,7 @@ from schemabridge.domain.workflows import (
     WorkflowPublicationConfirmation,
 )
 
-NORTH_STAR_TEXT = (
-    "Agrupa por fecha de registro todos los clientes que sean segundo titular de una cuenta."
-)
+NORTH_STAR_TEXT = "Group all customers who are secondary account holders by registration date."
 
 
 class UiActionError(RuntimeError):
@@ -151,7 +149,11 @@ class JudgeUiService:
         )
 
     def start_demo(self, workflow_id: str) -> JudgeUiView:
-        return self.start_request(workflow_id, NORTH_STAR_TEXT)
+        return self.start_request(
+            workflow_id,
+            NORTH_STAR_TEXT,
+            language=UserLanguage.ENGLISH,
+        )
 
     def available_workflows(self, *, limit: int = 50) -> tuple[UiWorkflowSummary, ...]:
         """Return only workflow references authorized for this principal and workspace."""
@@ -187,7 +189,13 @@ class JudgeUiService:
             for grant in grants
         )
 
-    def start_request(self, workflow_id: str, text: str) -> JudgeUiView:
+    def start_request(
+        self,
+        workflow_id: str,
+        text: str,
+        *,
+        language: UserLanguage = UserLanguage.SPANISH,
+    ) -> JudgeUiView:
         now = self.clock.now()
         self._require(WorkflowPermission.CREATE, at=now)
         try:
@@ -195,7 +203,7 @@ class JudgeUiService:
                 StartWorkflowCommand(
                     id=workflow_id,
                     text=text,
-                    language=UserLanguage.SPANISH,
+                    language=language,
                     datasets=(
                         PhysicalDatasetRef("crm.customers"),
                         PhysicalDatasetRef("bank.account_holders"),

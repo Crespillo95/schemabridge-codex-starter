@@ -1621,11 +1621,14 @@ disable this unauthenticated CLI and require the authenticated publication bound
 
 ```bash
 .venv/bin/schemabridge registry-publish \
-  --actor m22-local-operator \
   --fingerprint ef480eb7370924ff4c94131a2c6c4063d85652cc83aaec9059538cdc2cf9c1b9 \
   --confirm publish-approved-registry-version \
   --json
 ```
+
+Local mode derives the authenticated pseudonymous `sb_actor_v…` identity at the composition root.
+Do not substitute a friendly operator name. The optional local `--actor` flag is only an exact
+identity assertion and should normally be omitted; any mismatch fails before DataHub I/O.
 
 The first valid attempt reports `published`; an exact replay may report `already_current`. A
 fingerprint/target/decision mismatch performs no mutation. A successful response means the SDK

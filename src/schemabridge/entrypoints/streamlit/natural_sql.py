@@ -96,8 +96,12 @@ def render_copyable_natural_sql(runtime: NaturalSqlRuntimeServices) -> None:
     text = st.text_area(
         "Petición para generar SQL",
         placeholder=(
-            "Para cada mes, calcula los ingresos por categoría, ordénalos dentro "
-            "del mes y devuelve las tres primeras categorías."
+            "Para cada mes, en pedidos completados, calcula por categoría de producto "
+            "los ingresos netos, unidades y pedidos distintos. Conserva solo las categorías "
+            "con al menos 4 pedidos distintos; ordénalas por ingresos dentro de cada mes, "
+            "desempatando alfabéticamente por categoría; asigna una posición única, calcula "
+            "su porcentaje sobre los ingresos de las categorías elegibles del mes y el ingreso "
+            "acumulado, y devuelve como máximo las tres primeras categorías de cada mes."
         ),
         max_chars=2_000,
         key=_TEXT_KEY,

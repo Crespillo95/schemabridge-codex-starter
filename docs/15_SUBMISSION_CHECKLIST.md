@@ -9,7 +9,7 @@ external reviewer evidence remain pending. Do not submit until every final check
 - Release commit: `PENDING`
 - Release tag: `PENDING`
 - `examples/final/manifest.json` package SHA-256:
-  `41e2681d536edc20a8af78b5b27d272927c59eec6212f7a427525b395717328e` (development only;
+  `60fe38be7a8a52635b2156e3ce3cc1edd48d5e1445e04db176ea94d113c7b994` (development only;
   regenerate after commit)
 - Video SHA-256 and duration: `PENDING`
 - Public demo URL: `PENDING`
@@ -29,7 +29,7 @@ external reviewer evidence remain pending. Do not submit until every final check
 ## Functionality
 
 - [ ] Strict clean-room run proves the complete north-star flow from the release commit.
-- [ ] Live local DataHub read, approval-gated write, read-back, restart, and reuse are recorded.
+- [x] Live local DataHub read, approval-gated write, read-back, restart, and reuse are recorded.
 - [x] Logical concepts, mapping risks, join cardinality, and fanout mitigation are inspectable.
 - [x] Guided and deterministic natural-language paths have equivalent typed north-star plans.
 - [x] Unsafe identifiers and SQL-policy rejections are visible in generated examples.

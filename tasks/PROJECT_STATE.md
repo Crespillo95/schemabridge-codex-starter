@@ -2051,3 +2051,40 @@ assessment and owner signatures.
 M17/M18 release work remains independently blocked on a reviewed clean commit, strict
 `make release-clean`, exact-commit deployment, public/incognito and cold-start evidence, final
 media/links/checksums, and external reviewer sign-off.
+
+## M18 current release-candidate audit — 2026-08-05
+
+- The recorded judge image now installs only the reviewed hashed dependency locks, contains its
+  required migrations and Streamlit configuration, hides developer/error-link surfaces, and
+  presents the exact north-star demo in English while keeping recorded/fake modes explicit.
+- A human in-app-browser run completed interpretation, approved one-to-many join plus `COUNT
+  DISTINCT`, independently guarded SQL, the exact `2/1/1` result, visible `127.5`/`NaN`/`NULL`
+  rejections, and fake local publication. No developer popup, unexpected form, or browser warning
+  was observed. Candidate screenshots contain only synthetic state and have a recorded privacy and
+  rights review.
+- Pinned DataHub Core v1.6.0 ingested/profiled 11 synthetic datasets through 121 events. Its
+  dedicated MCP identity passed search and schema reads while mutation tools remained absent; the
+  separate writer remained approval-gated.
+- Exact registry `synthetic_enterprise` v1 was prepared without I/O and then published under
+  approval `registry-publication-v1-48a537c2722a9258064c4033c9cd50ca2215bac84d2f2b5b00c474b45a0bdb04`.
+  Read-back reported fingerprint `ef480e…c1b9` and 7 models/31 mappings/5 joins/37 decisions;
+  replay returned `already_current`.
+- A wrong friendly `--actor` failed before DataHub I/O. The runbook now reflects the hardened
+  composition: local publication derives a pseudonymous authenticated actor and accepts `--actor`
+  only as an exact assertion. The fresh-process integration uses a distinct stable authenticated
+  test subject so an empty ledger cannot reissue another actor's immutable approval ID with a new
+  timestamp.
+- Full acceptance passes 66 with one superseded historical v1 skip. Full integration passes 184
+  with three explicit skips: that same historical v1 fixture, the separately provisioned
+  document-only M34 publisher IAM path, and one unavailable retained M27 browser corpus. After a
+  complete DataHub restart, health/catalog/registry/MCP checks and three live north-star/reuse
+  acceptance cases pass again.
+- These results complete local DataHub read/act/write/reuse and release-candidate UX evidence. They
+  do not complete M18: clean commit/package, final screenshots, public Hugging Face URL, public
+  video, clean-checkout reproduction, unfamiliar reviewer, second-network/incognito validation,
+  merge/tag/release, and Devpost account submission remain pending. M30 stays 0/24 external
+  controls and commercial/production NO-GO.
+- The final M18 current-byte quality gate passes static supply-chain/release policy, formatting over
+  745 files, Ruff, strict Mypy over 366 source files, one isolated performance test, and 4,080
+  functional tests with 250 deselected in 898.48 seconds. This proves the dirty candidate bytes,
+  not yet a clean source commit or public release.

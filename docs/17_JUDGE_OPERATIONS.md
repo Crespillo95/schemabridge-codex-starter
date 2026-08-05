@@ -4,9 +4,9 @@
 
 The M17 image, local container health, restart, fingerprint-bound recorded north-star path, and
 service-free acceptance test are verified. **No public URL has been published or tested yet.** The
-repository contains uncommitted M16/M17 work, the strict release commit proof is pending, no `hf`
-CLI/authentication is available on this machine, and the incognito/separate-network test has not
-run. Do not present the local checks below as public deployment evidence.
+repository contains an uncommitted M18 release candidate, the strict release commit proof is
+pending, `hf` CLI 1.26.0 is installed but not authenticated, and the incognito/separate-network
+test has not run. Do not present the local checks below as public deployment evidence.
 
 ## Selected topology
 
@@ -84,9 +84,9 @@ PUBLIC_URL="$SCHEMABRIDGE_PUBLIC_URL" make judge-smoke
 ```
 
 In Space settings, add the non-secret variable `SCHEMABRIDGE_RELEASE_REF=$release_commit`. Do not
-add `DATABASE_URL`, DataHub tokens, or LLM keys to the recorded deployment. The `hf` commands above
-are determined from the current official CLI/skill contract but were not run here because the CLI,
-token, clean release commit, and target Space are absent.
+add `DATABASE_URL`, DataHub tokens, or LLM keys to the recorded deployment. The deployment commands
+above remain unexecuted because a scoped Hugging Face login, clean release commit, and target Space
+are absent. The installed CLI itself is not a deployment credential.
 
 ## Reset, sleep, and uptime
 

@@ -224,57 +224,58 @@ def main() -> None:
         render_relationships(view)
     elif page == "Query Studio":
         confirmed_request = None
-        if capabilities.can_create:
-            try:
-                natural_sql_runtime = build_natural_sql_runtime(principal=principal)
-                render_copyable_natural_sql(natural_sql_runtime)
-            except (OSError, RuntimeError, SettingsError, ValueError):
-                st.info(
-                    "natural_sql_unavailable: La generación copy-first no está "
-                    "disponible en esta configuración."
-                )
-                st.caption(
-                    "No se ha generado ni ejecutado SQL y no existe una ruta "
-                    "alternativa no gobernada."
-                )
-            st.divider()
-            st.markdown("### Workflow gobernado con validación opcional")
-            st.caption(
-                "Flujo alternativo para crear un workflow durable. Su ejecución "
-                "continúa separada de los artefactos SQL standalone."
-            )
-            try:
-                query_studio_runtime = build_query_studio_runtime(principal=principal)
-                confirmed_request = render_dynamic_query_studio(
-                    query_studio_runtime,
-                    can_create=True,
-                )
-            except (OSError, RuntimeError, SettingsError, ValueError):
-                st.error(
-                    "query_studio_unavailable: La creación dinámica no está "
-                    "disponible en este momento."
-                )
-                st.caption(
-                    "El demo histórico y los workflows ya confirmados siguen "
-                    "disponibles sin una ruta alternativa no gobernada."
-                )
-        else:
-            st.markdown("### Nueva solicitud")
-            st.info("Tu rol actual no permite crear un workflow nuevo.")
-        if confirmed_request is not None:
-            workflow_id = f"m27-{uuid.uuid4().hex}"
-            st.session_state.pop(_TRANSIENT_EXECUTION_RESULT_KEY, None)
-            _clear_error()
-            try:
-                with st.spinner("Creando el workflow gobernado confirmado…"):
-                    service.start_confirmed_query_studio(
-                        workflow_id,
-                        confirmed_request,
+        if view.workflow_id is None:
+            if capabilities.can_create:
+                try:
+                    natural_sql_runtime = build_natural_sql_runtime(principal=principal)
+                    render_copyable_natural_sql(natural_sql_runtime)
+                except (OSError, RuntimeError, SettingsError, ValueError):
+                    st.info(
+                        "natural_sql_unavailable: La generación copy-first no está "
+                        "disponible en esta configuración."
                     )
-                st.session_state["workflow_id"] = workflow_id
-            except UiActionError as error:
-                _store_error(error)
-            st.rerun()
+                    st.caption(
+                        "No se ha generado ni ejecutado SQL y no existe una ruta "
+                        "alternativa no gobernada."
+                    )
+                st.divider()
+                st.markdown("### Workflow gobernado con validación opcional")
+                st.caption(
+                    "Flujo alternativo para crear un workflow durable. Su ejecución "
+                    "continúa separada de los artefactos SQL standalone."
+                )
+                try:
+                    query_studio_runtime = build_query_studio_runtime(principal=principal)
+                    confirmed_request = render_dynamic_query_studio(
+                        query_studio_runtime,
+                        can_create=True,
+                    )
+                except (OSError, RuntimeError, SettingsError, ValueError):
+                    st.error(
+                        "query_studio_unavailable: La creación dinámica no está "
+                        "disponible en este momento."
+                    )
+                    st.caption(
+                        "El demo histórico y los workflows ya confirmados siguen "
+                        "disponibles sin una ruta alternativa no gobernada."
+                    )
+            else:
+                st.markdown("### Nueva solicitud")
+                st.info("Tu rol actual no permite crear un workflow nuevo.")
+            if confirmed_request is not None:
+                workflow_id = f"m27-{uuid.uuid4().hex}"
+                st.session_state.pop(_TRANSIENT_EXECUTION_RESULT_KEY, None)
+                _clear_error()
+                try:
+                    with st.spinner("Creando el workflow gobernado confirmado…"):
+                        service.start_confirmed_query_studio(
+                            workflow_id,
+                            confirmed_request,
+                        )
+                    st.session_state["workflow_id"] = workflow_id
+                except UiActionError as error:
+                    _store_error(error)
+                st.rerun()
         st.divider()
         pending_action = pending_action or render_query_studio(view, capabilities)
     elif page == "Decisions":

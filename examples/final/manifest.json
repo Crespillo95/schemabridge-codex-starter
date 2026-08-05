@@ -18,7 +18,7 @@
     {
       "bytes": 1647,
       "path": "evaluation-summary.md",
-      "sha256": "fe4ddedb9ca9e6ece4d81b70ad2cec47a82ae110d925ac7d69f238e24a3a701b"
+      "sha256": "0355109388c53324254192b95ebd4a279039a0a1afaf343159e7b47549b6c7d7"
     },
     {
       "bytes": 1198,
@@ -46,17 +46,17 @@
       "sha256": "ebfa8acc294b078876329f0123afc21a4a6790c241195da0425fe923e5208c0a"
     },
     {
-      "bytes": 10293,
+      "bytes": 10408,
       "path": "resolved-query-plan-secondary-holders.yml",
-      "sha256": "eaa11da0a4fc809be3ec8d7aa014e573b6e7549616f93d2311d0031bc8f4a8b6"
+      "sha256": "5b9d08b5df9bc4efe3ec7ccd3c4f93711ea9cd8235b7abe69458d3b8ebdcaa00"
     }
   ],
   "development_generation_command": "make submission-package-dev",
   "generation_command": "make submission-package",
   "notice": "Development evidence only; regenerate after the release commit.",
-  "package_sha256": "8c45fb025539dd8717a5b7d3734fa8eecc492b32595232dd084aecca9f9484f1",
-  "release_label": "231187a9bddb16e9b3718e359a63ce682faf5eed-dirty-development",
+  "package_sha256": "60fe38be7a8a52635b2156e3ce3cc1edd48d5e1445e04db176ea94d113c7b994",
+  "release_label": "c31fdf15a1b94659cba463deba74d96d6fac1ec2-dirty-development",
   "release_ready": false,
   "schema_version": 1,
-  "source_revision": "231187a9bddb16e9b3718e359a63ce682faf5eed"
+  "source_revision": "c31fdf15a1b94659cba463deba74d96d6fac1ec2"
 }

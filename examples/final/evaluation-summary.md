@@ -3,10 +3,10 @@
 > Small, tuned synthetic fixture. Raw counts only; this is not production evidence.
 
 - Required deterministic run: **PASS**
-- Source revision: `231187a9bddb16e9b3718e359a63ce682faf5eed`
+- Source revision: `c31fdf15a1b94659cba463deba74d96d6fac1ec2`
 - Dirty working tree: `true`
-- Source fingerprint: `bcc59d8a238352f819e74071fd2e4c45384823f4bf093652918389b8c79f3e47`
-- Fixture fingerprint: `28afda9d17f8c4bb286a58fc0b0a24a68f19caa42e1b07b5de6d892a33bdc132`
+- Source fingerprint: `1d29cd62ed36d622a7cbd075c927146fbe186e0ce954cfe8c5b1c067c4cef2de`
+- Fixture fingerprint: `61c6930b16d1c477fbf1e0caef54b69a362d65998f8dbab63a14a0e782e03138`
 - Live LLM: **not_run** — Live LLM evaluation was not requested; deterministic metrics remain separate and key-free.
 - Regression threshold: none; the fixture is too small to justify one.
 

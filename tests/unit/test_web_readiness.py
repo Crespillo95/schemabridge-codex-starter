@@ -159,6 +159,9 @@ def test_managed_web_readiness_repeats_oidc_identity_and_exact_schema_checks(
     assert all(item["credential_kind"] == "runtime" for item in schema_checks)
     assert all(item["repository_root"] == ROOT for item in schema_checks)
     assert runtime.streamlit_argv[:3] == ("streamlit", "run", "streamlit_app.py")
+    assert "--client.toolbarMode=minimal" in runtime.streamlit_argv
+    assert "--client.showErrorDetails=none" in runtime.streamlit_argv
+    assert "--client.showErrorLinks=false" in runtime.streamlit_argv
     assert "secret" not in repr(runtime).casefold()
 
 

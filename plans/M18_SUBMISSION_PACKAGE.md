@@ -1,6 +1,6 @@
 # M18: README, examples, video, and Devpost submission package
 
-- Status: partial; deterministic package/copy ready, release media and public acceptance pending
+- Status: local release candidate audited; clean freeze, public media, and public acceptance pending
 - Timebox: 5 hours
 - Recommended Codex: GPT-5.6 Sol — Extra High (xhigh)
 - Dependencies: M15–M17
@@ -38,8 +38,26 @@ Judges may decide from the description, images, README, and sub-three-minute vid
 - [ ] The live URL and all links work in incognito.
 - [ ] The video is public, under three minutes, readable, and shows the project functioning.
 - [ ] `examples/` contains final generated artifacts that a judge can inspect without running code.
-- [ ] Materials are in English or include complete English translation.
-- [ ] The submission clearly proves DataHub read, act/write, and reuse plus the semantic-layer differentiation.
+- [x] Materials are in English or include complete English translation.
+- [x] The submission clearly proves DataHub read, act/write, and reuse plus the semantic-layer differentiation.
+
+## Current candidate evidence
+
+- The recorded Docker image completed the north-star workflow through publication in a human
+  browser audit with no developer-popup leak and with exact English request/result labels.
+- Pinned local DataHub ingested 11 synthetic datasets; its read-only MCP identity passed search and
+  schema reads with mutation tools absent.
+- The immutable `synthetic_enterprise` v1 registry was published under one exact approval, read
+  back as 7 models/31 mappings/5 joins/37 decisions, replayed as `already_current`, survived a full
+  DataHub restart, and executed the two live ground-truth requests without recorded fallback.
+- Full acceptance passes 66 with one superseded historical skip. Full integration passes 184 with
+  three explicit skips: one superseded v1 fixture, one separately provisioned M34 publisher IAM
+  path, and one retained historical browser corpus.
+- The final current-byte `make check` passes supply-chain/release policy, formatting, Ruff, strict
+  Mypy, the isolated performance node, and 4,080 functional tests with 250 deselected in 898.48
+  seconds.
+- Public Hugging Face deployment, public video, clean release identity, clean-checkout reproduction,
+  unfamiliar reviewer, and final Devpost submission remain external operator work.
 
 ## Required automated checks
 

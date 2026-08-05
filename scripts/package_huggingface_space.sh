@@ -16,9 +16,13 @@ fi
 
 release_commit="$(git rev-parse --verify "${release_ref}^{commit}")"
 required_paths=(
+  .streamlit/config.toml
   Dockerfile
   deploy/huggingface/README.md
   demo/hosted/north_star_execution.json
+  migrations/control_plane
+  requirements/build.txt
+  requirements/runtime.txt
   src/schemabridge/adapters/demo/recorded_execution.py
 )
 for required_path in "${required_paths[@]}"; do

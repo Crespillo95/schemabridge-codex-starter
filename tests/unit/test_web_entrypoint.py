@@ -1,11 +1,35 @@
 from __future__ import annotations
 
+import tomllib
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 
 import schemabridge.entrypoints.streamlit.main as web_main
 from schemabridge.bootstrap import WebProcessRuntime
+
+ROOT = Path(__file__).parents[2]
+
+
+def test_public_streamlit_runtime_hides_developer_prompts_and_error_details() -> None:
+    config = tomllib.loads((ROOT / ".streamlit/config.toml").read_text(encoding="utf-8"))
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    space_packager = (ROOT / "scripts/package_huggingface_space.sh").read_text(encoding="utf-8")
+
+    assert config["client"] == {
+        "showErrorDetails": "none",
+        "showErrorLinks": False,
+        "toolbarMode": "minimal",
+    }
+    assert config["browser"]["gatherUsageStats"] is False
+    assert "COPY .streamlit/config.toml ./.streamlit/config.toml" in dockerfile
+    assert "COPY requirements/build.txt requirements/runtime.txt ./requirements/" in dockerfile
+    assert "COPY migrations ./migrations" in dockerfile
+    assert "--require-hashes" in dockerfile
+    assert "--no-build-isolation" in dockerfile
+    assert "--client.toolbarMode=minimal" in dockerfile
+    assert ".streamlit/config.toml" in space_packager
 
 
 class _Readiness:

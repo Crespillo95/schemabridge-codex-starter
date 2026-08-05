@@ -701,6 +701,9 @@ def build_web_process_runtime(
             "--server.port=7860",
             "--server.headless=true",
             "--server.fileWatcherType=none",
+            "--client.toolbarMode=minimal",
+            "--client.showErrorDetails=none",
+            "--client.showErrorLinks=false",
             "--browser.gatherUsageStats=false",
         ),
     )

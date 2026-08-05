@@ -572,7 +572,7 @@ submission-package-dev: demo-reset
 	@$(BIN)/python scripts/generate_submission_package.py --database-url '$(DEMO_DATABASE_URL)' --allow-uncommitted
 
 release-audit:
-	$(BIN)/python scripts/release_audit.py --require-release --check-external
+	$(BIN)/python scripts/release_audit.py --require-release --check-external --check-history
 
 release-clean:
 	bash scripts/release_clean_room.sh

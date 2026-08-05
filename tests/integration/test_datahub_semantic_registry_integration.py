@@ -239,6 +239,9 @@ def test_registry_publish_cli_replay_is_idempotent_across_fresh_processes(
             "SCHEMABRIDGE_JUDGE_EXECUTION": "recorded",
             "SCHEMABRIDGE_DRAFT_STORE_PATH": str(audit_path),
             "SCHEMABRIDGE_LOCAL_WORKSPACE": "local-demo",
+            # Exercise a distinct authenticated operator so this isolated empty ledger does not
+            # reissue the existing operator's stable approval ID with a different timestamp.
+            "SCHEMABRIDGE_LOCAL_SUBJECT": "integration-registry-replay-operator",
             "SCHEMABRIDGE_SEMANTIC_REGISTRY_MANIFEST_PATH": (
                 "demo/ground_truth/registries/manifest.yml"
             ),

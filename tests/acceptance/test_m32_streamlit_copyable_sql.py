@@ -113,6 +113,7 @@ def test_streamlit_advanced_copy_flow_previews_before_generating_standalone_sql(
     assert "Resultado principal" in visible
     assert "no ejecuta consultas" in visible
     assert "Workflow gobernado con validación opcional" in visible
+    assert app.text_area(key="m32-natural-sql-text").placeholder == M32_REFERENCE_QUESTION_ES
 
     app.text_area(key="m32-natural-sql-text").set_value(M32_REFERENCE_QUESTION_ES)
     app.button(key="m32-prepare-natural-sql").click().run()

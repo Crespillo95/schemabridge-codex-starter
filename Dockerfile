@@ -18,10 +18,17 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN useradd --create-home --uid 1000 user
 WORKDIR /home/user/app
 
+COPY requirements/build.txt requirements/runtime.txt ./requirements/
+RUN python -m pip install --no-cache-dir --require-hashes \
+    -r requirements/build.txt \
+    -r requirements/runtime.txt
+
 COPY pyproject.toml README.md LICENSE ./
+COPY .streamlit/config.toml ./.streamlit/config.toml
 COPY src ./src
+COPY migrations ./migrations
 COPY demo ./demo
-RUN python -m pip install --no-cache-dir '.[ui,sql]'
+RUN python -m pip install --no-cache-dir --no-deps --no-build-isolation .
 
 RUN mkdir -p /tmp/schemabridge && chown -R user:user /tmp/schemabridge /home/user/app
 USER user
@@ -30,4 +37,4 @@ EXPOSE 7860
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD python -c "import urllib.request; assert urllib.request.urlopen('http://127.0.0.1:7860/_stcore/health', timeout=3).read().strip() == b'ok'"
 
-CMD ["streamlit", "run", "src/schemabridge/entrypoints/streamlit/app.py", "--server.address=0.0.0.0", "--server.port=7860", "--server.headless=true", "--server.fileWatcherType=none", "--browser.gatherUsageStats=false"]
+CMD ["streamlit", "run", "src/schemabridge/entrypoints/streamlit/app.py", "--server.address=0.0.0.0", "--server.port=7860", "--server.headless=true", "--server.fileWatcherType=none", "--client.toolbarMode=minimal", "--client.showErrorDetails=none", "--client.showErrorLinks=false", "--browser.gatherUsageStats=false"]

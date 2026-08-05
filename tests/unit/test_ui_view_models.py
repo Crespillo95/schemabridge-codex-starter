@@ -268,6 +268,11 @@ def test_recorded_judge_execution_is_exact_labeled_and_key_free(tmp_path: Path) 
     service = build_streamlit_ui_service(execution_kind="recorded", settings=settings)
 
     view = service.start_demo("m17-recorded-unit")
+    assert view.query is not None
+    assert view.query.business_text == (
+        "Group all customers who are secondary account holders by registration date."
+    )
+    assert view.query.alternatives[0].label == "Count distinct customers"
     view = service.confirm_intent(
         "m17-recorded-unit",
         IntentAlternativeId.COUNT_DISTINCT_CUSTOMERS,

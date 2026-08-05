@@ -1,6 +1,10 @@
 context_source: recorded:demo/ground_truth/registries/synthetic_enterprise.yml
 context_version: 1
 context_fingerprint: 0710148874049078f751ac96f0a18131cf01daa41f27dc034ca52a8b212dd966
+activation_generation: null
+active_pointer_fingerprint: null
+active_scope_fingerprint: null
+execution_target: null
 request:
   primary_entity: Customer
   dimensions:

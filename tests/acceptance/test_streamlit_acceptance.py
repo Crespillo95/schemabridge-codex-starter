@@ -125,6 +125,10 @@ def test_deployed_recorded_streamlit_path_needs_no_service_or_secret(
     )
 
     app.button(key="load-demo").click().run()
+    loaded_button_keys = {button.key for button in app.button}
+    assert "m32-prepare-natural-sql" not in loaded_button_keys
+    assert "prepare-natural-query-studio" not in loaded_button_keys
+    assert "confirm-intent" in loaded_button_keys
     app.button(key="confirm-intent").click().run()
     app.button(key="approve-execution").click().run()
     assert not app.exception

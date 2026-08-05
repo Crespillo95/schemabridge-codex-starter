@@ -3,8 +3,8 @@
 > Generated evidence for the small synthetic fixture only. Raw counts are shown; no confidence interval or production-quality claim is justified.
 
 - Overall required-run status: **PASS**
-- Source revision: `9e8b69e1adce8e144b345d3b0d33482558804dc6 (dirty/uncommitted; not a release-commit claim)`
-- Source fingerprint: `99df0d6023c19f4878db5df3bb851edc79e8d5a4d2764f643aa9448535a692cb`
+- Source revision: `c31fdf15a1b94659cba463deba74d96d6fac1ec2 (dirty/uncommitted; not a release-commit claim)`
+- Source fingerprint: `d2cb09807039880a6996d0d3590dc170f7f2a82d82d726db984c84774ddbae0d`
 - Ground-truth version: `2`
 - Fixture fingerprint: `61c6930b16d1c477fbf1e0caef54b69a362d65998f8dbab63a14a0e782e03138`
 - Package: `0.1.0`

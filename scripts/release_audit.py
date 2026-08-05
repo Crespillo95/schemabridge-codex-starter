@@ -13,7 +13,7 @@ from dataclasses import asdict, dataclass
 from importlib import metadata
 from pathlib import Path
 from typing import cast
-from urllib.parse import unquote
+from urllib.parse import unquote, urlsplit
 
 _DEPENDENCY_NAME = re.compile(r"^[A-Za-z0-9_.-]+")
 _MARKDOWN_LINK = re.compile(r"!?\[[^]]*\]\(([^)]+)\)")
@@ -152,6 +152,75 @@ def scan_secrets(root: Path, files: tuple[Path, ...]) -> tuple[Finding, ...]:
     return tuple(findings)
 
 
+def scan_git_history_secrets(root: Path) -> tuple[int, tuple[Finding, ...]]:
+    """Scan every reachable commit without ever printing matched secret material."""
+
+    count = subprocess.run(
+        ("git", "rev-list", "--count", "--all"),
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    findings: list[Finding] = []
+    seen: set[tuple[str, str, str]] = set()
+    for code, pattern in _SECRET_PATTERNS:
+        # `git log -G` uses POSIX ERE rather than Python/PCRE syntax. These detectors need only
+        # drop non-capturing-group and word-boundary syntax; their token bodies stay unchanged.
+        history_pattern = pattern.pattern.replace("(?:", "(").replace(r"\b", "")
+        result = subprocess.run(
+            (
+                "git",
+                "log",
+                "--all",
+                "--root",
+                "--no-renames",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--format=commit:%H",
+                "--name-only",
+                f"-G{history_pattern}",
+                "--",
+                ".",
+            ),
+            cwd=root,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            findings.append(
+                Finding(
+                    "history_scan_failed",
+                    "error",
+                    ".git",
+                    f"Git history scan failed for detector {code}",
+                )
+            )
+            continue
+        revision = "unknown"
+        for raw_line in result.stdout.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            if line.startswith("commit:"):
+                revision = line.removeprefix("commit:")
+                continue
+            identity = (code, revision, line)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            findings.append(
+                Finding(
+                    code,
+                    "error",
+                    f"{line}@{revision[:12]}",
+                    "high-confidence secret pattern detected in reachable Git history",
+                )
+            )
+    return int(count.stdout.strip()), tuple(findings)
+
+
 def scan_markdown_links(root: Path, files: tuple[Path, ...]) -> tuple[Finding, ...]:
     findings: list[Finding] = []
     for path in files:
@@ -180,22 +249,43 @@ def scan_markdown_links(root: Path, files: tuple[Path, ...]) -> tuple[Finding, .
 
 
 def scan_external_links(root: Path, files: tuple[Path, ...]) -> tuple[int, tuple[Finding, ...]]:
-    """Verify every unique HTTPS reference with curl redirects and bounded timeouts."""
+    """Verify human-facing HTTPS references with redirects and bounded timeouts."""
 
     locations: dict[str, str] = {}
     for path in files:
-        if path.suffix.casefold() not in {".env", ".md", ".toml", ".yaml", ".yml"}:
+        if path.suffix.casefold() != ".md":
             continue
         text = _read_text(path)
         if text is None:
             continue
-        for match in _EXTERNAL_LINK.finditer(text):
-            url = match.group(0).rstrip(".,;:")
-            locations.setdefault(url, str(path.relative_to(root)))
+        in_fence = False
+        for line_number, raw_line in enumerate(text.splitlines(), start=1):
+            stripped = raw_line.lstrip()
+            if stripped.startswith(("```", "~~~")):
+                in_fence = not in_fence
+                continue
+            if in_fence:
+                continue
+            line = re.sub(r"`[^`]*`", "", raw_line)
+            for match in _EXTERNAL_LINK.finditer(line):
+                url = match.group(0).rstrip(".,;:]'")
+                if _is_external_link_placeholder(url):
+                    continue
+                locations.setdefault(url, f"{path.relative_to(root)}:{line_number}")
     findings: list[Finding] = []
     for url, source_path in sorted(locations.items()):
         result = subprocess.run(
-            ("curl", "-fsSIL", "--max-time", "30", "--retry", "1", url),
+            (
+                "curl",
+                "-fsSL",
+                "--max-time",
+                "30",
+                "--retry",
+                "1",
+                "-o",
+                "/dev/null",
+                url,
+            ),
             check=False,
             capture_output=True,
             text=True,
@@ -210,6 +300,17 @@ def scan_external_links(root: Path, files: tuple[Path, ...]) -> tuple[int, tuple
                 )
             )
     return len(locations), tuple(findings)
+
+
+def _is_external_link_placeholder(url: str) -> bool:
+    if any(character in url for character in "${}"):
+        return True
+    hostname = (urlsplit(url).hostname or "").casefold().rstrip(".")
+    return (
+        hostname in {"example", "example.com", "example.net", "example.org"}
+        or hostname.endswith((".example", ".example.com", ".example.net", ".example.org"))
+        or hostname.endswith(".invalid")
+    )
 
 
 def scan_disclosure(root: Path) -> tuple[Finding, ...]:
@@ -396,6 +497,7 @@ def main() -> int:
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--require-release", action="store_true")
     parser.add_argument("--check-external", action="store_true")
+    parser.add_argument("--check-history", action="store_true")
     parser.add_argument("--json", action="store_true", dest="json_output")
     args = parser.parse_args()
     root = args.root.resolve()
@@ -404,11 +506,15 @@ def main() -> int:
     external_count, external_findings = (
         scan_external_links(root, files) if args.check_external else (0, ())
     )
+    history_count, history_findings = (
+        scan_git_history_secrets(root) if args.check_history else (0, ())
+    )
     findings = (
         *check_release_baseline(root, required=args.require_release),
         *scan_architecture(root),
         *scan_candidate_artifacts(root, files),
         *scan_secrets(root, files),
+        *history_findings,
         *scan_markdown_links(root, files),
         *external_findings,
         *scan_disclosure(root),
@@ -420,6 +526,7 @@ def main() -> int:
         "candidate_files": len(files),
         "dependency_licenses": [asdict(item) for item in licenses],
         "external_links_checked": external_count,
+        "history_revisions_scanned": history_count,
         "findings": [asdict(item) for item in findings],
     }
     if args.json_output:
@@ -428,7 +535,7 @@ def main() -> int:
         print(
             f"Release scan {'PASS' if payload['ok'] else 'FAIL'}: "
             f"{len(files)} candidate files, {len(licenses)} direct dependency licenses, "
-            f"{external_count} external links checked."
+            f"{external_count} external links checked, {history_count} history revisions scanned."
         )
         for finding in findings:
             print(f"{finding.severity.upper()} {finding.code} {finding.path}: {finding.message}")

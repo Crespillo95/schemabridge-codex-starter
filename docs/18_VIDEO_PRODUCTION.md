@@ -53,8 +53,8 @@ ffprobe -v error -show_entries stream=codec_type,codec_name,width,height -of jso
 shasum -a 256 submission-video.mp4
 ```
 
-Record the duration and checksum in `docs/15_SUBMISSION_CHECKLIST.md`. Upload to YouTube, Vimeo, or
-Youku as publicly visible, enable captions, then open the link signed out on a second network. Watch
+Record the duration and checksum in `docs/15_SUBMISSION_CHECKLIST.md`. Upload to YouTube or Vimeo
+with public visibility, enable captions, then open the link signed out on a second network. Watch
 from 0:00 to the end with sound muted and confirm all text, values, modes, and safety evidence are
 readable. Verify no copyrighted music, third-party footage, personal data, credentials, or
 unapproved marks appear.

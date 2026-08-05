@@ -1522,9 +1522,9 @@ policy; neither later model is pre-authorized here.
 - OpenAI data controls and data residency:
   https://platform.openai.com/docs/models/default-usage-policies-by-endpoint
 - OpenAI developer quickstart and default API-key endpoint:
-  https://platform.openai.com/docs/quickstart/make-your-first-api-request
+  https://developers.openai.com/api/docs/quickstart
 - Responses `max_output_tokens`, including visible output and reasoning:
-  https://platform.openai.com/docs/api-reference/responses-streaming/response/incomplete
+  https://developers.openai.com/api/docs/guides/reasoning
 - GPT-5 nano model and Structured Outputs:
   https://developers.openai.com/api/docs/models/gpt-5-nano
 - GPT-5.4 nano model and Structured Outputs:
