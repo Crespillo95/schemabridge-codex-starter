@@ -2136,3 +2136,29 @@ sign-off remain open; owner eligibility/legal submission is complete.
 - Remaining M18 evidence is the unfamiliar-reviewer answer set and one second-network/device check.
   These do not block active participation. M30 remains 0/24 external controls and
   commercial/production NO-GO.
+
+## M18 VPS judge-path remediation — 2026-08-07
+
+- The existing `rcr-ia.eu` VPS now serves exact frozen source
+  `c5817af6d01b8a98cd7f1950d57e1be667614696` at
+  `https://rcr-ia.eu/schemabridge/`. The Docker image was built from a clean detached checkout and
+  is identified locally as
+  `sha256:fbd970e8a3618769e35ee8df166f267810c08ca2e597e45d52ab2fd02780558b`.
+- Container `schemabridge-judge` runs as non-root `user`, with a read-only root filesystem, bounded
+  CPU/memory/PIDs, ephemeral `/tmp`, `unless-stopped` restart policy, and only
+  `127.0.0.1:7860:7860` published. No source database, DataHub writer, LLM, administrator, or
+  payment credential was added.
+- The existing Nginx/TLS virtual host gained only the `/schemabridge` redirect and
+  `/schemabridge/` WebSocket-capable proxy. The prior configuration is backed up at
+  `/etc/nginx/sites-available/01-rcr-ia.eu-final.pre-schemabridge-20260807T1543Z`; `nginx -t`
+  passes and the existing root site remains HTTP 200.
+- Public HTTPS page and health return 200; the five-attempt deployment smoke passes. An anonymous
+  independent browser completed interpretation, approved fanout mitigation, SQL safety, bounded
+  preview, exact `2/1/1`, and all three visible identifier rejections with no console errors. The
+  UI displays release `c5817af` and the recorded/fake mode boundaries.
+- Devpost Project details and judge-only Additional info now both store the VPS URL. The public
+  `https://devpost.com/software/schemabridge` page exposes `rcr-ia.eu` under **Try it out**;
+  Devpost retains `Submitted`, `5/5 steps done`, and `Project submitted!`. Category, Feedback Prize,
+  eligibility/residence, repository, examples, video, terms, and team fields were not changed.
+- This remediation changes only deployment operations and evidence documentation. The frozen
+  executable release and annotated tag remain unchanged; M30 remains 0/24 and production NO-GO.

@@ -3,9 +3,9 @@
 ## Summary
 
 - Milestone: M18 — README, examples, video, and Devpost submission package
-- Status: submitted — public Devpost participation active; Streamlit visibility remediation and external acceptance pending
-- Recommended operator decision: participating; restore Streamlit public access and record external checks before the deadline
-- Proposed commit message: `docs: record final Devpost submission`
+- Status: submitted — public Devpost participation and VPS judge path active; external acceptance pending
+- Recommended operator decision: participating; record unfamiliar-reviewer and second-network checks before the deadline
+- Proposed commit message: `docs: record VPS judge deployment`
 
 ## Implemented
 
@@ -24,7 +24,13 @@
 - Published the secret-free recorded judge path at
   `https://schemabridge-governed-agent.streamlit.app/`; an anonymous human browser completed the
   ambiguity, governed-plan, SQL-safety, `2/1/1`, rejection, and fake-publication journey against
-  visible release `c5817af`.
+  visible release `c5817af`. That URL later became authentication-gated and is retained only as
+  historical deployment evidence.
+- Deployed exact frozen source `c5817af` at `https://rcr-ia.eu/schemabridge/` behind the existing
+  Nginx TLS host. The container is non-root, root-filesystem read-only, resource-bounded,
+  restartable, and loopback-only; no database, DataHub, LLM, or administrator credential was added.
+- Passed public health/deployment smoke and the complete anonymous browser north-star journey on
+  the VPS with exact `2/1/1`, all three rejection records, and no browser console error.
 - Produced and visually reviewed the final public silent, English-captioned H.264 1920×1080/30 fps
   video at exactly 2:55. SHA-256 is
   `a7ac6119d93ee5001b40bdc63811eb562db513b5571d31f10ca528ca17739d3b`.
@@ -36,6 +42,9 @@
   product-feedback answers. The owner authorized final terms and Submit at action time. Devpost
   confirmed the public entry at `https://devpost.com/software/schemabridge`; anonymous HTTP returns
   200 and the expected title. No payment, monetization, paid promotion, or purchase was performed.
+- Saved the VPS URL in both Devpost Project details and Additional info. The submission remains
+  `Submitted`, `5/5 steps done`, and `Project submitted!`; the public **Try it out** link shows the
+  replacement URL.
 - Updated GitHub repository description and topics. Public repo and detected Apache-2.0 license
   remain verified.
 
@@ -44,8 +53,10 @@
 - `README.md`: public judge/video links plus frozen source/tag and release evidence.
 - `examples/final/`: release-ready generated evaluation summary and manifest.
 - `docs/screenshots/m18/*.png`, `docs/screenshots/m18/README.md`: final release UI evidence and inventory.
+- `docs/14_DEPLOYMENT.md`, `docs/17_JUDGE_OPERATIONS.md`: exact VPS topology, smoke, operations,
+  troubleshooting, and isolated rollback.
 - `docs/15_SUBMISSION_CHECKLIST.md`: exact source/tag/image/package/video/submission evidence and remaining external checks.
-- `docs/18_DEVPOST_SUBMISSION.md`: final submitted fields, feedback summary, and public URL.
+- `docs/18_DEVPOST_SUBMISSION.md`: final submitted fields, feedback summary, and VPS public URL.
 - `docs/18_VIDEO_PRODUCTION.md`: final public export checksum, URL, YouTube checks, and privacy review.
 - `plans/M18_SUBMISSION_PACKAGE.md`: current acceptance status and public evidence.
 - `tasks/CURRENT_TASK.md`, `tasks/PROJECT_STATE.md`, `tasks/DECISION_LOG.md`: D149–D151 and current M18 state.
@@ -67,6 +78,13 @@
 | anonymous Streamlit browser north-star | pass | `2/1/1`, three rejections, governed SQL, fake publication, release `c5817af` |
 | YouTube publish and public HTTP/oEmbed lookup | pass | `R8PPBJ5ot84`; copyright clear; expected title returned without authentication |
 | Devpost Additional info and final submission | pass | Owner-confirmed eligibility, Feedback Prize answers, legal acceptance, and Submit; public URL returns HTTP 200 |
+| exact `c5817af` VPS Docker build and constrained run | pass | Image `sha256:fbd970…0558b`; non-root, healthy, read-only, loopback-only |
+| Nginx configuration test/reload and public root/health checks | pass | `/schemabridge/` and health return 200; existing `rcr-ia.eu/` remains 200 |
+| public VPS deployment smoke | pass | Five-attempt smoke succeeds against `https://rcr-ia.eu/schemabridge/` |
+| anonymous VPS browser north-star | pass | Release `c5817af`; exact `2/1/1`; all three rejections; no console errors |
+| Devpost Project details/Additional info URL replacement | pass | Both saved; public **Try it out** exposes VPS URL; submission remains active |
+| `.venv/bin/python scripts/release_audit.py --check-external --check-history` | pass | 1,081 files, 23 licenses, 44 external links, 47 history revisions; expected dirty-tree warning before commit |
+| `make check` | pass | Supply chain, release scan, formatting, Ruff, Mypy, performance, and 4,094 unit tests; 250 deselected; 910.74 s |
 | post-submit Streamlit anonymous smoke | fail | `/` and `/_stcore/health` return `303` to Streamlit authentication; no payment fallback authorized |
 | pre-submit `.venv/bin/python scripts/release_audit.py --check-external --check-history` | pass | Historical evidence-only tree; architecture, secret, license, internal/external link, and history audit |
 | annotated tag creation/push | pass | `devpost-m18-c5817af` resolves to exact source commit |
@@ -80,8 +98,8 @@
 ## Automated test results
 
 - Focused tests: all release-clean prerequisite/focal suites pass.
-- `make check`: pass inside strict clean-room; format, Ruff, strict Mypy, supply-chain/release policy,
-  performance node, 4,094 passed and 250 deselected in 942.70 seconds.
+- `make check`: pass again on the documentation-only VPS evidence tree; format, Ruff, strict Mypy,
+  supply-chain/release policy, performance node, 4,094 passed and 250 deselected in 910.74 seconds.
 - Integration tests: 184 passed, 3 explicit skips in 202.66 seconds.
 - Acceptance tests: 66 passed, 1 explicit skip in 50.80 seconds.
 - Coverage: 4,340 passed, 3 skipped, 1 deselected; 81.32% against an 80% threshold.
@@ -130,8 +148,8 @@ concrete result. Every public link works signed out.
 
 - The public Devpost entry is active at `https://devpost.com/software/schemabridge`; anonymous HTTP
   returned 200 with title `SchemaBridge | Devpost` on 2026-08-07.
-- The configured Streamlit URL currently redirects anonymous visitors to authentication. It had
-  passed the full anonymous journey before submission; this is a post-submit visibility regression.
+- The old Streamlit URL remains authentication-gated and is superseded by the verified VPS path;
+  judges are not instructed to use it.
 - Second-network/device and unfamiliar-reviewer checks remain unperformed.
 - The video is an edited progression of genuine captured release/DataHub states with burned captions,
   not a narrated continuous cursor recording; it truthfully labels local live versus recorded modes.
@@ -140,15 +158,12 @@ concrete result. Every public link works signed out.
 
 ## Remaining post-submit work
 
-- Restore public access through the existing GitHub-linked Streamlit owner account. Hugging Face
-  currently requires a paid plan for Docker Spaces, so no paid fallback was created.
 - An unfamiliar human and a second network/device are required for the checklist's external acceptance.
 
 ## Next milestone readiness
 
-- Dependencies satisfied: exact source/tag, public demo/video, local image, strict gates, generated
+- Dependencies satisfied: exact source/tag, public VPS demo/video, local image, strict gates, generated
   artifacts, screenshots, and active Devpost participation are complete.
-- Recommended next prompt: restore Streamlit visibility, then perform the unfamiliar-reviewer and
-  second-network checks without changing the frozen source.
-- Required operator prerequisites: GitHub-linked Streamlit owner session, unfamiliar reviewer, and
-  second device/network.
+- Recommended next prompt: perform the unfamiliar-reviewer and second-network checks without
+  changing the frozen source.
+- Required operator prerequisites: unfamiliar reviewer and second device/network.

@@ -1,6 +1,6 @@
 # M18: README, examples, video, and Devpost submission package
 
-- Status: submitted and publicly participating; Streamlit visibility remediation and external evidence pending
+- Status: submitted and publicly participating; public VPS judge path passes, external reviewer/network evidence pending
 - Timebox: 5 hours
 - Recommended Codex: GPT-5.6 Sol — Extra High (xhigh)
 - Dependencies: M15–M17
@@ -35,8 +35,8 @@ Judges may decide from the description, images, README, and sub-three-minute vid
 
 - [x] Every current non-public claim in README/Devpost/video corresponds to implemented, tested release behavior.
 - [x] The repository is public, Apache-2.0, complete, and free of secrets/proprietary data.
-- [ ] The live URL and all links work without an authenticated application session. The prior
-  anonymous journey passed, but the 2026-08-07 post-submit Streamlit smoke redirects to login.
+- [x] The live URL and all links work without an authenticated application session on the operator
+  network; a second-network repetition remains an operator evidence task.
 - [x] The video is public, under three minutes, readable, and shows the project functioning.
 - [x] `examples/` contains final generated artifacts that a judge can inspect without running code.
 - [x] Materials are in English or include complete English translation.
@@ -60,11 +60,11 @@ Judges may decide from the description, images, README, and sub-three-minute vid
   release audit. Hosted PR CI run `31003886659` also passes all three jobs.
 - Annotated tag `devpost-m18-c5817af`, generated release-ready artifacts, ten final Streamlit
   captures, and the verified 2:55 captioned local video export are complete.
-- The Streamlit demo passed the full anonymous browser journey before submission, YouTube video
-  `R8PPBJ5ot84` is public at 2:55 with a clear copyright check, and Devpost submission `1109948`
-  is publicly participating at `https://devpost.com/software/schemabridge`. The current Streamlit
-  URL now redirects anonymous requests to login; visibility remediation, unfamiliar-reviewer, and
-  second-network acceptance remain post-submit work.
+- The VPS replacement at `https://rcr-ia.eu/schemabridge/` serves the exact frozen image, passes
+  public health/smoke and the full anonymous browser journey, and is saved in both Devpost demo
+  fields. YouTube video `R8PPBJ5ot84` is public at 2:55 with a clear copyright check, and Devpost
+  submission `1109948` is publicly participating at `https://devpost.com/software/schemabridge`.
+  Unfamiliar-reviewer and second-network acceptance remain post-submit work.
 
 ## Required automated checks
 

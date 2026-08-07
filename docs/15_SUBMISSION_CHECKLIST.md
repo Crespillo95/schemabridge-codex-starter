@@ -1,12 +1,12 @@
 # Final submission checklist
 
-Current sign-off: **SUBMITTED — actively participating; Streamlit visibility remediation and
-post-submit external-review checks remain**.
+Current sign-off: **SUBMITTED — actively participating; public VPS judge path passes and only the
+unfamiliar-reviewer/second-network evidence remains**.
 The frozen source, strict clean-room gate, hosted CI, annotated tag, final artifact package,
-release screenshots, prior anonymous demo journey, public video, eligibility fields, legal
-acceptance, and Devpost submission are complete. A 2026-08-07 post-submit smoke now receives a
-Streamlit authentication redirect; the unfamiliar-reviewer and second-network evidence also remain.
-These do not undo the active hackathon entry but the demo visibility regression should be fixed.
+release screenshots, anonymous VPS demo journey, public video, eligibility fields, legal
+acceptance, and Devpost submission are complete. Devpost's public and judge-only demo fields now
+point to the VPS replacement. The unfamiliar-reviewer and second-network evidence remain and do not
+undo the active hackathon entry.
 
 ## Release identity
 
@@ -18,8 +18,7 @@ These do not undo the active hackathon entry but the demo visibility regression 
 - Video SHA-256 and duration:
   `a7ac6119d93ee5001b40bdc63811eb562db513b5571d31f10ca528ca17739d3b`,
   `175.000000` seconds (2:55)
-- Configured demo URL: `https://schemabridge-governed-agent.streamlit.app/` (currently redirects
-  anonymous requests to Streamlit authentication)
+- Configured demo URL: `https://rcr-ia.eu/schemabridge/`
 - Public video URL: `https://youtu.be/R8PPBJ5ot84`
 - Public Devpost project URL: `https://devpost.com/software/schemabridge`
 - Anonymous verification: `HTTP 200`, title `SchemaBridge | Devpost`, 2026-08-07
@@ -42,8 +41,8 @@ These do not undo the active hackathon entry but the demo visibility regression 
 - [x] Guided and deterministic natural-language paths have equivalent typed north-star plans.
 - [x] Unsafe identifiers and SQL-policy rejections are visible in generated examples.
 - [x] Hosted recorded/fake and local live modes are unambiguously labeled.
-- [ ] Restore free public Streamlit visibility. Anonymous journey passed before submission, but the
-  2026-08-07 post-submit smoke returns `303` to Streamlit authentication.
+- [x] Public VPS path requires no login/payment, exposes the frozen `c5817af` release, passes health
+  and page smoke, and completes the exact anonymous north-star journey.
 
 ## Evaluation and artifacts
 
@@ -62,7 +61,8 @@ These do not undo the active hackathon entry but the demo visibility regression 
 - [x] Copy differentiates the semantic-governance layer from DataHub Analytics Agent without
   disparaging or misrepresenting it.
 - [x] Devpost draft has the final elevator pitch, project story, public tags, and repository URL.
-- [x] Devpost Project details saves the public Streamlit and YouTube URLs.
+- [x] Devpost Project details and Additional info save the public VPS URL; Project details also
+  retains the public YouTube URL.
 - [x] Additional info records Spain, new project during the submission period, DataHub Core/MCP,
   the Feedback Prize opt-in, and all four specific product-feedback answers.
 - [x] The owner authorized final legal acceptance and submission at action time; Devpost displayed
@@ -70,7 +70,8 @@ These do not undo the active hackathon entry but the demo visibility regression 
 - [x] YouTube reports the video public and its copyright check completed with no issues; an
   unauthenticated watch request and oEmbed lookup both resolve the expected title.
 - [x] Every `PENDING` field in `docs/18_DEVPOST_SUBMISSION.md` is replaced with a tested value.
-- [ ] Repository, demo, video, and example links work signed out and from a second network/device.
+- [x] Repository, demo, video, example, and Devpost links work signed out on the operator network.
+- [ ] Repeat the final link and north-star check from a second network/device.
 - [x] Final local video export is below 3:00 and visibly shows the project functioning.
 - [x] Captions/on-screen text make the complete story readable with sound muted.
 - [x] Video has no unlicensed music, third-party footage, exposed credentials, proprietary data, or
@@ -92,9 +93,10 @@ These do not undo the active hackathon entry but the demo visibility regression 
    Docker Desktop, clean public tag clone, linux/amd64 build, healthy non-root container, stdlib
    deployment smoke passed. The first rehearsal exposed and corrected the undocumented .venv
    assumption in the smoke command.`
-3. Let the hosted service sleep/restart if applicable, record cold-start duration, then disconnect
-   one dependency and confirm the real status appears without silent fallback: `PENDING`.
-4. Open every final link in an incognito/signed-out browser, repeat the north-star path on another
-   network/device, and record date/device/result: `PENDING`.
+3. Restart the VPS container during a maintenance window, record cold-start duration, then run
+   public smoke and the complete north-star path again: `PENDING`.
+4. Signed-out independent-browser result on the operator network: `PASS 2026-08-07 — HTTPS 200,
+   health ok, release c5817af, exact 2/1/1, and all three rejections`. Repeat from another
+   network/device and record date/device/result: `PENDING`.
 5. Compare README, Devpost, video, examples, release manifest, and actual UI. Any mismatch requires
    a correction before the deadline.

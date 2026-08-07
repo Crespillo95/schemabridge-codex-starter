@@ -4,11 +4,14 @@
 
 The final project needs an easy, free path for judges to test. A judge may also rely only on the written submission and video, so deployment is one layer of evidence, not the only one.
 
-## Selected M17 topology
+## Selected M18 judge topology
 
 ```text
-Public Hugging Face Docker Space
-        │
+https://rcr-ia.eu/schemabridge/
+        │ existing Nginx TLS virtual host
+        ▼
+127.0.0.1:7860
+        │ resource-bounded, read-only Docker container
         ├── packaged deterministic demo context / typed fake LLM
         ├── fingerprint-bound recorded PostgreSQL result/rejections
         └── recorded DataHub catalog and fake local publication
@@ -21,7 +24,9 @@ The full local deployment keeps real DataHub in the live path. The selected free
 3. video evidence of the real full integration;
 4. examples of actual write-back artifacts.
 
-Do not misrepresent a fake as a live DataHub integration.
+The VPS deploys exact frozen source `c5817af` under the existing `rcr-ia.eu` certificate and leaves
+the root site and other services unchanged. Nginx exposes only `/schemabridge/`; the container port
+is loopback-only. Do not misrepresent the recorded/fake judge surface as a live DataHub integration.
 
 ## Deployment decision
 

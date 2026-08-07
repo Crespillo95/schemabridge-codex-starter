@@ -13,10 +13,11 @@ approved semantic context can be written back to DataHub through its separate ap
 > is frozen under annotated tag `devpost-m18-c5817af`. Its strict clean-room gate, hosted CI,
 > `linux/amd64` image, generated M18 manifest, Safari north-star test, screenshots, and 2:55
 > captioned video pass. The public
-> [Streamlit demo](https://schemabridge-governed-agent.streamlit.app/) previously passed the full
-> anonymous judge journey, and the [2:55 YouTube demo](https://youtu.be/R8PPBJ5ot84) remains public.
-> A post-submit smoke on 2026-08-07 found that Streamlit now redirects anonymous visitors to login;
-> use the public video or the exact Docker instructions below until public visibility is restored.
+> [VPS judge demo](https://rcr-ia.eu/schemabridge/) runs that exact frozen image without login or
+> payment, and the [2:55 YouTube demo](https://youtu.be/R8PPBJ5ot84) remains public. The VPS path
+> replaced the original Streamlit URL after that service began redirecting anonymous visitors to
+> authentication. Public smoke, health, and a complete anonymous browser journey pass on the
+> replacement URL.
 > The full synthetic DataHub/PostgreSQL path also passes ingest,
 > least-privilege MCP reads, approval-gated write/read-back, restart persistence, and context reuse.
 > The [Devpost project](https://devpost.com/software/schemabridge) was submitted successfully on
@@ -95,7 +96,7 @@ it does not mutate a source database or DataHub.
 
 Or try the public judge path without login or payment:
 
-- [Live Streamlit demo](https://schemabridge-governed-agent.streamlit.app/)
+- [Live VPS judge demo](https://rcr-ia.eu/schemabridge/)
 - [2:55 public video](https://youtu.be/R8PPBJ5ot84)
 
 In the live demo, select **Load demo scenario**, keep **distinct customers**, confirm the governed

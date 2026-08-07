@@ -2,17 +2,19 @@
 
 ## Current release status
 
-The M17 image, local container health, restart, fingerprint-bound recorded north-star path, and
-service-free acceptance test are verified. **No public URL has been published or tested yet.** The
-repository contains an uncommitted M18 release candidate, the strict release commit proof is
-pending, `hf` CLI 1.26.0 is installed but not authenticated, and the incognito/separate-network
-test has not run. Do not present the local checks below as public deployment evidence.
+The frozen M18 image is publicly deployed at https://rcr-ia.eu/schemabridge/. Public HTTPS and
+health smoke pass, and an anonymous independent browser completed the exact north-star journey with
+release `c5817af`, result `2/1/1`, and the three visible identifier rejections. The executable source
+remains the annotated release tag; VPS/Nginx operations and documentation do not change it. A
+second-network/device repetition and unfamiliar-reviewer answers remain operator evidence tasks.
 
 ## Selected topology
 
 ```text
-Public Hugging Face Docker Space (free CPU Basic)
-    Streamlit UI
+Existing rcr-ia.eu Nginx TLS virtual host
+    /schemabridge/ → 127.0.0.1:7860
+        resource-bounded read-only Docker container
+        Streamlit UI
       ├─ recorded sanitized DataHub catalog/evidence
       ├─ deterministic typed fake intent parser
       ├─ typed plan → deterministic PostgreSQL → independent SQL AST guard
@@ -23,7 +25,9 @@ Operator workstation
     full local PostgreSQL reader + DataHub Core/MCP + approval-gated DataHub writers
 ```
 
-The public runtime has no source database and performs no DataHub mutation. Selecting a live mode
+The public runtime has no source database and performs no DataHub mutation. Its port is bound only
+to loopback; Nginx exposes the path through the existing certificate and preserves the root site.
+Selecting a live mode
 without its local dependency produces a typed configuration/unavailable state; it never switches
 back to a recording silently.
 
@@ -52,57 +56,57 @@ Docker Desktop emulation as UID/name `user`, became healthy, and passed the smok
 native-development container restarted and passed smoke in 0.12 seconds; that is a local process
 restart measurement, not a Hugging Face sleep/cold-start claim.
 
-## Clean release packaging and deployment
+## Verified VPS deployment
 
-Do not deploy the dirty working tree. After operator review and a focused commit:
-
-```bash
-SCHEMABRIDGE_RELEASE_DATAHUB_CONFIRMATION=publish-approved-registry-version \
-  make release-clean
-release_commit="$(git rev-parse --verify HEAD)"
-staging_directory="$(mktemp -d /tmp/schemabridge-space.XXXXXX)/space"
-scripts/package_huggingface_space.sh "$release_commit" "$staging_directory"
-```
-
-The confirmation authorizes only the project-owned synthetic DataHub reset and the exact
-`registry-prepare` fingerprint publication recorded by the audit ledger. Missing or mismatched
-confirmation fails before the clean-room changes service state.
-
-The package script first proves the chosen commit contains every required M17 path, exports only
-that commit, installs that commit's Docker Space card as the root README, and records the exact
-commit in `RELEASE_COMMIT`. It fails closed on the current pre-M17 `HEAD`. Inspect the successful
-bundle before upload.
-
-Install the current `hf` CLI outside the project environment using the official
-[CLI instructions](https://huggingface.co/docs/huggingface_hub/en/guides/cli), authenticate with a
-fine-grained token allowed to write only the intended Space, and keep that token out of shell
-history, Git, the Docker build, and Space runtime. Then:
+The deployed checkout is detached at exact source commit
+`c5817af6d01b8a98cd7f1950d57e1be667614696` in `/opt/schemabridge/releases/c5817af`. Build only that
+commit and keep the public container isolated from the other VPS services:
 
 ```bash
-hf auth whoami
-hf repos create OWNER/schemabridge-judge --type space --space-sdk docker --exist-ok
-hf upload OWNER/schemabridge-judge "$staging_directory" . \
-  --type space --commit-message "Deploy SchemaBridge $release_commit"
-hf spaces info OWNER/schemabridge-judge --expand sdk,runtime,sha
-SCHEMABRIDGE_PUBLIC_URL='PASTE_ACTUAL_SPACE_URL'
-PUBLIC_URL="$SCHEMABRIDGE_PUBLIC_URL" make judge-smoke
+cd /opt/schemabridge/releases/c5817af
+test "$(git rev-parse HEAD)" = c5817af6d01b8a98cd7f1950d57e1be667614696
+test -z "$(git status --short)"
+sudo docker build \
+  --build-arg SCHEMABRIDGE_RELEASE_REF=c5817af \
+  -t schemabridge-judge:c5817af .
+sudo docker run -d --name schemabridge-judge \
+  --restart unless-stopped \
+  --cpus 1.5 --memory 2g --memory-swap 2g --pids-limit 256 \
+  --read-only --tmpfs /tmp:rw,nosuid,size=256m \
+  -e STREAMLIT_SERVER_BASE_URL_PATH=schemabridge \
+  -p 127.0.0.1:7860:7860 \
+  schemabridge-judge:c5817af
 ```
 
-In Space settings, add the non-secret variable `SCHEMABRIDGE_RELEASE_REF=$release_commit`. Do not
-add `DATABASE_URL`, DataHub tokens, or LLM keys to the recorded deployment. The deployment commands
-above remain unexecuted because a scoped Hugging Face login, clean release commit, and target Space
-are absent. The installed CLI itself is not a deployment credential.
+The Nginx virtual host adds only the exact redirect `/schemabridge` to `/schemabridge/` and a
+`^~ /schemabridge/` reverse proxy to `http://127.0.0.1:7860`, including WebSocket upgrade headers.
+The pre-change configuration backup is
+`/etc/nginx/sites-available/01-rcr-ia.eu-final.pre-schemabridge-20260807T1543Z`. Validate before
+every reload:
 
-## Reset, sleep, and uptime
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+curl --fail --show-error --silent https://rcr-ia.eu/schemabridge/_stcore/health
+.venv/bin/python scripts/smoke_deployment.py \
+  --url https://rcr-ia.eu/schemabridge/ --attempts 5 --interval-seconds 2
+```
+
+Do not add `DATABASE_URL`, DataHub tokens, LLM keys, or administrator credentials. Docker reports
+the deployed image as `sha256:fbd970e8a3618769e35ee8df166f267810c08ca2e597e45d52ab2fd02780558b`;
+the running container is non-root user `user`, healthy, root-filesystem read-only, and restartable
+without rebuilding.
+
+## Reset, restart, and uptime
 
 - **Reset demo** starts a new deterministic synthetic workflow and changes no source/DataHub data.
 - A rebuild/restart may erase ephemeral SQLite state. Reload and use **Reset demo**; the versioned
   catalog, planning, result, and rejection fixtures remain in the image.
-- Free Hugging Face hardware sleeps after inactivity. Shortly before judging, open the URL, wait for
-  the Space to become running, and run `PUBLIC_URL=... make judge-smoke`.
-- Measure an actual wake with `/usr/bin/time -p .venv/bin/python scripts/smoke_deployment.py
-  --url "$PUBLIC_URL" --attempts 60 --interval-seconds 5`; record platform state and elapsed time.
-- No synthetic keepalive or paid upgrade is assumed.
+- Docker uses `--restart unless-stopped`; the VPS does not intentionally sleep the demo.
+- Before judging, run the public health and smoke commands above and inspect `docker ps` plus the
+  last bounded container logs.
+- Measure any actual restart with `/usr/bin/time -p .venv/bin/python scripts/smoke_deployment.py
+  --url https://rcr-ia.eu/schemabridge/ --attempts 60 --interval-seconds 5`; record elapsed time.
 
 ## Dependency-failure drill
 
@@ -124,37 +128,39 @@ then restore with `make demo-up` and `make demo-health`.
 - `recorded execution is available only...`: compiler/query-policy drift changed the guarded query.
   Regenerate the recording only from the approved synthetic source, review the diff, and update both
   fingerprints; never loosen the comparison.
-- Space build fails at the base image: confirm the pinned multi-platform Python digest still resolves
+- Image rebuild fails at the base image: confirm the pinned multi-platform Python digest still resolves
   and review upstream provenance before changing it.
-- Space loops or loses workflows: free disk is ephemeral. Reset the demo; do not add hidden durable
-  state or credentials to the public fallback.
+- A workflow is lost after restart: the public state is intentionally ephemeral. Reset the demo;
+  do not add hidden durable state or credentials to the public fallback.
 - Health is `ok` but the UI errors: inspect the visible mode cards and typed error. Do not switch
   adapters automatically.
-- `hf auth whoami` fails: provision/rotate the scoped deployment token outside Git. Runtime needs no
-  token.
+- Public path returns `502`: verify the container is healthy on loopback, then check the isolated
+  Nginx location and bounded logs; do not alter unrelated virtual-host routes.
 
 ## Rollback and redeploy
 
-Choose the last reviewed release commit, rebuild/package it, inspect `RELEASE_COMMIT`, upload it with
-an explicit rollback message, update the release-ref Space variable, and rerun public smoke plus the
-manual judge scenario. Do not delete the Space or rewrite the source repository history.
+Stop and remove only the `schemabridge-judge` container, restore the timestamped Nginx backup, test
+and reload Nginx, then rebuild a reviewed frozen commit if a replacement is required. Do not delete
+unrelated containers/services or rewrite repository history.
 
 ```bash
-scripts/package_huggingface_space.sh LAST_GOOD_COMMIT "$staging_directory"
-hf upload OWNER/schemabridge-judge "$staging_directory" . \
-  --type space --commit-message "Rollback SchemaBridge to LAST_GOOD_COMMIT"
-SCHEMABRIDGE_PUBLIC_URL='PASTE_ACTUAL_SPACE_URL'
-PUBLIC_URL="$SCHEMABRIDGE_PUBLIC_URL" make judge-smoke
+sudo docker stop schemabridge-judge
+sudo docker rm schemabridge-judge
+sudo cp /etc/nginx/sites-available/01-rcr-ia.eu-final.pre-schemabridge-20260807T1543Z \
+  /etc/nginx/sites-available/01-rcr-ia.eu-final
+sudo nginx -t
+sudo systemctl reload nginx
 ```
 
 ## Operator acceptance record to complete
 
-1. Open the published URL in an incognito browser on a separate network/device and run all three
-   governed actions. Record URL, release ref, device/network, time, result, rejections, and labels.
-2. Allow/pause the free Space so it sleeps, wake it, record cold-start duration, and rerun smoke.
+1. Operator-network independent-browser check passes on 2026-08-07. Repeat the published URL on a
+   separate network/device and record URL, release ref, device/network, result, rejections, and labels.
+2. Restart only the SchemaBridge container during a maintenance window, record cold-start duration,
+   and rerun smoke.
 3. Run the dependency-failure drill and verify no silent fallback.
-4. Confirm the Space is public, requires no judge login/payment, and its runtime settings contain no
-   database, DataHub, LLM, or administrator credential.
+4. Confirm the VPS path is public, requires no judge login/payment, and the container environment
+   contains no database, DataHub, LLM, or administrator credential.
 
 ## Full local DataHub path
 

@@ -1,7 +1,7 @@
 # Current task
 
 - Current milestone: M18 — README, examples, video, and Devpost submission package
-- Status: submitted and publicly participating; Streamlit visibility remediation and external evidence pending
+- Status: submitted and publicly participating; public VPS judge path passes, external reviewer/network evidence pending
 - Plan: `plans/M18_SUBMISSION_PACKAGE.md`
 - Handoff: `tasks/M18_HANDOFF.md`
 - Hackathon participation: **ACTIVE — Devpost confirmed submission on 2026-08-07**
@@ -62,7 +62,13 @@ or synthetic evidence into a production claim.
   approval-gated publication while displaying release `c5817af`.
 - Post-submit verification on 2026-08-07 found a new `303` redirect from both `/` and
   `/_stcore/health` to Streamlit authentication. The earlier anonymous journey remains valid
-  historical evidence, but the configured live URL is not currently judge-accessible without login.
+  historical evidence; the configured judge URL has now been replaced by the VPS path below.
+- Deployed the exact frozen `c5817af` source on the existing `rcr-ia.eu` VPS as a resource-bounded,
+  read-only, non-root Docker container bound only to `127.0.0.1:7860`. Existing Nginx/TLS exposes
+  only `https://rcr-ia.eu/schemabridge/`; the root site and other services remain HTTP 200.
+- Passed public HTTPS health and deployment smoke, then completed the entire anonymous browser
+  journey on the VPS: interpretation, approved one-to-many fanout mitigation, SQL safety, exact
+  `2/1/1`, and the `127.5`/`NaN`/`NULL` rejection evidence. The UI displays release `c5817af`.
 - Published the 2:55 video at `https://youtu.be/R8PPBJ5ot84`; YouTube reports processing and
   copyright checks complete with no issues, and unauthenticated watch/oEmbed requests resolve the
   expected title.
@@ -72,6 +78,9 @@ or synthetic evidence into a production claim.
   selected the Feedback Prize and explicitly authorized the final terms and Submit. Devpost
   confirmed `Project submitted!`; `https://devpost.com/software/schemabridge` returns public HTTP
   200 without authentication. No payment, monetization, paid promotion, or purchase was enabled.
+- Replaced the obsolete Streamlit URL in both Devpost Project details and judge-only Additional
+  info with `https://rcr-ia.eu/schemabridge/`. Devpost retained `Submitted`, `5/5 steps done`, and
+  `Project submitted!`; the public **Try it out** link now resolves to `rcr-ia.eu`.
 - Enabled only the Chrome extension's file-URL permission required for upload. No YouTube
   monetization, paid promotion, or payment feature was enabled.
 
@@ -97,11 +106,9 @@ or synthetic evidence into a production claim.
 
 ## Remaining post-submit external sequence
 
-1. Restore the existing Streamlit app to public visibility through its GitHub-linked owner session;
-   do not purchase a Hugging Face PRO plan merely to host the prepared Docker package.
-2. Obtain an unfamiliar human reviewer and a second-network/device check for repository, demo,
+1. Obtain an unfamiliar human reviewer and a second-network/device check for repository, demo,
    video, examples, and the final Devpost page.
-3. Record the external evidence and correct any mismatch before the deadline.
+2. Record the external evidence and correct any mismatch before the deadline.
 
 ## External/operator follow-up
 

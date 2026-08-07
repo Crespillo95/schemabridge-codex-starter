@@ -10,8 +10,7 @@
 - Elevator pitch: **SchemaBridge turns inconsistent schemas into approved semantic context,
   compiles business questions into safe SQL, and writes reusable decisions back to DataHub.**
 - Repository: https://github.com/Crespillo95/schemabridge-codex-starter
-- Configured live project URL: https://schemabridge-governed-agent.streamlit.app/ (post-submit
-  smoke currently redirects anonymous visitors to Streamlit authentication)
+- Configured live project URL: https://rcr-ia.eu/schemabridge/
 - Public video URL: https://youtu.be/R8PPBJ5ot84
 - Public Devpost project URL: https://devpost.com/software/schemabridge
 - Release commit: `c5817af6d01b8a98cd7f1950d57e1be667614696`
@@ -150,11 +149,7 @@ completed work.
 
 ### Public path
 
-Current caveat: the full anonymous journey passed before submission, but a 2026-08-07
-post-submit smoke now redirects this URL to Streamlit authentication. Use the public video or the
-Docker path below until owner visibility is restored.
-
-Open https://schemabridge-governed-agent.streamlit.app/ and:
+Open https://rcr-ia.eu/schemabridge/ and:
 
 1. Open the URL without login or payment.
 2. Confirm the status panel says recorded catalog, deterministic typed fake, recorded source, and
@@ -192,6 +187,9 @@ their licenses are inventoried by the release audit. Full details are in
 
 ## Post-submit verification
 
-The entry is active. Record the remaining unfamiliar-reviewer and second-network/device evidence
-in `docs/15_SUBMISSION_CHECKLIST.md`; correct any mismatch before the deadline without changing the
+The entry is active. On 2026-08-07 Devpost saved the replacement VPS URL in both public Project
+details and judge-only Additional info, retained `Submitted` and `5/5 steps done`, and displayed
+`Project submitted!`. The public project page exposes the new URL under **Try it out**. Record the
+remaining unfamiliar-reviewer and second-network/device evidence in
+`docs/15_SUBMISSION_CHECKLIST.md`; correct any mismatch before the deadline without changing the
 frozen executable release.
