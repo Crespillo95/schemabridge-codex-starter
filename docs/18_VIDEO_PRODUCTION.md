@@ -1,13 +1,13 @@
 # M18 video production package
 
-Status: **final local export verified; public upload and signed-out verification pending**.
+Status: **final export verified and public on YouTube**.
 
 Final local export:
 
 - Source release: `c5817af6d01b8a98cd7f1950d57e1be667614696`
 - Duration: `175.000000` seconds (2:55)
 - Video: H.264, 1920 × 1080, 30 fps
-- SHA-256: `754b4f36e588da941a225ed35c313d4dd0656b443d740186e01a05a4d88bfdaa`
+- SHA-256: `a7ac6119d93ee5001b40bdc63811eb562db513b5571d31f10ca528ca17739d3b`
 - Audio/music: none
 - Captions: English, burned into the video from `docs/18_CAPTIONS.srt`
 - Mode labels: `LIVE LOCAL DATAHUB | SYNTHETIC` and
@@ -19,6 +19,8 @@ personal data, local path, notification, proprietary data, music, or third-party
 
 ## Public upload metadata
 
+- Public URL: https://youtu.be/R8PPBJ5ot84
+
 - Title: `SchemaBridge — Governed Semantic Query Agent for DataHub | Devpost 2026`
 - Description: `SchemaBridge governs semantic mappings and fanout-safe joins in DataHub before
   compiling a business question into independently validated read-only PostgreSQL. This 2:55 demo
@@ -28,8 +30,9 @@ personal data, local path, notification, proprietary data, music, or third-party
 - Audience: not made for children; this is a technical software demonstration.
 - Visibility: public.
 - Music/audio: none; English captions are burned in.
-- Upload state: YouTube Studio owner session is authenticated, but the ChatGPT Chrome extension
-  requires `Allow access to file URLs` before it can pass the verified MP4 to the file chooser.
+- Upload state: published on 2026-08-07. YouTube reports the SD/HD processing complete and the
+  copyright check complete with no issues. An unauthenticated HTTP request and YouTube oEmbed
+  lookup both resolve the expected public title.
 
 The final video must show the release functioning, remain below 3:00, be understandable with audio
 off, and use no music. Record from the clean release commit after the public deployment is stable.

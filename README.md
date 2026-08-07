@@ -8,13 +8,16 @@ request into deterministic PostgreSQL, independently validates the final SQL AST
 standalone query to copy into another PostgreSQL client. A bounded read-only preview is optional;
 approved semantic context can be written back to DataHub through its separate approval path.
 
-> Hackathon release status (2026-08-05): source release
+> Hackathon release status (2026-08-07): source release
 > [`c5817af`](https://github.com/Crespillo95/schemabridge-codex-starter/tree/devpost-m18-c5817af)
 > is frozen under annotated tag `devpost-m18-c5817af`. Its strict clean-room gate, hosted CI,
 > `linux/amd64` image, generated M18 manifest, Safari north-star test, screenshots, and 2:55
-> captioned video export pass. The full synthetic DataHub/PostgreSQL path also passes ingest,
+> captioned video pass. The public
+> [Streamlit demo](https://schemabridge-governed-agent.streamlit.app/) and
+> [2:55 YouTube demo](https://youtu.be/R8PPBJ5ot84) are live and were checked without an
+> authenticated application session. The full synthetic DataHub/PostgreSQL path also passes ingest,
 > least-privilege MCP reads, approval-gated write/read-back, restart persistence, and context reuse.
-> Public demo/video URLs and the owner's Devpost attestations remain account-gated. M20–M29 are
+> The owner's Devpost eligibility/legal attestations and final submission remain open. M20–M29 are
 > accepted locally within their stated synthetic/local scopes; the corrective hosted M29 rerun and
 > every external production/release gate remain open. M32—the bounded simple/advanced
 > natural-language to copyable PostgreSQL capability described below—is accepted locally for its
@@ -86,8 +89,14 @@ Open `http://localhost:7860`, select **Load demo scenario**, confirm the distinc
 interpretation, and approve the bounded preview. **Reset demo** starts fresh local workflow state;
 it does not mutate a source database or DataHub.
 
-The public judge URL is added here only after the exact release package is deployed and tested
-signed out. Build, cold-start, rollback, and status procedures are in
+Or try the public judge path without login or payment:
+
+- [Live Streamlit demo](https://schemabridge-governed-agent.streamlit.app/)
+- [2:55 public video](https://youtu.be/R8PPBJ5ot84)
+
+In the live demo, select **Load demo scenario**, keep **distinct customers**, confirm the governed
+plan and SQL safety evidence, approve the bounded preview, and verify `2/1/1` plus the three visible
+identifier rejections. Build, cold-start, rollback, and status procedures are in
 [M17 judge operations](docs/17_JUDGE_OPERATIONS.md).
 
 ## Why DataHub is essential

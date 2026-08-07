@@ -1,8 +1,8 @@
 # M18 Devpost submission copy
 
-> **DRAFT — DO NOT SUBMIT YET.** The manifest is release-ready and the source is frozen/tagged.
-> Replace the two pending public-link fields only after account-owned deployment/upload and
-> signed-out testing, then complete the owner's Devpost eligibility and legal attestations.
+> **DRAFT — DO NOT SUBMIT YET.** The manifest is release-ready, the source is frozen/tagged, and
+> the public demo/video links are saved and tested. Complete the owner's Devpost eligibility and
+> legal attestations before final submission.
 
 ## Submission fields
 
@@ -11,17 +11,18 @@
 - Elevator pitch: **SchemaBridge turns inconsistent schemas into approved semantic context,
   compiles business questions into safe SQL, and writes reusable decisions back to DataHub.**
 - Repository: https://github.com/Crespillo95/schemabridge-codex-starter
-- Live project URL: **PENDING — public M17 deployment not created**
-- Public video URL: **PENDING — verified final export awaits owner-account upload**
+- Live project URL: https://schemabridge-governed-agent.streamlit.app/
+- Public video URL: https://youtu.be/R8PPBJ5ot84
 - Reserved Devpost project URL: https://devpost.com/software/schemabridge
 - Release commit: `c5817af6d01b8a98cd7f1950d57e1be667614696`
 - Release tag: `devpost-m18-c5817af`
 
 The Devpost draft already exists as submission `1109948`. The elevator pitch, project story,
-repository URL, and public tags `postgresql`, `python`, `datahub`, `streamlit`, and `sqlglot` are
-saved. The Additional info tab is prefilled with the challenge category, repository, examples URL,
-and DataHub Core/MCP selections but is intentionally unsaved until the owner supplies residence,
-submission-period attestation, and Feedback Prize choice.
+repository URL, public demo/video, and public tags `postgresql`, `python`, `datahub`, `streamlit`,
+and `sqlglot` are saved. The Additional info tab is prefilled with the challenge category,
+repository, demo, examples URL, and DataHub Core/MCP selections but is intentionally unsaved until
+the owner supplies residence and submission-period attestation. The optional Feedback Prize is
+left untouched because the operator excluded payment/prize-related actions.
 
 ## About the project
 
@@ -143,7 +144,7 @@ completed work.
 
 ### Public path
 
-**PENDING.** After deployment, paste the verified public URL here. The final instruction must be:
+Open https://schemabridge-governed-agent.streamlit.app/ and:
 
 1. Open the URL without login or payment.
 2. Confirm the status panel says recorded catalog, deterministic typed fake, recorded source, and
@@ -181,6 +182,6 @@ their licenses are inventoried by the release audit. Full details are in
 
 ## Final paste gate
 
-Before copying this page into Devpost, complete every box in `docs/15_SUBMISSION_CHECKLIST.md`,
-replace all `PENDING` values, regenerate `examples/final/manifest.json` from the clean release
-commit, and verify the repository, demo, video, and example URLs in a signed-out browser.
+Before final submission, complete every remaining owner/external box in
+`docs/15_SUBMISSION_CHECKLIST.md` and verify the repository, demo, video, example, and final Devpost
+URLs from a second network/device.

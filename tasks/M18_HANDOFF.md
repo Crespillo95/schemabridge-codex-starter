@@ -3,9 +3,9 @@
 ## Summary
 
 - Milestone: M18 — README, examples, video, and Devpost submission package
-- Status: partial — frozen source/local evidence complete; owner-account publication and external acceptance pending
-- Recommended operator decision: needs manual account/external tests before Devpost submission
-- Proposed commit message: `docs: record final M18 release evidence`
+- Status: partial — source, public demo, and public video complete; owner/legal and external acceptance pending
+- Recommended operator decision: needs owner attestations and manual external tests before Devpost submission
+- Proposed commit message: `docs: record public M18 demo and video`
 
 ## Implemented
 
@@ -21,29 +21,33 @@
 - Regenerated the complete final example package with `release_ready: true` and source revision
   `c5817af`; package SHA-256 is
   `5b4a2fa1a8a01920ac54ba0f5efc2155236d268f32d8cc19d4a0ff7c2bbcc0e9`.
-- Produced a silent, English-captioned H.264 1920×1080 video at exactly 2:55. SHA-256 is
-  `754b4f36e588da941a225ed35c313d4dd0656b443d740186e01a05a4d88bfdaa`.
-- Prepared an exact-commit Hugging Face Docker Space package. Public Space upload is blocked on the
-  owner's Hugging Face authentication; YouTube and Devpost are authenticated separately in Chrome.
+- Published the secret-free recorded judge path at
+  `https://schemabridge-governed-agent.streamlit.app/`; an anonymous human browser completed the
+  ambiguity, governed-plan, SQL-safety, `2/1/1`, rejection, and fake-publication journey against
+  visible release `c5817af`.
+- Produced and visually reviewed the final public silent, English-captioned H.264 1920×1080/30 fps
+  video at exactly 2:55. SHA-256 is
+  `a7ac6119d93ee5001b40bdc63811eb562db513b5571d31f10ca528ca17739d3b`.
+- Published that video at `https://youtu.be/R8PPBJ5ot84`. YouTube reports processing complete and
+  the copyright check complete with no issue; an unauthenticated watch request and oEmbed lookup
+  return the expected title. Monetization and paid promotion remain untouched.
 - Updated existing Devpost draft `1109948`: elevator pitch, 5,788-character project story, tags,
-  and repository are saved; category/repo/examples/DataHub Core+MCP are prefilled but deliberately
-  unsaved beside the owner's residence, creation-period attestation, and Feedback Prize choice.
-- Verified YouTube Studio and Devpost are authenticated in Chrome. The verified MP4 upload is
-  blocked only because the ChatGPT Chrome extension lacks file-URL access; the required setting and
-  exact upload metadata are documented.
+  repository, public demo, and video are saved; category/repo/demo/examples/DataHub Core+MCP are
+  prefilled but deliberately unsaved beside owner residence and creation-period attestations. The
+  optional payment-related Feedback Prize remains untouched.
 - Updated GitHub repository description and topics. Public repo and detected Apache-2.0 license
   remain verified.
 
 ## Files changed
 
-- `README.md`: frozen source/tag and final local judge evidence; release screenshot and tag checkout.
+- `README.md`: public judge/video links plus frozen source/tag and release evidence.
 - `examples/final/`: release-ready generated evaluation summary and manifest.
 - `docs/screenshots/m18/*.png`, `docs/screenshots/m18/README.md`: final release UI evidence and inventory.
 - `docs/15_SUBMISSION_CHECKLIST.md`: exact source/tag/image/package/video evidence and remaining owner checks.
-- `docs/18_DEVPOST_SUBMISSION.md`: exact source identity and final paste copy with only public links pending.
-- `docs/18_VIDEO_PRODUCTION.md`: exact export properties, checksum, mode labels, and privacy review.
-- `plans/M18_SUBMISSION_PACKAGE.md`: current acceptance status and final local evidence.
-- `tasks/CURRENT_TASK.md`, `tasks/PROJECT_STATE.md`, `tasks/DECISION_LOG.md`: D145–D147 and current M18 state.
+- `docs/18_DEVPOST_SUBMISSION.md`: saved public demo/video fields and remaining owner-only gate.
+- `docs/18_VIDEO_PRODUCTION.md`: final public export checksum, URL, YouTube checks, and privacy review.
+- `plans/M18_SUBMISSION_PACKAGE.md`: current acceptance status and public evidence.
+- `tasks/CURRENT_TASK.md`, `tasks/PROJECT_STATE.md`, `tasks/DECISION_LOG.md`: D149 and current M18 state.
 - `tasks/M18_HANDOFF.md`: this handoff.
 
 ## Commands executed
@@ -59,9 +63,13 @@
 | `make submission-package` | pass | 11 outputs; release-ready manifest bound to `c5817af` |
 | `scripts/package_huggingface_space.sh c5817af...` | pass | Secret-free Docker Space package; exact `RELEASE_COMMIT` |
 | `ffprobe ...` and `shasum -a 256 ...mp4` | pass | 175 s; H.264 1920×1080 30 fps; checksum recorded above |
+| anonymous Streamlit browser north-star | pass | `2/1/1`, three rejections, governed SQL, fake publication, release `c5817af` |
+| YouTube publish and public HTTP/oEmbed lookup | pass | `R8PPBJ5ot84`; copyright clear; expected title returned without authentication |
+| Devpost Project details save | pass | Repository, demo, video, story, and tags saved; advanced owner fields not submitted |
+| `.venv/bin/python scripts/release_audit.py --check-external --check-history` | pass | Evidence-only tree; architecture, secret, license, internal/external link, and history audit |
 | annotated tag creation/push | pass | `devpost-m18-c5817af` resolves to exact source commit |
 | public tag clone, build, and documented smoke | pass after docs correction | Clean detached source; initial `make judge-smoke` exposed absent `.venv`; stdlib `python3 scripts/smoke_deployment.py` passes and is now the judge instruction |
-| `git diff --check` | pending on evidence-only commit | Run after public URLs/final evidence edits |
+| `git diff --check` | pass | Public URL/evidence documentation diff has no whitespace errors |
 
 ## Automated test results
 
@@ -76,13 +84,9 @@
 
 ## Operator manual test
 
-1. Authorize the Hugging Face CLI, publish the prepared public Docker Space, and repeat the
-   north-star path signed out after a cold start.
-2. Upload the already verified local video to public YouTube or Vimeo and watch it signed out with
-   sound muted.
-3. Ask one unfamiliar person the five questions in `docs/15_SUBMISSION_CHECKLIST.md` using only the
+1. Ask one unfamiliar person the five questions in `docs/15_SUBMISSION_CHECKLIST.md` using only the
    public README/video; record their verbatim answers.
-4. Test repo, demo, video, and Devpost links from a second device/network; complete the Devpost
+2. Test repo, demo, video, examples, and Devpost links from a second device/network; complete the Devpost
    eligibility/legal attestations and submit.
 
 Expected result:
@@ -114,14 +118,14 @@ concrete result. Every public link works signed out.
 - Decision: accept both real fixed-minute-window outcomes in the CI test without changing runtime policy.
 - Reason: the public service must be stable and credential-free; release identity must not imply M30
   production acceptance; a time-boundary test must assert semantics rather than scheduler timing.
-- Logged in: D141 and D145–D148 in `tasks/DECISION_LOG.md`.
+- Logged in: D141 and D145–D149 in `tasks/DECISION_LOG.md`.
 
 ## Known limitations or unverified items
 
-- Public Hugging Face, YouTube/Vimeo, and Devpost URLs are not yet available.
+- The final public Devpost URL is not yet available.
 - The Devpost slug `https://devpost.com/software/schemabridge` is reserved but redirects signed-out
   visitors to login while the submission remains a draft.
-- Signed-out cold-start, second-network/device, and unfamiliar-reviewer checks remain unperformed.
+- Second-network/device and unfamiliar-reviewer checks remain unperformed.
 - The video is an edited progression of genuine captured release/DataHub states with burned captions,
   not a narrated continuous cursor recording; it truthfully labels local live versus recorded modes.
 - This is a hackathon MVP with PostgreSQL-only bounded execution and small tuned synthetic evaluation.
@@ -129,17 +133,15 @@ concrete result. Every public link works signed out.
 
 ## Blockers
 
-- Owner Hugging Face login is required for public Space creation/upload.
-- The authenticated Chrome YouTube session needs the ChatGPT extension's
-  `Allow access to file URLs` permission before automated upload.
-- Devpost eligibility/legal attestations and final submission cannot be delegated or fabricated.
+- Devpost residence, creation-period eligibility, final terms acceptance, and Submit require exact
+  owner facts/confirmation and cannot be fabricated.
 - An unfamiliar human and a second network/device are required for the checklist's external acceptance.
 
 ## Next milestone readiness
 
-- Dependencies satisfied: exact source/tag, local image, strict gates, generated artifacts, screenshots,
-  and final local video are complete.
-- Recommended next prompt: authorize the three owner accounts, publish the prepared artifacts, perform
-  external acceptance, and close the evidence-only commit without changing source.
-- Required operator prerequisites: Hugging Face login, Chrome file-URL access, Devpost owner
-  attestations, unfamiliar reviewer, and second device/network.
+- Dependencies satisfied: exact source/tag, public demo/video, local image, strict gates, generated
+  artifacts, and screenshots are complete.
+- Recommended next prompt: confirm the two Devpost eligibility facts, perform external acceptance,
+  accept the final terms at action time, and submit without changing source.
+- Required operator prerequisites: Devpost owner attestations, unfamiliar reviewer, and second
+  device/network.

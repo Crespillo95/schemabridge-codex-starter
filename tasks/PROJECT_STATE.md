@@ -2048,9 +2048,9 @@ external controls. GitHub `main` remains unprotected with zero environments/rule
 attestation workflow must not be dispatched. Campaign remains blocked on an exact clean tagged-main
 candidate, exact-subject hosted artifacts, the blind corpus, operated target controls, independent
 assessment and owner signatures.
-M17/M18 source release and local evidence are frozen and audited at `c5817af`; account-owned public
-deployment/video upload, signed-out/cold-start/second-network evidence, unfamiliar-reviewer
-sign-off, and Devpost eligibility/submission remain independently open.
+M17/M18 source release and local evidence are frozen and audited at `c5817af`; the public
+Streamlit demo and YouTube video are live. Second-network evidence, unfamiliar-reviewer sign-off,
+and Devpost owner eligibility/legal submission remain independently open.
 
 ## M18 frozen source and local evidence audit — 2026-08-05
 
@@ -2107,3 +2107,23 @@ sign-off, and Devpost eligibility/submission remain independently open.
   checks, unfamiliar-reviewer answers, Devpost account/legal eligibility, and final submission are
   still owner/external blockers. M30 remains 0/24 external controls and commercial/production
   NO-GO.
+
+## M18 public hackathon publication — 2026-08-07
+
+- Streamlit Community Cloud serves the secret-free recorded topology at
+  `https://schemabridge-governed-agent.streamlit.app/`. An anonymous browser completed ambiguity
+  selection, governed plan, SQL safety, exact `2/1/1`, three visible identifier rejections, and fake
+  approval-gated publication; the UI identifies exact release `c5817af`.
+- The final YouTube file was rebuilt only from the already audited genuine M18 release/DataHub
+  captures after the temporary export disappeared. It keeps the frozen captions and mode labels,
+  is silent H.264 1920×1080/30 fps at exactly 175 seconds, and has SHA-256
+  `a7ac6119d93ee5001b40bdc63811eb562db513b5571d31f10ca528ca17739d3b`.
+- `https://youtu.be/R8PPBJ5ot84` is public. YouTube reports processing complete and no copyright
+  issue; unauthenticated watch and oEmbed requests return the expected title. Monetization and paid
+  promotion remain untouched.
+- Devpost submission `1109948` saves repository, demo, video, story, and tags. Additional info has
+  factual technical fields prefilled but remains unsaved until the owner confirms residence and
+  creation-period eligibility. The payment-related Feedback Prize is intentionally untouched.
+- Remaining M18 acceptance is the unfamiliar-reviewer answer set, one second-network/device check,
+  owner legal/eligibility confirmation, the public Devpost page, and final Submit. M30 remains 0/24
+  external controls and commercial/production NO-GO.

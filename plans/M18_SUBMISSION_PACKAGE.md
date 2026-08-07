@@ -1,6 +1,6 @@
 # M18: README, examples, video, and Devpost submission package
 
-- Status: source release and local media audited; account-owned publication and public acceptance pending
+- Status: source release, public demo, and public video audited; owner/legal and external acceptance pending
 - Timebox: 5 hours
 - Recommended Codex: GPT-5.6 Sol — Extra High (xhigh)
 - Dependencies: M15–M17
@@ -36,7 +36,7 @@ Judges may decide from the description, images, README, and sub-three-minute vid
 - [x] Every current non-public claim in README/Devpost/video corresponds to implemented, tested release behavior.
 - [x] The repository is public, Apache-2.0, complete, and free of secrets/proprietary data.
 - [ ] The live URL and all links work in incognito.
-- [ ] The video is public, under three minutes, readable, and shows the project functioning.
+- [x] The video is public, under three minutes, readable, and shows the project functioning.
 - [x] `examples/` contains final generated artifacts that a judge can inspect without running code.
 - [x] Materials are in English or include complete English translation.
 - [x] The submission clearly proves DataHub read, act/write, and reuse plus the semantic-layer differentiation.
@@ -59,8 +59,9 @@ Judges may decide from the description, images, README, and sub-three-minute vid
   release audit. Hosted PR CI run `31003886659` also passes all three jobs.
 - Annotated tag `devpost-m18-c5817af`, generated release-ready artifacts, ten final Streamlit
   captures, and the verified 2:55 captioned local video export are complete.
-- Public Hugging Face deployment, public YouTube/Vimeo upload, unfamiliar reviewer, second-network
-  acceptance, and final Devpost submission remain account/external operator work.
+- The public Streamlit demo passes the full anonymous browser journey, and YouTube video
+  `R8PPBJ5ot84` is public at 2:55 with a clear copyright check. Unfamiliar-reviewer,
+  second-network acceptance, owner attestations, and final Devpost submission remain external work.
 
 ## Required automated checks
 

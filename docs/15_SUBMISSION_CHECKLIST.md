@@ -1,8 +1,8 @@
 # Final submission checklist
 
-Current sign-off: **NOT READY — owner/account checks remain**. The frozen source, strict clean-room
-gate, hosted CI, annotated tag, final artifact package, release screenshots, and local video export
-are verified. Public demo/video URLs, signed-out external acceptance, unfamiliar-reviewer evidence,
+Current sign-off: **NOT READY — owner/legal and external-review checks remain**. The frozen source,
+strict clean-room gate, hosted CI, annotated tag, final artifact package, release screenshots,
+public demo, and public video are verified. The unfamiliar-reviewer/second-network evidence,
 Devpost eligibility attestations, and final submission remain pending.
 
 ## Release identity
@@ -13,10 +13,10 @@ Devpost eligibility attestations, and final submission remain pending.
   `5b4a2fa1a8a01920ac54ba0f5efc2155236d268f32d8cc19d4a0ff7c2bbcc0e9`
 - Manifest file SHA-256: `c25baeef12c372b69fae0a114be94d3bc86a4049e4d4ea373d643475d14dae2a`
 - Video SHA-256 and duration:
-  `754b4f36e588da941a225ed35c313d4dd0656b443d740186e01a05a4d88bfdaa`,
+  `a7ac6119d93ee5001b40bdc63811eb562db513b5571d31f10ca528ca17739d3b`,
   `175.000000` seconds (2:55)
-- Public demo URL: `PENDING`
-- Public video URL: `PENDING`
+- Public demo URL: `https://schemabridge-governed-agent.streamlit.app/`
+- Public video URL: `https://youtu.be/R8PPBJ5ot84`
 - Devpost project URL: `PENDING`
 - Reserved draft URL: `https://devpost.com/software/schemabridge` (currently redirects signed-out
   visitors to login; do not claim it as public until final submission)
@@ -39,7 +39,7 @@ Devpost eligibility attestations, and final submission remain pending.
 - [x] Guided and deterministic natural-language paths have equivalent typed north-star plans.
 - [x] Unsafe identifiers and SQL-policy rejections are visible in generated examples.
 - [x] Hosted recorded/fake and local live modes are unambiguously labeled.
-- [ ] Free public deployment is reachable without login, payment, or operator intervention.
+- [x] Free public deployment is reachable without login, payment, or operator intervention.
 
 ## Evaluation and artifacts
 
@@ -58,7 +58,10 @@ Devpost eligibility attestations, and final submission remain pending.
 - [x] Copy differentiates the semantic-governance layer from DataHub Analytics Agent without
   disparaging or misrepresenting it.
 - [x] Devpost draft has the final elevator pitch, project story, public tags, and repository URL.
-- [ ] Every `PENDING` field in `docs/18_DEVPOST_SUBMISSION.md` is replaced with a tested value.
+- [x] Devpost Project details saves the public Streamlit and YouTube URLs.
+- [x] YouTube reports the video public and its copyright check completed with no issues; an
+  unauthenticated watch request and oEmbed lookup both resolve the expected title.
+- [x] Every `PENDING` field in `docs/18_DEVPOST_SUBMISSION.md` is replaced with a tested value.
 - [ ] Repository, demo, video, and example links work signed out and from a second network/device.
 - [x] Final local video export is below 3:00 and visibly shows the project functioning.
 - [x] Captions/on-screen text make the complete story readable with sound muted.

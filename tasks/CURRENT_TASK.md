@@ -1,10 +1,10 @@
 # Current task
 
 - Current milestone: M18 — README, examples, video, and Devpost submission package
-- Status: source release audited/tagged; account-owned publication and external acceptance pending
+- Status: source release, public demo, and public video complete; owner/legal and external acceptance pending
 - Plan: `plans/M18_SUBMISSION_PACKAGE.md`
 - Handoff: `tasks/M18_HANDOFF.md`
-- Hackathon submission GO: **NO — public demo/video URLs, external checks, and owner attestations pending**
+- Hackathon submission GO: **NO — owner attestations, unfamiliar review, second-network check, and final submission pending**
 - Commercial/production GO: **NO — M30 remains 0/24 external controls and is not changed by M18**
 
 ## Objective
@@ -54,14 +54,23 @@ or synthetic evidence into a production claim.
 - Human-tested the exact final image in Safari through reset, interpretation, governed plan, SQL
   safety, execution, rejection evidence, publication, decisions, relationships, and fresh reset.
 - Exported and visually reviewed a silent English-captioned 1920×1080 H.264 video at exactly 2:55;
-  SHA-256 is `754b4f36e588da941a225ed35c313d4dd0656b443d740186e01a05a4d88bfdaa`.
+  final public-file SHA-256 is
+  `a7ac6119d93ee5001b40bdc63811eb562db513b5571d31f10ca528ca17739d3b`.
+- Published the secret-free recorded demo on Streamlit Community Cloud at
+  `https://schemabridge-governed-agent.streamlit.app/`. The anonymous browser journey passes
+  ambiguity handling, governed planning, SQL safety, exact `2/1/1`, three rejections, and fake
+  approval-gated publication while displaying release `c5817af`.
+- Published the 2:55 video at `https://youtu.be/R8PPBJ5ot84`; YouTube reports processing and
+  copyright checks complete with no issues, and unauthenticated watch/oEmbed requests resolve the
+  expected title.
 - Updated the existing Devpost draft `1109948`: final elevator pitch, 5,788-character verified
-  project story, public tags, and repository URL are saved. Category, repository, examples, and
-  DataHub Core/MCP are prefilled in Additional info but remain unsaved beside owner-only eligibility
-  fields. Reserved public slug is `https://devpost.com/software/schemabridge`.
-- Verified Chrome has authenticated YouTube Studio and Devpost sessions. Video upload is prepared
-  but file selection remains blocked until the user grants the ChatGPT Chrome extension access to
-  file URLs. Hugging Face is not authenticated in Safari, in-app browser, or Chrome.
+  project story, public tags, repository, demo, and video URLs are saved. Category, repository,
+  demo, examples, and DataHub Core/MCP are prefilled in Additional info but remain unsaved beside
+  owner-only residence and creation-period attestations. The optional Feedback Prize remains
+  untouched under the operator's no-payment instruction. Reserved public slug is
+  `https://devpost.com/software/schemabridge`.
+- Enabled only the Chrome extension's file-URL permission required for upload. No YouTube
+  monetization, paid promotion, or payment feature was enabled.
 
 ## Final automated evidence
 
@@ -85,18 +94,17 @@ or synthetic evidence into a production claim.
 
 ## Remaining account/external sequence
 
-1. Authenticate the installed `hf` CLI using the owner's account, create the
-   public Docker Space, upload the exact commit package, and test it signed out.
-2. Upload the verified local video to public YouTube or Vimeo and test the public link signed out.
-3. Obtain an unfamiliar human reviewer and second-network/device checks, update every pending URL,
-   merge the evidence-only commit, and submit through the owner's Devpost session.
+1. Obtain the owner's residence and creation-period confirmations and save Additional info without
+   opting into the payment-related Feedback Prize.
+2. Obtain an unfamiliar human reviewer and a second-network/device check for repository, demo,
+   video, examples, and the final Devpost page.
+3. Record the external evidence, push the evidence-only commit, accept the final Devpost legal
+   terms only with action-time owner confirmation, and submit.
 
 ## External/operator prerequisites
 
-- Hugging Face account authentication for one public Docker Space.
-- YouTube Studio is authenticated; public upload still needs Chrome extension file-URL access.
-- Devpost is authenticated; final legal/eligibility attestations remain owner-only.
-- Chrome extension file-URL access for the already authenticated YouTube upload.
+- Devpost is authenticated; residence, creation-period, final legal acceptance, and Submit remain
+  owner-only.
 - A person unfamiliar with the project plus a second network/device for the required manual review.
 
 ## Preserved production boundary
