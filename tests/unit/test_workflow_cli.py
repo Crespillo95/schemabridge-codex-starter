@@ -3,10 +3,21 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
+import schemabridge.entrypoints.cli.main as cli_module
+from schemabridge.application.ports.control_plane_migrations import (
+    ControlPlaneMigrationHistoryRecord,
+    ControlPlaneMigrationInspection,
+    ControlPlaneMigrationResult,
+)
+from schemabridge.domain.control_plane_operations import (
+    ControlPlaneRestoreVerification,
+)
 from schemabridge.entrypoints.cli.main import app
 
 runner = CliRunner()
@@ -54,3 +65,208 @@ def test_workflow_demo_start_then_show_restores_same_pause(tmp_path: Path) -> No
     assert restored_payload["draft"]["checkpoint"]["kind"] == "intent_confirmation"
     assert restored_payload["publication_adapter"] == "fake:local-idempotency-only"
     assert '"sql"' not in restored.stdout.casefold()
+
+
+def test_managed_profile_disables_legacy_caller_identified_cli(tmp_path: Path) -> None:
+    identity_root = tmp_path / "identity"
+    environment = {
+        "SCHEMABRIDGE_ENVIRONMENT": "production",
+        "SCHEMABRIDGE_COMPONENT": "web",
+        "SCHEMABRIDGE_AUTH_MODE": "oidc",
+        "SCHEMABRIDGE_OIDC_ISSUER": "https://identity.example.test",
+        "SCHEMABRIDGE_OIDC_AUDIENCE": "schemabridge",
+        "SCHEMABRIDGE_OIDC_PROVIDER": "corporate-oidc",
+        "SCHEMABRIDGE_OIDC_ALLOWED_GROUPS": '{"operators":["analyst"]}',
+        "SCHEMABRIDGE_OIDC_ALLOWED_TENANTS": '["tenant-a"]',
+        "SCHEMABRIDGE_PSEUDONYMIZATION_KEY": ("unit-test-pseudonymization-key-at-least-32-bytes"),
+        "SCHEMABRIDGE_QUERY_STUDIO_SIGNING_KEY": (
+            "unit-test-query-studio-signing-key-with-distinct-material"
+        ),
+        "SCHEMABRIDGE_CONTROL_DATABASE_URL": (
+            "postgresql://control_runtime:control_password@control.example.test/control"
+            "?sslmode=verify-full"
+        ),
+        "SCHEMABRIDGE_CONTROL_AUDIT_SIGNING_KEY": (
+            "unit-test-control-audit-signing-key-with-diversity"
+        ),
+        "SCHEMABRIDGE_IDENTITY_MIGRATION_KEY": ("unit-test-identity-migration-key-with-diversity"),
+        "SCHEMABRIDGE_CONNECTOR_SECRET_MODE": "remote",
+        "SCHEMABRIDGE_CONNECTOR_SECRET_PROVIDER_URL": "https://secrets.example.test",
+        "SCHEMABRIDGE_CONNECTOR_SECRET_ROLE": "schemabridge-preflight",
+        "SCHEMABRIDGE_CONNECTOR_SECRET_KV_MOUNT": "tenant-connectors",
+        "SCHEMABRIDGE_CONNECTOR_SECRET_CAPABILITY": "preflight",
+        "SCHEMABRIDGE_CONNECTOR_SECRET_CA_BUNDLE": str(tmp_path / "trust" / "ca.crt"),
+        "SCHEMABRIDGE_WORKLOAD_IDENTITY_TOKEN_FILE": str(identity_root / "token"),
+        "SCHEMABRIDGE_WORKLOAD_IDENTITY_ROOT": str(identity_root),
+        "SCHEMABRIDGE_WORKLOAD_IDENTITY_AUDIENCE": "schemabridge-secret-manager",
+        "SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_ROLE": "schemabridge-registry-reader",
+        "SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_BINDING_REF": "registry.reader.primary",
+        "SCHEMABRIDGE_SEMANTIC_REGISTRY_SECRET_VERSION": "17",
+        "SCHEMABRIDGE_PUBLICATION_MODE": "disabled",
+        "SCHEMABRIDGE_JUDGE_EXECUTION": "disabled",
+        "SCHEMABRIDGE_DRAFT_STORE_PATH": str(tmp_path / "production-cli.db"),
+    }
+
+    result = runner.invoke(
+        app,
+        ["workflow-demo", "--action", "show", "--actor", "spoofed-operator"],
+        env=environment,
+    )
+
+    assert result.exit_code == 2
+    assert "cli_authentication_required" in result.stderr
+    assert not (tmp_path / "production-cli.db").exists()
+
+
+def test_managed_cli_sanitizes_malformed_runtime_configuration(tmp_path: Path) -> None:
+    sensitive_marker = "malformed-secret-marker"
+    environment = {
+        "SCHEMABRIDGE_ENVIRONMENT": "production",
+        "SCHEMABRIDGE_AUTH_MODE": "oidc",
+        "SCHEMABRIDGE_OIDC_ISSUER": "https://identity.example.test",
+        "SCHEMABRIDGE_OIDC_AUDIENCE": "schemabridge",
+        "SCHEMABRIDGE_OIDC_PROVIDER": "corporate-oidc",
+        "SCHEMABRIDGE_OIDC_ALLOWED_GROUPS": sensitive_marker,
+        "SCHEMABRIDGE_DRAFT_STORE_PATH": str(tmp_path / "invalid-production-cli.db"),
+    }
+
+    result = runner.invoke(app, ["version"], env=environment)
+
+    assert result.exit_code == 2
+    assert "cli_runtime_configuration_invalid" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert "SettingsError" not in result.stderr
+    assert sensitive_marker not in result.stderr
+    assert not (tmp_path / "invalid-production-cli.db").exists()
+
+
+def test_managed_cli_allows_only_explicit_control_plane_operator_group(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    class FakeMigrator:
+        def migrate(self) -> ControlPlaneMigrationResult:
+            return ControlPlaneMigrationResult(
+                inspection=ControlPlaneMigrationInspection(
+                    expected_version=1,
+                    applied=(
+                        ControlPlaneMigrationHistoryRecord(
+                            version=1,
+                            name="initial_control_plane",
+                            checksum="a" * 64,
+                        ),
+                    ),
+                    pending=(),
+                ),
+                applied_versions=(1,),
+            )
+
+    def fake_builder(*, credential_kind: str, **_kwargs: object) -> FakeMigrator:
+        calls.append(credential_kind)
+        return FakeMigrator()
+
+    monkeypatch.setattr(cli_module, "build_control_plane_migrator", fake_builder)
+    secret_marker = "operator-secret-must-not-be-rendered"
+    environment = {
+        "SCHEMABRIDGE_ENVIRONMENT": "production",
+        "SCHEMABRIDGE_COMPONENT": "operator",
+        "SCHEMABRIDGE_AUTH_MODE": "local-demo",
+        "SCHEMABRIDGE_CONTROL_PLANE_MODE": "postgres",
+        "DATABASE_URL": (
+            "postgresql://source_reader:source_password@source.example.test/source"
+            "?sslmode=verify-full"
+        ),
+        "SCHEMABRIDGE_CONTROL_DATABASE_URL": (
+            "postgresql://control_runtime:runtime_password@control.example.test/control"
+            "?sslmode=verify-full"
+        ),
+        "SCHEMABRIDGE_CONTROL_RECONCILER_DATABASE_URL": (
+            "postgresql://control_reconciler:reconciler_password@control.example.test/control"
+            "?sslmode=verify-full"
+        ),
+        "SCHEMABRIDGE_CONTROL_MIGRATOR_DATABASE_URL": (
+            f"postgresql://control_migrator:{secret_marker}@control.example.test/control"
+            "?sslmode=verify-full"
+        ),
+        "SCHEMABRIDGE_CONTROL_AUDIT_SIGNING_KEY": (
+            "unit-test-control-audit-signing-key-with-diversity"
+        ),
+        "SCHEMABRIDGE_IDENTITY_MIGRATION_KEY": ("unit-test-identity-migration-key-with-diversity"),
+    }
+
+    result = runner.invoke(
+        app,
+        ["control-plane", "migrate", "--json"],
+        env=environment,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout) == {
+        "ok": True,
+        "current_version": 1,
+        "expected_version": 1,
+        "applied_versions": [1],
+        "already_current": False,
+    }
+    assert calls == ["migrator"]
+    assert secret_marker not in result.output
+
+
+def test_control_plane_restore_never_accepts_or_renders_the_target_dsn(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target_secret = "restore-target-secret-marker"
+    observed: list[tuple[Path, Path]] = []
+    verification = ControlPlaneRestoreVerification(
+        target_database_fingerprint="a" * 64,
+        schema_version=1,
+        schema_checksum="b" * 64,
+        state_sha256="c" * 64,
+        table_counts={"schema_migrations": 1},
+        audited_workspaces=1,
+        audit_events=2,
+        active_pointers=1,
+        transition_records=1,
+        pending_outbox_records=0,
+        quarantine_records=0,
+        verified_at=datetime(2026, 7, 23, 18, 0, tzinfo=UTC),
+    )
+
+    class FakeRestore:
+        def restore_backup(
+            self,
+            archive: Path,
+            manifest: Path,
+        ) -> ControlPlaneRestoreVerification:
+            observed.append((archive, manifest))
+            return verification
+
+    def fake_builder() -> FakeRestore:
+        return FakeRestore()
+
+    monkeypatch.setattr(cli_module, "build_control_plane_restore", fake_builder)
+    archive = tmp_path / "synthetic.dump"
+    manifest = tmp_path / "synthetic.manifest.json"
+
+    result = runner.invoke(
+        app,
+        [
+            "control-plane",
+            "restore",
+            "--archive",
+            str(archive),
+            "--manifest",
+            str(manifest),
+            "--json",
+        ],
+    )
+    help_result = runner.invoke(app, ["control-plane", "restore", "--help"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["target_database_fingerprint"] == "a" * 64
+    assert observed == [(archive, manifest)]
+    assert "--target-dsn" not in help_result.output
+    assert target_secret not in result.output

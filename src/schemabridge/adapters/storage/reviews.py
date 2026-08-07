@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import AbstractContextManager
 from pathlib import Path
 from threading import RLock
 
+from schemabridge.adapters.storage.sqlite_connection import managed_sqlite_connection
 from schemabridge.application.ports.reviews import ReviewErrorCode, ReviewWorkflowError
 from schemabridge.domain.decisions import DecisionRecord
 from schemabridge.domain.reviews import CanonicalReviewDraft, PublicationResult
@@ -210,10 +212,12 @@ class SqliteReviewStore:
         except sqlite3.Error as error:
             raise _store_failure(error) from error
 
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self._path, isolation_level=None, timeout=5.0)
-        connection.execute("PRAGMA foreign_keys = ON")
-        return connection
+    def _connect(self) -> AbstractContextManager[sqlite3.Connection]:
+        return managed_sqlite_connection(
+            self._path,
+            isolation_level=None,
+            foreign_keys=True,
+        )
 
     def _initialize(self) -> None:
         try:

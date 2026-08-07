@@ -369,6 +369,7 @@ def main() -> None:
                         "urn:li:document:schemabridge-join-contracts-",
                         "urn:li:document:schemabridge-workflow-",
                         "urn:li:document:schemabridge-query-recipe-",
+                        "urn:li:document:schemabridge-semantic-registry-",
                     ],
                     "condition": "STARTS_WITH",
                 }

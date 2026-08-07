@@ -2,13 +2,25 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import cast
 
 import psycopg
 from psycopg import sql
 
-from schemabridge.application.ports.planning import PlanningPortError, PlanningPortErrorCode
+from schemabridge.adapters.connectors.source_identity import (
+    require_postgres_source_identity,
+)
+from schemabridge.adapters.postgres.transient_errors import (
+    is_transient_postgres_error,
+)
+from schemabridge.application.ports.planning import (
+    PlanningPortError,
+    PlanningPortErrorCode,
+    ProtectedSourceOperationCancelled,
+)
+from schemabridge.domain.connectors import GovernedExecutionTarget
 from schemabridge.domain.resolution import (
     RejectedSourceRecord,
     RejectedSourceReport,
@@ -38,9 +50,10 @@ _REASONS = {
 class PsycopgRejectedSourceReporter:
     """Inspect only explicit approved fields under reader, timeout, and read-only controls."""
 
-    dsn: str
+    dsn: str = field(repr=False)
     allowed_fields: frozenset[str]
     expected_user: str = "schemabridge_reader"
+    bound_target_fingerprint: str | None = field(default=None, repr=False)
     connect_timeout_seconds: int = 3
     max_records: int = 500
 
@@ -53,7 +66,24 @@ class PsycopgRejectedSourceReporter:
         checks: tuple[RejectionCheck, ...],
         *,
         statement_timeout_ms: int,
+        should_continue: Callable[[], bool] | None = None,
+        target: GovernedExecutionTarget | None = None,
     ) -> RejectedSourceReport:
+        if target is None:
+            if self.bound_target_fingerprint is not None:
+                raise PlanningPortError(
+                    PlanningPortErrorCode.REJECTION_INSPECTION_FORBIDDEN,
+                    "a managed source reporter requires its exact connector target",
+                )
+        elif (
+            self.bound_target_fingerprint is None
+            or self.bound_target_fingerprint != target.fingerprint
+            or self.expected_user != target.expected_reader
+        ):
+            raise PlanningPortError(
+                PlanningPortErrorCode.REJECTION_INSPECTION_FORBIDDEN,
+                "the source reporter connector target does not match",
+            )
         if not checks:
             return RejectedSourceReport()
         if any(check.physical_field.root not in self.allowed_fields for check in checks):
@@ -65,7 +95,9 @@ class PsycopgRejectedSourceReporter:
         inspected = tuple(dict.fromkeys(check.physical_field for check in checks))
         records: list[RejectedSourceRecord] = []
         total_records = 0
+        continuation = should_continue or _continue_inspection
         try:
+            _require_continuation(continuation)
             with psycopg.connect(
                 self.dsn,
                 connect_timeout=self.connect_timeout_seconds,
@@ -73,26 +105,39 @@ class PsycopgRejectedSourceReporter:
             ) as connection:
                 connection.read_only = True
                 with connection.cursor() as cursor:
+                    _require_continuation(continuation)
                     cursor.execute(
                         "SELECT set_config('statement_timeout', %s, true)",
                         (str(statement_timeout_ms),),
                     )
                     cursor.fetchone()
+                    _require_continuation(continuation)
                     cursor.execute(
                         """
                         SELECT
                             current_user,
                             current_setting('transaction_read_only')::BOOLEAN,
-                            current_setting('statement_timeout')
+                            current_setting('statement_timeout'),
+                            COALESCE(inet_server_addr()::TEXT, 'local_socket'),
+                            COALESCE(inet_server_port(), 0),
+                            current_database()
                         """
                     )
                     safety = cursor.fetchone()
                     if safety is None:
                         raise PlanningPortError(
-                            PlanningPortErrorCode.REJECTION_INSPECTION_UNAVAILABLE,
+                            PlanningPortErrorCode.REJECTION_INSPECTION_INVALID,
                             "rejected-source safety inspection returned no result",
                         )
-                    user, read_only, timeout_setting = cast(tuple[str, bool, str], safety)
+                    if len(safety) < 3:
+                        raise PlanningPortError(
+                            PlanningPortErrorCode.REJECTION_INSPECTION_INVALID,
+                            "rejected-source safety inspection returned invalid evidence",
+                        )
+                    user, read_only, timeout_setting = cast(
+                        tuple[str, bool, str],
+                        safety[:3],
+                    )
                     timeout_ms = _postgres_interval_to_milliseconds(timeout_setting)
                     if user != self.expected_user or not read_only:
                         raise PlanningPortError(
@@ -101,10 +146,19 @@ class PsycopgRejectedSourceReporter:
                         )
                     if timeout_ms != statement_timeout_ms:
                         raise PlanningPortError(
-                            PlanningPortErrorCode.REJECTION_INSPECTION_UNAVAILABLE,
+                            PlanningPortErrorCode.REJECTION_INSPECTION_INVALID,
                             "rejected-source statement timeout was not applied",
                         )
+                    if target is not None:
+                        require_postgres_source_identity(
+                            expected_fingerprint=target.source_identity_fingerprint,
+                            server_address=safety[3] if len(safety) > 3 else None,
+                            server_port=safety[4] if len(safety) > 4 else None,
+                            database=safety[5] if len(safety) > 5 else None,
+                            user=user,
+                        )
                     for check in checks:
+                        _require_continuation(continuation)
                         remaining = max(self.max_records - len(records), 0)
                         query, parameters = _inspection_query(check, limit=remaining + 1)
                         cursor.execute(query, parameters)
@@ -125,10 +179,27 @@ class PsycopgRejectedSourceReporter:
                 connection.rollback()
         except PlanningPortError:
             raise
-        except (psycopg.Error, ValueError) as error:
+        except ProtectedSourceOperationCancelled:
+            raise
+        except psycopg.errors.QueryCanceled as error:
             raise PlanningPortError(
-                PlanningPortErrorCode.REJECTION_INSPECTION_UNAVAILABLE,
+                PlanningPortErrorCode.REJECTION_INSPECTION_TIMEOUT,
+                "rejected-source inspection exceeded the statement timeout",
+            ) from error
+        except psycopg.Error as error:
+            failure_code = (
+                PlanningPortErrorCode.REJECTION_INSPECTION_UNAVAILABLE
+                if is_transient_postgres_error(error)
+                else PlanningPortErrorCode.REJECTION_INSPECTION_INVALID
+            )
+            raise PlanningPortError(
+                failure_code,
                 "rejected-source inspection failed",
+            ) from error
+        except ValueError as error:
+            raise PlanningPortError(
+                PlanningPortErrorCode.REJECTION_INSPECTION_INVALID,
+                "rejected-source inspection returned invalid evidence",
             ) from error
 
         return RejectedSourceReport(
@@ -139,6 +210,17 @@ class PsycopgRejectedSourceReporter:
             database_user=user,
             transaction_read_only=read_only,
             statement_timeout_ms=timeout_ms,
+        )
+
+
+def _continue_inspection() -> bool:
+    return True
+
+
+def _require_continuation(continuation: Callable[[], bool]) -> None:
+    if not continuation():
+        raise ProtectedSourceOperationCancelled(
+            "protected source operation was cooperatively cancelled"
         )
 
 
@@ -185,6 +267,17 @@ def _inspection_query(
             """
         ).format(field=field)
         parameters = (regex_steps[0].pattern,)
+    elif "cast_integer_to_string" in operations:
+        rejection = sql.SQL(
+            """
+            CASE
+              WHEN {field} IS NULL THEN 'null_join_key'
+              WHEN {field} < 0 THEN 'negative_identifier'
+              ELSE NULL
+            END
+            """
+        ).format(field=field)
+        parameters = ()
     else:
         raise ValueError("approved rejection inspection does not support this transformation")
 

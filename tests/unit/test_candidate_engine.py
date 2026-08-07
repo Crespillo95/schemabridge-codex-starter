@@ -33,18 +33,21 @@ def _engine(
     )
 
 
-def test_recorded_candidate_engine_ranks_three_north_star_representations() -> None:
+def test_recorded_candidate_engine_preserves_top_three_with_reporting_variation() -> None:
     report = _engine().execute(build_customer_key_concept())
 
     assert report.asset_query == "Customer"
-    assert report.assets_considered == 3
-    assert report.fields_scanned == 14
+    assert report.assets_considered == 4
+    assert report.fields_scanned == 18
     assert report.retrieval_truncated is False
     assert [candidate.physical_field.root for candidate in report.candidates[:3]] == [
         "crm.customers.customer_id",
         "legacy.client_master.client_no",
         "bank.account_holders.gf_customer_id",
     ]
+    assert (
+        report.candidates[3].physical_field.root == "reporting.customer_accounts.customer_key_text"
+    )
     assert all(candidate.evidence for candidate in report.candidates[:3])
     assert all(candidate.missing_evidence for candidate in report.candidates[:3])
     assert all(candidate.status is ApprovalStatus.NEEDS_REVIEW for candidate in report.candidates)

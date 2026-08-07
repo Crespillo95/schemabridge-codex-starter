@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import AbstractContextManager
 from pathlib import Path
 
 from pydantic import ValidationError
 
+from schemabridge.adapters.storage.sqlite_connection import managed_sqlite_connection
 from schemabridge.application.ports.recipes import RecipeError, RecipeErrorCode
+from schemabridge.domain.publication_audit import (
+    PublicationAuditOutcome,
+    PublicationFamily,
+    PublicationTargetAuditRecord,
+)
 from schemabridge.domain.recipes import (
     PublishedQueryRecipe,
     QueryRecipe,
@@ -25,7 +32,13 @@ class SqliteQueryRecipeRepository:
         path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
 
-    def find_current(self, intent_fingerprint: str) -> PublishedQueryRecipe | None:
+    def find_current(
+        self,
+        intent_fingerprint: str,
+        *,
+        scope_fingerprint: str | None = None,
+    ) -> PublishedQueryRecipe | None:
+        del scope_fingerprint
         try:
             with self._connect() as connection:
                 row = connection.execute(
@@ -66,6 +79,7 @@ class SqliteQueryRecipeRepository:
         versioned_document_urn = (
             f"fake://query-recipe/{recipe.intent_fingerprint}/v{recipe.version}"
         )
+        current_recipe: QueryRecipe | None = None
         try:
             with self._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")
@@ -82,10 +96,21 @@ class SqliteQueryRecipeRepository:
                         connection.commit()
                         return RecipePublicationResult(
                             status=RecipePublicationStatus.ALREADY_CURRENT,
+                            approval_id=approval.id,
                             recipe_fingerprint=recipe.fingerprint,
                             current_document_urn=str(existing[1]),
                             versioned_document_urn=str(existing[2]),
                             published_at=str(existing[3]),
+                            audit_records=_audit_records(
+                                recipe,
+                                approval,
+                                current_document_urn=str(existing[1]),
+                                versioned_document_urn=str(existing[2]),
+                                current_previous=recipe.fingerprint,
+                                versioned_previous=recipe.fingerprint,
+                                current_outcome=PublicationAuditOutcome.ALREADY_CURRENT,
+                                versioned_outcome=PublicationAuditOutcome.ALREADY_CURRENT,
+                            ),
                         )
                 version_conflict = connection.execute(
                     """
@@ -124,10 +149,23 @@ class SqliteQueryRecipeRepository:
                 connection.commit()
             return RecipePublicationResult(
                 status=RecipePublicationStatus.CREATED,
+                approval_id=approval.id,
                 recipe_fingerprint=recipe.fingerprint,
                 current_document_urn=current_document_urn,
                 versioned_document_urn=versioned_document_urn,
                 published_at=approval.approved_at,
+                audit_records=_audit_records(
+                    recipe,
+                    approval,
+                    current_document_urn=current_document_urn,
+                    versioned_document_urn=versioned_document_urn,
+                    current_previous=(
+                        current_recipe.fingerprint if current_recipe is not None else None
+                    ),
+                    versioned_previous=None,
+                    current_outcome=PublicationAuditOutcome.SUCCEEDED,
+                    versioned_outcome=PublicationAuditOutcome.SUCCEEDED,
+                ),
             )
         except RecipeError:
             raise
@@ -137,8 +175,8 @@ class SqliteQueryRecipeRepository:
                 "fake query-recipe publication failed",
             ) from error
 
-    def _connect(self) -> sqlite3.Connection:
-        return sqlite3.connect(self._path, isolation_level=None, timeout=5.0)
+    def _connect(self) -> AbstractContextManager[sqlite3.Connection]:
+        return managed_sqlite_connection(self._path, isolation_level=None)
 
     def _initialize(self) -> None:
         try:
@@ -187,3 +225,40 @@ def _validate_approval(recipe: QueryRecipe, approval: RecipePublicationApproval)
             RecipeErrorCode.APPROVAL_MISMATCH,
             "query-recipe approval does not match the reviewed payload",
         )
+
+
+def _audit_records(
+    recipe: QueryRecipe,
+    approval: RecipePublicationApproval,
+    *,
+    current_document_urn: str,
+    versioned_document_urn: str,
+    current_previous: str | None,
+    versioned_previous: str | None,
+    current_outcome: PublicationAuditOutcome,
+    versioned_outcome: PublicationAuditOutcome,
+) -> tuple[PublicationTargetAuditRecord, PublicationTargetAuditRecord]:
+    return (
+        PublicationTargetAuditRecord(
+            family=PublicationFamily.RECIPE,
+            operation="versioned_document",
+            target=versioned_document_urn,
+            approval_id=approval.id,
+            actor=approval.actor,
+            approved_at=approval.approved_at,
+            previous_fingerprint=versioned_previous,
+            new_fingerprint=recipe.fingerprint,
+            outcome=versioned_outcome,
+        ),
+        PublicationTargetAuditRecord(
+            family=PublicationFamily.RECIPE,
+            operation="current_marker",
+            target=current_document_urn,
+            approval_id=approval.id,
+            actor=approval.actor,
+            approved_at=approval.approved_at,
+            previous_fingerprint=current_previous,
+            new_fingerprint=recipe.fingerprint,
+            outcome=current_outcome,
+        ),
+    )

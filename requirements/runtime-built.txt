@@ -1,0 +1,2 @@
+watchdog @ file:///tmp/runtime-wheels/watchdog-6.0.0-py3-none-any.whl \
+    --hash=sha256:4b510ffee66be0c794ba0a5b921451405f4c8249215168a399af15c37550ff3f

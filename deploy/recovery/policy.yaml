@@ -1,0 +1,18 @@
+schema_version: schemabridge.recovery-policy.v1
+owner: recovery-operations
+schedule:
+  backup_interval_minutes: 60
+objectives:
+  rpo_minutes: 60
+  rto_minutes: 240
+retention:
+  hourly_recovery_points: 24
+  daily_recovery_points: 35
+  monthly_recovery_points: 12
+  immutable_remote_retention_required: true
+  encryption_required: true
+  dry_run_default: true
+restore:
+  requires_distinct_empty_target: true
+  cutover_requires_external_authority: true
+  automatic_down_migration: false

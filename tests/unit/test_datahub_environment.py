@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import pytest
+import scripts.check_datahub_catalog as catalog_check
 import scripts.provision_datahub_mcp as provision
 import scripts.provision_datahub_writer as writer_provision
 import yaml
@@ -13,6 +14,36 @@ from scripts.prepare_datahub_quickstart import QuickstartPreparationError, prepa
 from scripts.sanitize_datahub_log import redact
 
 ROOT = Path(__file__).parents[2]
+EXPECTED_SYNTHETIC_ROW_COUNTS = {
+    "bank.account_holders": 9,
+    "bank.accounts": 9,
+    "commerce.products": 40,
+    "crm.customers": 7,
+    "fulfillment.shipments": 75,
+    "legacy.client_master": 7,
+    "legacy.item_master": 42,
+    "reporting.customer_accounts": 6,
+    "sales.order_lines": 180,
+    "sales.orders": 60,
+    "support.order_cases": 30,
+}
+EXPECTED_SYNTHETIC_SCHEMAS = [
+    "crm",
+    "legacy",
+    "bank",
+    "reporting",
+    "commerce",
+    "sales",
+    "fulfillment",
+    "support",
+]
+
+
+def _dataset_name(urn: str) -> str:
+    prefix = "urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge."
+    assert urn.startswith(prefix)
+    assert urn.endswith(",PROD)")
+    return urn.removeprefix(prefix).removesuffix(",PROD)")
 
 
 def _compose_source() -> bytes:
@@ -67,7 +98,7 @@ def test_ingestion_recipe_uses_exact_synthetic_schemas_and_environment_secrets()
     assert source["host_port"] == "127.0.0.1:55433"
     assert source["username"] == "schemabridge_reader"
     assert source["password"] == "${POSTGRES_READER_PASSWORD}"
-    assert source["schema_pattern"]["allow"] == ["crm", "legacy", "bank", "reporting"]
+    assert source["schema_pattern"]["allow"] == EXPECTED_SYNTHETIC_SCHEMAS
     assert source["profiling"]["enabled"] is True
     assert recipe["sink"]["config"] == {
         "server": "${DATAHUB_GMS_URL}",
@@ -103,12 +134,80 @@ def test_datahub_admin_initialization_retries_fresh_gms_graphql_readiness() -> N
 def test_sanitized_fixture_contains_no_credentials() -> None:
     fixture = json.loads((ROOT / "tests/fixtures/datahub/mcp_catalog.json").read_text())
     serialized = json.dumps(fixture).lower()
+    datasets = {_dataset_name(item["urn"]): item for item in fixture["datasets"]}
 
     assert fixture["fixture_kind"] == "sanitized_mcp_expectation"
     assert "customers" in fixture["dataset_urn"]
+    assert {name: item["row_count"] for name, item in datasets.items()} == (
+        EXPECTED_SYNTHETIC_ROW_COUNTS
+    )
+    assert sum(item["row_count"] for item in datasets.values()) == 465
+    assert all(item["fields"] for item in datasets.values())
+    assert all(set(item["described_fields"]) <= set(item["fields"]) for item in datasets.values())
     assert "token" not in serialized
     assert "password" not in serialized
     assert "secret" not in serialized
+
+
+def test_catalog_check_loads_exact_full_synthetic_expectations() -> None:
+    expected = catalog_check._load_expectations(ROOT / "tests/fixtures/datahub/mcp_catalog.json")
+
+    assert len(expected) == 11
+    assert {_dataset_name(item["urn"]) for item in expected} == set(EXPECTED_SYNTHETIC_ROW_COUNTS)
+
+
+def test_catalog_check_rejects_malformed_or_incomplete_expectations(tmp_path: Path) -> None:
+    fixture = json.loads((ROOT / "tests/fixtures/datahub/mcp_catalog.json").read_text())
+    malformed_path = tmp_path / "malformed.json"
+    fixture["datasets"][0]["described_fields"].append("unknown_field")
+    malformed_path.write_text(json.dumps(fixture), encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="invalid dataset contract"):
+        catalog_check._load_expectations(malformed_path)
+
+    fixture = json.loads((ROOT / "tests/fixtures/datahub/mcp_catalog.json").read_text())
+    incomplete_path = tmp_path / "incomplete.json"
+    incomplete_path.write_text(
+        json.dumps({"fixture_kind": fixture["fixture_kind"], "datasets": []})
+    )
+
+    with pytest.raises(SystemExit, match="exact synthetic corpus"):
+        catalog_check._load_expectations(incomplete_path)
+
+
+def test_recorded_catalog_snapshot_covers_the_same_eleven_datasets() -> None:
+    snapshot = json.loads((ROOT / "demo/datahub/catalog_snapshot.json").read_text())
+    assets = {item["dataset"]: item for item in snapshot["assets"]}
+    fixture = json.loads((ROOT / "tests/fixtures/datahub/mcp_catalog.json").read_text())
+    expected_fields = {
+        _dataset_name(item["urn"]): set(item["fields"]) for item in fixture["datasets"]
+    }
+
+    assert snapshot["fixture_kind"] == "sanitized_catalog_recording"
+    assert set(assets) == set(EXPECTED_SYNTHETIC_ROW_COUNTS)
+    assert all(asset["description"] for asset in assets.values())
+    assert {
+        name: {field["field_path"] for field in asset["fields"]} for name, asset in assets.items()
+    } == expected_fields
+    described_fields = {
+        _dataset_name(item["urn"]): set(item["described_fields"]) for item in fixture["datasets"]
+    }
+    assert all(
+        field["description"]
+        for name, asset in assets.items()
+        for field in asset["fields"]
+        if field["field_path"] in described_fields[name]
+    )
+    native_types = {
+        f"{name}.{field['field_path']}": field["native_type"]
+        for name, asset in assets.items()
+        for field in asset["fields"]
+    }
+    assert native_types["commerce.products.product_code"] == "VARCHAR(8)"
+    assert native_types["legacy.item_master.item_no"] == "BIGINT"
+    assert native_types["sales.order_lines.order_ref"] == "VARCHAR(24)"
+    assert native_types["fulfillment.shipments.order_ref"] == "VARCHAR(24)"
+    assert native_types["support.order_cases.order_id"] == "VARCHAR(24)"
 
 
 def test_datahub_log_redaction_removes_full_and_partially_masked_tokens() -> None:

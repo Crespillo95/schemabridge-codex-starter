@@ -1,0 +1,157 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: schemabridge-active-alerts
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/name: schemabridge-active-alerts
+    app.kubernetes.io/part-of: schemabridge
+    app.kubernetes.io/component: observability
+spec:
+  groups:
+    - name: schemabridge-m29-operations-v1
+      interval: 30s
+      rules:
+        - alert: SchemaBridgeApiAvailability
+          expr: >
+            (
+              sum(rate(schemabridge_http_requests_total{service="api"}[10m])) > 0
+              and
+              (
+                sum(rate(schemabridge_http_requests_total{service="api",outcome="success"}[10m]))
+                /
+                clamp_min(sum(rate(schemabridge_http_requests_total{service="api"}[10m])), 0.001)
+                < 0.995
+              )
+            )
+            or on() (up{job="schemabridge-api"} == 0)
+            or on() absent_over_time(up{job="schemabridge-api"}[5m])
+          for: 10m
+          labels:
+            severity: page
+            owner: platform-operations
+            deduplication_key: api-availability
+          annotations:
+            summary: API availability is below the reviewed local threshold.
+            runbook_ref: runbooks/api-availability.md
+            safe_diagnostics: service,outcome,correlation_id,error_code
+            resolution_condition: The API is scrapeable and any non-idle 10 minute window remains at or above 0.995 success for 10 minutes.
+
+        - alert: SchemaBridgeApiP95Latency
+          expr: >
+            histogram_quantile(
+              0.95,
+              sum by (le) (
+                rate(schemabridge_http_request_duration_seconds_bucket{service="api"}[10m])
+              )
+            ) > 0.75
+          for: 10m
+          labels:
+            severity: page
+            owner: platform-operations
+            deduplication_key: api-p95-latency # gitleaks:allow -- routing label, not a credential
+          annotations:
+            summary: API p95 latency is above the reviewed local threshold.
+            runbook_ref: runbooks/api-availability.md
+            safe_diagnostics: service,outcome,correlation_id,error_code
+            resolution_condition: The 10 minute p95 remains at or below 0.75 seconds for 10 minutes.
+
+        - alert: SchemaBridgeAuthorizationDenials
+          expr: >
+            sum(increase(schemabridge_http_authorization_denials_total{service="api"}[10m]))
+            > 25
+          for: 5m
+          labels:
+            severity: ticket
+            owner: security-operations
+            deduplication_key: authorization-denial-rate
+          annotations:
+            summary: Authorization denials exceed the reviewed local investigation threshold.
+            runbook_ref: runbooks/security-control-failure.md
+            safe_diagnostics: service,outcome,correlation_id,error_code
+            resolution_condition: Denials remain at or below 25 per 10 minute window for 15 minutes.
+
+        - alert: SchemaBridgeQueueBacklog
+          expr: >
+            (
+              max by (queue) (schemabridge_queue_depth) > 1000
+              or
+              max by (queue) (schemabridge_queue_oldest_age_seconds) > 300
+            )
+            or on(queue)
+            absent_over_time(schemabridge_queue_depth{queue="execution"}[5m])
+            or on(queue)
+            absent_over_time(schemabridge_queue_depth{queue="catalog"}[5m])
+            or on(queue)
+            absent_over_time(schemabridge_queue_depth{queue="profile"}[5m])
+            or on(queue)
+            absent_over_time(schemabridge_queue_depth{queue="reconciliation"}[5m])
+            or on(queue)
+            absent_over_time(
+              schemabridge_queue_oldest_age_seconds{queue="execution"}[5m]
+            )
+            or on(queue)
+            absent_over_time(
+              schemabridge_queue_oldest_age_seconds{queue="catalog"}[5m]
+            )
+            or on(queue)
+            absent_over_time(
+              schemabridge_queue_oldest_age_seconds{queue="profile"}[5m]
+            )
+            or on(queue)
+            absent_over_time(
+              schemabridge_queue_oldest_age_seconds{queue="reconciliation"}[5m]
+            )
+            or on() (up{job="schemabridge-observer"} == 0)
+            or on() absent_over_time(up{job="schemabridge-observer"}[5m])
+          for: 10m
+          labels:
+            severity: page
+            owner: data-platform-operations
+            deduplication_key: queue-backlog
+          annotations:
+            summary: A governed queue is too deep or its oldest due item is stale.
+            runbook_ref: runbooks/queue-backlog.md
+            safe_diagnostics: queue,outcome,error_code
+            resolution_condition: Every queue remains at or below 1000 items and 300 seconds oldest age for 15 minutes.
+
+        - alert: SchemaBridgeUnsafeJobTransitions
+          expr: >
+            sum by (queue) (
+              increase(
+                schemabridge_job_transitions_total{
+                  transition=~"dead_lettered|authorization_stale"
+                }[15m]
+              )
+            ) > 0
+          for: 5m
+          labels:
+            severity: page
+            owner: data-platform-operations
+            deduplication_key: unsafe-job-transition
+          annotations:
+            summary: A dead-letter or stale-authorization transition requires review.
+            runbook_ref: runbooks/queue-backlog.md
+            safe_diagnostics: queue,outcome,error_code,correlation_id
+            resolution_condition: No unsafe transition is observed during a complete 15 minute window.
+
+        - alert: SchemaBridgeSourceFailureRate
+          expr: >
+            sum by (capability) (
+              rate(schemabridge_source_operations_total{outcome=~"timeout|error"}[10m])
+            )
+            /
+            clamp_min(
+              sum by (capability) (rate(schemabridge_source_operations_total[10m])),
+              0.001
+            ) > 0.05
+          for: 10m
+          labels:
+            severity: page
+            owner: data-platform-operations
+            deduplication_key: source-failure-rate
+          annotations:
+            summary: Bounded source operations exceed the reviewed timeout/error ratio.
+            runbook_ref: runbooks/source-outage.md
+            safe_diagnostics: service,outcome,error_code,correlation_id
+            resolution_condition: Every capability remains at or below a 0.05 failure ratio for 15 minutes.

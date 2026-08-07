@@ -19,10 +19,18 @@ from schemabridge.domain.intents import (
     IntentVocabulary,
     UserLanguage,
 )
+from schemabridge.domain.publication_audit import (
+    PublicationAuditOutcome,
+    PublicationFamily,
+    PublicationTargetAuditRecord,
+)
 from schemabridge.domain.recipes import RecipeReuseAssessment
 from schemabridge.domain.request_context import ValidatedAnalyticalRequest
 from schemabridge.domain.requests import AnalyticalRequest
-from schemabridge.domain.resolution import ResolvedSemanticPlan
+from schemabridge.domain.resolution import (
+    MAX_REJECTED_SOURCE_TOTAL,
+    ResolvedSemanticPlan,
+)
 from schemabridge.domain.validation import ValidationFinding
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -96,6 +104,7 @@ class WorkflowPublicationConfirmation(StrEnum):
 class WorkflowPublicationStatus(StrEnum):
     CREATED = "created"
     ALREADY_CURRENT = "already_current"
+    FAILED = "failed"
 
 
 WorkflowScalar: TypeAlias = str | int | float | bool | None
@@ -188,22 +197,32 @@ class WorkflowTraceEvent(FrozenDomainModel):
         return self
 
 
-class WorkflowDecisionRecord(FrozenDomainModel):
+class ActorBoundWorkflowModel(FrozenDomainModel):
+    """Shared invariant for verified or explicitly legacy workflow actors."""
+
+    actor: str = Field(min_length=1, max_length=120)
+
+    @field_validator("actor")
+    @classmethod
+    def actor_must_not_be_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("workflow actor must not be blank")
+        return value
+
+
+class WorkflowDecisionRecord(ActorBoundWorkflowModel):
     kind: WorkflowDecisionKind
     action: WorkflowDecisionAction
-    actor: str = Field(min_length=1, max_length=120)
     decided_at: datetime
     bound_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
-class IntentWorkflowDecision(FrozenDomainModel):
-    actor: str = Field(min_length=1, max_length=120)
+class IntentWorkflowDecision(ActorBoundWorkflowModel):
     interpretation_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
     selected_alternative: IntentAlternativeId
 
 
-class ExecutionWorkflowDecision(FrozenDomainModel):
-    actor: str = Field(min_length=1, max_length=120)
+class ExecutionWorkflowDecision(ActorBoundWorkflowModel):
     plan_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
     action: WorkflowDecisionAction
 
@@ -217,8 +236,7 @@ class ExecutionWorkflowDecision(FrozenDomainModel):
         return value
 
 
-class PublicationWorkflowDecision(FrozenDomainModel):
-    actor: str = Field(min_length=1, max_length=120)
+class PublicationWorkflowDecision(ActorBoundWorkflowModel):
     proposal_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
     action: WorkflowDecisionAction
     confirmation: WorkflowPublicationConfirmation | None = None
@@ -237,8 +255,7 @@ class PublicationWorkflowDecision(FrozenDomainModel):
         return self
 
 
-class RetryWorkflowDecision(FrozenDomainModel):
-    actor: str = Field(min_length=1, max_length=120)
+class RetryWorkflowDecision(ActorBoundWorkflowModel):
     failure_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
     operation: WorkflowOperation
     action: WorkflowDecisionAction = WorkflowDecisionAction.RETRY
@@ -287,24 +304,46 @@ class WorkflowExecutionRecord(FrozenDomainModel):
     query_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
     columns: tuple[str, ...] = Field(max_length=50)
     rows: tuple[tuple[WorkflowScalar, ...], ...] = Field(max_length=10_000)
+    row_count: int | None = Field(default=None, ge=0, le=10_000)
     database_user: str = Field(min_length=1, max_length=120)
     transaction_read_only: bool
     statement_timeout_ms: int = Field(ge=1)
     truncated: bool
     preview_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
     rejection_codes: tuple[str, ...] = ()
-    rejected_count: int = Field(default=0, ge=0)
+    rejected_count: int = Field(default=0, ge=0, le=MAX_REJECTED_SOURCE_TOTAL)
+    rejection_truncated: bool = False
     rejection_complete: bool = False
 
     @model_validator(mode="after")
     def rows_match_columns_and_read_only(self) -> WorkflowExecutionRecord:
         if any(len(row) != len(self.columns) for row in self.rows):
             raise ValueError("workflow preview rows must match the column count")
+        if self.row_count is not None and self.rows and self.row_count != len(self.rows):
+            raise ValueError("workflow preview row count must match present rows")
         if not self.transaction_read_only:
             raise ValueError("workflow execution record must prove a read-only transaction")
-        if self.rejection_complete and self.rejected_count != len(self.rejection_codes):
-            raise ValueError("workflow rejection count must match the recorded codes")
+        sampled_rejections = len(self.rejection_codes)
+        if self.rejection_complete:
+            if self.rejected_count < sampled_rejections:
+                raise ValueError("workflow rejection total is smaller than its bounded sample")
+            if self.rejection_truncated != (self.rejected_count > sampled_rejections):
+                raise ValueError("workflow rejection truncation must match its bounded code sample")
+        elif self.rejected_count or self.rejection_codes or self.rejection_truncated:
+            raise ValueError("incomplete workflow rejection inspection cannot retain a summary")
         return self
+
+    @property
+    def observed_row_count(self) -> int:
+        """Return the durable count even when preview rows were intentionally discarded."""
+
+        return self.row_count if self.row_count is not None else len(self.rows)
+
+    @property
+    def any_truncated(self) -> bool:
+        """Return whether either the preview or rejection inspection was bounded."""
+
+        return self.truncated or self.rejection_truncated
 
 
 class WorkflowPublicationProposal(FrozenDomainModel):
@@ -314,6 +353,24 @@ class WorkflowPublicationProposal(FrozenDomainModel):
     request_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
     idempotency_key: str = Field(pattern=r"^[0-9a-f]{64}$")
     fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def fingerprints_must_match_payload(self) -> WorkflowPublicationProposal:
+        payload = {
+            "workflow_id": self.workflow_id,
+            "plan_fingerprint": self.plan_fingerprint,
+            "execution_fingerprint": self.execution_fingerprint,
+            "request_fingerprint": self.request_fingerprint,
+        }
+        expected_idempotency_key = _fingerprint(payload)
+        if self.idempotency_key != expected_idempotency_key:
+            raise ValueError("workflow publication idempotency key does not match its payload")
+        expected_fingerprint = _fingerprint(
+            {**payload, "idempotency_key": expected_idempotency_key}
+        )
+        if self.fingerprint != expected_fingerprint:
+            raise ValueError("workflow publication fingerprint does not match its payload")
+        return self
 
     @classmethod
     def create(
@@ -339,6 +396,7 @@ class WorkflowPublicationProposal(FrozenDomainModel):
 
 
 class WorkflowPublicationApproval(FrozenDomainModel):
+    id: str = Field(min_length=1, max_length=200)
     workflow_id: str
     proposal_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
     idempotency_key: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -346,12 +404,56 @@ class WorkflowPublicationApproval(FrozenDomainModel):
     approved_at: datetime
     confirmation: WorkflowPublicationConfirmation
 
+    @field_validator("id", "workflow_id", "actor")
+    @classmethod
+    def approval_text_must_not_be_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("workflow publication approval text must not be blank")
+        return value
+
+    @field_validator("approved_at")
+    @classmethod
+    def approval_time_must_be_aware(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("workflow publication approval time must include a timezone")
+        return value
+
 
 class WorkflowPublicationResult(FrozenDomainModel):
     status: WorkflowPublicationStatus
+    approval_id: str = Field(min_length=1, max_length=200)
+    proposal_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
     idempotency_key: str = Field(pattern=r"^[0-9a-f]{64}$")
     document_ref: str = Field(min_length=1, max_length=500)
     published_at: datetime
+    failure_code: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{1,63}$")
+    audit_record: PublicationTargetAuditRecord
+
+    @model_validator(mode="after")
+    def audit_must_match_publication_result(self) -> WorkflowPublicationResult:
+        expected_outcome = {
+            WorkflowPublicationStatus.CREATED: PublicationAuditOutcome.SUCCEEDED,
+            WorkflowPublicationStatus.ALREADY_CURRENT: PublicationAuditOutcome.ALREADY_CURRENT,
+            WorkflowPublicationStatus.FAILED: PublicationAuditOutcome.FAILED,
+        }[self.status]
+        failed = self.status is WorkflowPublicationStatus.FAILED
+        if failed != (self.failure_code is not None):
+            raise ValueError("failed workflow publication requires one stable failure code")
+        if (
+            self.audit_record.family is not PublicationFamily.WORKFLOW
+            or self.audit_record.operation != "upsert_document"
+            or self.audit_record.target != self.document_ref
+            or self.audit_record.approval_id != self.approval_id
+            or self.audit_record.new_fingerprint != self.proposal_fingerprint
+            or self.audit_record.outcome is not expected_outcome
+            or self.audit_record.reason_code != self.failure_code
+        ):
+            raise ValueError("workflow publication audit does not match its target result")
+        return self
+
+    @property
+    def audit_records(self) -> tuple[PublicationTargetAuditRecord, ...]:
+        return (self.audit_record,)
 
 
 class AgentWorkflowDraft(FrozenDomainModel):
@@ -396,6 +498,13 @@ class AgentWorkflowDraft(FrozenDomainModel):
             raise ValueError("resolved workflow plan requires its stable fingerprint")
         if self.execution is not None and self.resolved_plan is None:
             raise ValueError("workflow execution requires a resolved plan")
+        if self.execution is not None and (
+            self.plan_fingerprint is None
+            or self.query_fingerprint is None
+            or self.execution.plan_fingerprint != self.plan_fingerprint
+            or self.execution.query_fingerprint != self.query_fingerprint
+        ):
+            raise ValueError("workflow execution fingerprints must match the draft")
         if self.publication_result is not None and self.publication_approval is None:
             raise ValueError("workflow publication result requires explicit approval")
         return self

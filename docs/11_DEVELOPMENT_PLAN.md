@@ -59,3 +59,21 @@ Never cut:
 - fanout handling;
 - north-star end-to-end demo;
 - tests and judge-readable examples.
+
+## Productionization continuation
+
+The operator extended the goal beyond the original 63-hour hackathon path. The authoritative
+M20–M31 sequence and gates are maintained in `plans/MASTER_PLAN.md`. M20 establishes production
+browser identity/RBAC and workflow isolation. M21 establishes the atomic scoped semantic registry
+and a deterministic 11-table/eight-schema corpus while preserving the per-query 3-table/2-join
+limit. M22 reconstructs that complete registry from live DataHub without recorded fallback; M23
+adds the durable PostgreSQL authority; and M24 adds the authenticated API/durable worker. Those
+milestones are accepted locally.
+
+M25 dynamic tenant catalog indexing and its operated local 10/5,434-asset scale profile are
+implemented and accepted locally after the final full-gate and internal-browser evidence passed.
+The later sequence covers drift/change management, registry-wide guided and natural-language Query Studio
+(including matching from a short field description), connector/cost controls, operational
+hardening, production evaluation/security verification, and an operated pilot. Locally completed
+milestones remain unreleased until the operator reviews the dirty tree and records the required
+clean-commit evidence.

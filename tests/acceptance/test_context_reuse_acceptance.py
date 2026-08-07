@@ -9,6 +9,7 @@ import pytest
 from tests.acceptance.test_workflow_acceptance import _orchestrator
 
 from schemabridge.adapters.recipes.sqlite import SqliteQueryRecipeRepository
+from schemabridge.adapters.storage.publication_audit import SqlitePublicationAuditStore
 from schemabridge.application.query_recipes import PrepareQueryRecipe, PublishQueryRecipe
 from schemabridge.domain.fields import PhysicalDatasetRef
 from schemabridge.domain.intents import IntentAlternativeId, UserLanguage
@@ -85,8 +86,9 @@ def test_context_reuse_survives_restart_and_revalidates_before_real_preview(
         approved_at=datetime(2026, 7, 21, 14, 0, tzinfo=UTC),
         confirmation=RecipePublicationConfirmation.PUBLISH_VALIDATED_QUERY_RECIPE,
     )
-    first_publication = PublishQueryRecipe(repository).execute(recipe, approval)
-    replay = PublishQueryRecipe(repository).execute(recipe, approval)
+    publisher = PublishQueryRecipe(repository, SqlitePublicationAuditStore(database_path))
+    first_publication = publisher.execute(recipe, approval)
+    replay = publisher.execute(recipe, approval)
     assert first_publication.status is RecipePublicationStatus.CREATED
     assert replay.status is RecipePublicationStatus.ALREADY_CURRENT
 

@@ -1,0 +1,7 @@
+[client]
+toolbarMode = "minimal"
+showErrorDetails = "none"
+showErrorLinks = false
+
+[browser]
+gatherUsageStats = false

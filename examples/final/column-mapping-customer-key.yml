@@ -1,0 +1,23 @@
+source: recorded:demo/ground_truth/registries/synthetic_enterprise.yml
+mappings:
+- mapping:
+    logical_field: Customer.customer_key
+    physical_field: crm.customers.customer_id
+    confidence: 1.0
+    status: approved
+    evidence:
+    - Approved synthetic CRM mapping used by the governed north-star fixture.
+    risks:
+    - Padded identifiers require explicit normalization before joining.
+    transformation_plan:
+      version: 1
+      steps:
+      - operation: trim
+      - operation: validate_regex
+        pattern: ^[0-9]+$
+      - operation: strip_leading_zeros
+      - operation: reject_invalid
+    version: 1
+  physical_type: string
+  logical_field_version: 1
+  approval_decision_id: ground-truth-map-customer-key-v1

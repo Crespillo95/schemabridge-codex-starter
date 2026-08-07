@@ -227,6 +227,487 @@
           "glossary_terms": []
         }
       ]
+    },
+    {
+      "dataset": "reporting.customer_accounts",
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.reporting.customer_accounts,PROD)",
+      "name": "customer_accounts",
+      "platform": "postgres",
+      "description": "Synthetic downstream reporting table used to demonstrate lineage and normalized concepts.",
+      "subtypes": ["Table"],
+      "governance": {
+        "owners": [],
+        "tags": [],
+        "glossary_terms": [],
+        "domain": null
+      },
+      "fields": [
+        {
+          "field_path": "report_date",
+          "native_type": "DATE",
+          "description": null,
+          "nullable": false,
+          "is_part_of_key": true,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "customer_key_text",
+          "native_type": "VARCHAR(32)",
+          "description": "Pre-normalized synthetic customer key for comparison only.",
+          "nullable": false,
+          "is_part_of_key": true,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "account_number",
+          "native_type": "VARCHAR(20)",
+          "description": null,
+          "nullable": false,
+          "is_part_of_key": true,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "holder_role_normalized",
+          "native_type": "VARCHAR(20)",
+          "description": null,
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        }
+      ]
+    },
+    {
+      "dataset": "commerce.products",
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.commerce.products,PROD)",
+      "name": "products",
+      "platform": "postgres",
+      "description": "Synthetic product master with padded text identifiers and repeated category and price values.",
+      "subtypes": ["Table"],
+      "governance": {
+        "owners": [],
+        "tags": [],
+        "glossary_terms": [],
+        "domain": null
+      },
+      "fields": [
+        {
+          "field_path": "product_code",
+          "native_type": "VARCHAR(8)",
+          "description": "Synthetic product identifier encoded as an eight-character numeric string.",
+          "nullable": false,
+          "is_part_of_key": true,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "category_code",
+          "native_type": "VARCHAR(12)",
+          "description": "Governed synthetic product category code.",
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "unit_price",
+          "native_type": "NUMERIC(10,2)",
+          "description": "Deterministic synthetic list price; no real commercial data.",
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "is_active",
+          "native_type": "BOOLEAN",
+          "description": "Synthetic lifecycle flag.",
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "created_at",
+          "native_type": "TIMESTAMP",
+          "description": null,
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        }
+      ]
+    },
+    {
+      "dataset": "legacy.item_master",
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.legacy.item_master,PROD)",
+      "name": "item_master",
+      "platform": "postgres",
+      "description": "Synthetic legacy product representation with integer keys, text prices, duplicates, and two orphans.",
+      "subtypes": ["Table"],
+      "governance": {
+        "owners": [],
+        "tags": [],
+        "glossary_terms": [],
+        "domain": null
+      },
+      "fields": [
+        {
+          "field_path": "item_no",
+          "native_type": "BIGINT",
+          "description": "Synthetic legacy integer item identifier; two values intentionally lack a product match.",
+          "nullable": false,
+          "is_part_of_key": true,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "item_name",
+          "native_type": "VARCHAR(80)",
+          "description": "Synthetic label that intentionally contains duplicate values.",
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "category_cd",
+          "native_type": "VARCHAR(12)",
+          "description": null,
+          "nullable": true,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "price_text",
+          "native_type": "VARCHAR(32)",
+          "description": "Heterogeneous synthetic price representation including NULL, empty, comma, and prefixed values.",
+          "nullable": true,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "active_flag",
+          "native_type": "SMALLINT",
+          "description": null,
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "loaded_at",
+          "native_type": "TIMESTAMP",
+          "description": null,
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        }
+      ]
+    },
+    {
+      "dataset": "sales.orders",
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.sales.orders,PROD)",
+      "name": "orders",
+      "platform": "postgres",
+      "description": "Synthetic order header source spanning two months with mapped status synonyms and nullable channels.",
+      "subtypes": ["Table"],
+      "governance": {
+        "owners": [],
+        "tags": [],
+        "glossary_terms": [],
+        "domain": null
+      },
+      "fields": [
+        {
+          "field_path": "order_id",
+          "native_type": "BIGINT",
+          "description": "Synthetic integer order identifier.",
+          "nullable": false,
+          "is_part_of_key": true,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "ordered_at",
+          "native_type": "TIMESTAMP",
+          "description": "Deterministic synthetic order timestamp in January or February 2026.",
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "status_code",
+          "native_type": "VARCHAR(20)",
+          "description": "Operational status code where C and COMPLETED are semantic synonyms.",
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "sales_channel",
+          "native_type": "VARCHAR(20)",
+          "description": null,
+          "nullable": true,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "region_code",
+          "native_type": "VARCHAR(8)",
+          "description": null,
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "order_total",
+          "native_type": "NUMERIC(12,2)",
+          "description": "Deterministic synthetic decimal total; no real transaction data.",
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        }
+      ]
+    },
+    {
+      "dataset": "sales.order_lines",
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.sales.order_lines,PROD)",
+      "name": "order_lines",
+      "platform": "postgres",
+      "description": "Synthetic order lines with fanout plus padded, missing, malformed, negative, and unmatched references.",
+      "subtypes": ["Table"],
+      "governance": {
+        "owners": [],
+        "tags": [],
+        "glossary_terms": [],
+        "domain": null
+      },
+      "fields": [
+        {
+          "field_path": "line_id",
+          "native_type": "BIGINT",
+          "description": null,
+          "nullable": false,
+          "is_part_of_key": true,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "order_ref",
+          "native_type": "VARCHAR(24)",
+          "description": "Heterogeneous text reference to integer order_id; no foreign key is declared so rejection paths remain testable.",
+          "nullable": true,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "product_no",
+          "native_type": "BIGINT",
+          "description": "Synthetic integer product reference including NULL, negative, and unmatched values.",
+          "nullable": true,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "quantity",
+          "native_type": "INTEGER",
+          "description": null,
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "net_amount",
+          "native_type": "NUMERIC(12,2)",
+          "description": null,
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "discount_amount",
+          "native_type": "NUMERIC(10,2)",
+          "description": "Nullable deterministic synthetic discount amount.",
+          "nullable": true,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        }
+      ]
+    },
+    {
+      "dataset": "fulfillment.shipments",
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.fulfillment.shipments,PROD)",
+      "name": "shipments",
+      "platform": "postgres",
+      "description": "Synthetic shipment source with duplicate order relationships and adversarial order-reference formats.",
+      "subtypes": ["Table"],
+      "governance": {
+        "owners": [],
+        "tags": [],
+        "glossary_terms": [],
+        "domain": null
+      },
+      "fields": [
+        {
+          "field_path": "shipment_id",
+          "native_type": "BIGINT",
+          "description": null,
+          "nullable": false,
+          "is_part_of_key": true,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "order_ref",
+          "native_type": "VARCHAR(24)",
+          "description": "Synthetic order reference containing padding plus NULL, empty, negative, malformed, and orphan values.",
+          "nullable": true,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "status_code",
+          "native_type": "VARCHAR(20)",
+          "description": "Operational status code where D and DELIVERED are semantic synonyms.",
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "shipped_at",
+          "native_type": "TIMESTAMP",
+          "description": "Nullable deterministic shipment timestamp.",
+          "nullable": true,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "delivered_at",
+          "native_type": "TIMESTAMP",
+          "description": "Nullable deterministic delivery timestamp.",
+          "nullable": true,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        }
+      ]
+    },
+    {
+      "dataset": "support.order_cases",
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.support.order_cases,PROD)",
+      "name": "order_cases",
+      "platform": "postgres",
+      "description": "Isolated synthetic support cases whose homonymous identifier names are not evidence of semantic equivalence.",
+      "subtypes": ["Table"],
+      "governance": {
+        "owners": [],
+        "tags": [],
+        "glossary_terms": [],
+        "domain": null
+      },
+      "fields": [
+        {
+          "field_path": "case_id",
+          "native_type": "BIGINT",
+          "description": null,
+          "nullable": false,
+          "is_part_of_key": true,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "order_id",
+          "native_type": "VARCHAR(24)",
+          "description": "Case-local synthetic label; it is deliberately not an approved sales order key.",
+          "nullable": true,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "product_id",
+          "native_type": "VARCHAR(24)",
+          "description": "Case-local synthetic label; it is deliberately not an approved product key.",
+          "nullable": true,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "customer_id",
+          "native_type": "VARCHAR(24)",
+          "description": "Case-local synthetic label; it is deliberately not an approved customer key.",
+          "nullable": true,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "status",
+          "native_type": "VARCHAR(20)",
+          "description": null,
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "priority",
+          "native_type": "SMALLINT",
+          "description": null,
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "opened_at",
+          "native_type": "TIMESTAMP",
+          "description": null,
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "closed_at",
+          "native_type": "TIMESTAMP",
+          "description": null,
+          "nullable": true,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        },
+        {
+          "field_path": "case_summary",
+          "native_type": "VARCHAR(120)",
+          "description": "Repeated synthetic issue text with no person or employer information.",
+          "nullable": false,
+          "is_part_of_key": false,
+          "tags": [],
+          "glossary_terms": []
+        }
+      ]
     }
   ]
 }

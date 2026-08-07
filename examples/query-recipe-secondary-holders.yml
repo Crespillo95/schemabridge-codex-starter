@@ -1,7 +1,7 @@
-# Regenerated from a real guarded execution of the synthetic PostgreSQL demo on 2026-07-22.
+# Regenerated from a real guarded execution of the synthetic PostgreSQL demo on 2026-07-28.
 # This recipe contains no executable SQL. See query-validation-report.md for provenance.
 id: query_recipe_d94f4317d638a514
-version: 1
+version: 4
 business_question: Agrupa por fecha de registro todos los clientes que sean segundo titular de una cuenta.
 normalized_intent:
   primary_entity: Customer
@@ -21,11 +21,11 @@ normalized_intent:
       direction: asc
   limit: 500
 intent_fingerprint: d94f4317d638a514abfa960208aada13b021ba10f42d6a89ba1c06fba05383ce
-validated_request_fingerprint: 8c926651a16204146767b08578b699c35345de0ab4e66278b1d8b41ca95f20fd
+validated_request_fingerprint: 5cd912f5ad76e990e4850eb01990687c425463ef4156e8d5557a3c0bd937be2b
 model_version:
-  source: recorded:demo/ground_truth/m10
+  source: recorded:demo/ground_truth/registries/synthetic_enterprise.yml
   version: 1
-  fingerprint: c49284df5e6800867ef07ac1123ba8bc738e398380353d296d9dd961b37cbfa9
+  fingerprint: 0710148874049078f751ac96f0a18131cf01daa41f27dc034ca52a8b212dd966
 mapping_versions:
   - logical_field: AccountHolder.customer_key
     physical_field: bank.account_holders.gf_customer_id
@@ -48,12 +48,12 @@ join_versions:
     version: 1
     approval_decision_id: ground-truth-customer-holder-v1
 source_schema_fingerprint: dbd26695ca74341942dd85f20339b3ed09d2ba82d144144951528fc0bea8aac7
-plan_fingerprint: 086f41d20b5830e6786ec04702ec7206f4307253d6ec102feb01b04441093162
+plan_fingerprint: c43bf9c5f442f01cae4775801bd7795d86e10f0442543d84c8832bf9e9afc70c
 query_fingerprint: b81cc0de555200592339e36ffcfd78a237cda32ccf32a7ec58e3327735b84066
 compiler_version: postgres-ir-v1
 validation:
   policy_status: accepted
-  executed_at: 2026-07-22T04:47:16.959625Z
+  executed_at: 2026-07-28T16:05:00Z
   database_user: schemabridge_reader
   transaction_read_only: true
   statement_timeout_ms: 5000
@@ -72,7 +72,7 @@ limitations:
 linked_asset_urns:
   - urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.bank.account_holders,PROD)
   - urn:li:dataset:(urn:li:dataPlatform:postgres,schemabridge.crm.customers,PROD)
-source_workflow_id: m16-recipe-artifact
-created_at: 2026-07-22T04:47:16.959625Z
-content_fingerprint: 134e56cb8df4f8ad36a20c3debb9e223979ba667d69faa6193b10aa02b1729ed
-fingerprint: efc99366085edf9ecbfd53198c4d804a45e5bb41fbb34799d87b83e058d3f279
+source_workflow_id: m28-recipe-artifact
+created_at: 2026-07-28T16:05:00Z
+content_fingerprint: ab7874b0f6168ceeb45b3d1c441c0f68e7bfdd4e7a52acd2995106123981abd7
+fingerprint: 6df453a0e67d29b1c86fb90c2b44de8116b2240d3cf999c6e1ddf0318fd018ef

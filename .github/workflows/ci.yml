@@ -2,50 +2,220 @@ name: CI
 
 on:
   push:
+    branches:
+      - main
   pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NO_COLOR: "1"
 
 jobs:
   quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: "3.12"
-          cache: pip
-      - run: python -m pip install --upgrade pip
-      - run: python -m pip install -e '.[dev,postgres,sql,ui,llm]'
-      - run: ruff format --check src tests scripts
-      - run: ruff check src tests scripts
-      - run: mypy src
-      - run: pytest -m 'not integration and not acceptance'
+      - uses: astral-sh/setup-uv@eb1897b8dc4b5d5bfe39a428a8f2304605e0983c # v7.0.0
+        with:
+          version: "0.11.30"
+          enable-cache: true
+      - run: make bootstrap
+      - run: make check
+      - run: make runtime-wheel-smoke
 
   postgres-integration:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     env:
-      DATABASE_URL: postgresql://schemabridge_reader:schemabridge_reader@127.0.0.1:55433/schemabridge
       SCHEMABRIDGE_TEST_DATABASE_URL: postgresql://schemabridge_reader:schemabridge_reader@127.0.0.1:55433/schemabridge
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: "3.12"
-          cache: pip
-      - run: python -m pip install --upgrade pip
-      - run: python -m pip install -e '.[dev,postgres,sql,ui]'
+      - uses: astral-sh/setup-uv@eb1897b8dc4b5d5bfe39a428a8f2304605e0983c # v7.0.0
+        with:
+          version: "0.11.30"
+          enable-cache: true
+      - run: make bootstrap
+      - run: make install
       - run: make demo-reset
+      - run: make datahub-start
+      - run: make datahub-health
+      - run: make datahub-init-admin
+      - run: make datahub-ingest
+      - run: make datahub-provision-mcp
+      - run: make datahub-provision-writer
+      - run: make datahub-catalog-check
+      - run: make datahub-mcp-check
+      - run: >-
+          .venv/bin/schemabridge registry-publish
+          --fingerprint ef480eb7370924ff4c94131a2c6c4063d85652cc83aaec9059538cdc2cf9c1b9
+          --confirm publish-approved-registry-version
+          --json
+        env:
+          SCHEMABRIDGE_LOCAL_SUBJECT: ci-registry-bootstrap
+      - run: make datahub-registry-check
+      - run: make control-plane-reset
+      - run: make control-plane-migrate
+      - run: make control-plane-check
       - run: make test-integration
       - run: make test-acceptance
+      - run: make coverage
       - run: >-
-          python -m schemabridge.entrypoints.cli.main evaluate
+          .venv/bin/python -m schemabridge.entrypoints.cli.main evaluate
           --output reports/evaluation.json
           --markdown reports/evaluation.md
+        env:
+          DATABASE_URL: postgresql://schemabridge_reader:schemabridge_reader@127.0.0.1:55433/schemabridge
       - run: >-
-          python -c "import json; from pathlib import Path;
+          .venv/bin/python -c "import json; from pathlib import Path;
           report=json.loads(Path('reports/evaluation.json').read_text());
           assert report['successful'] and not report['release']['dirty'];
           assert report['release']['revision'] == '${{ github.sha }}'"
       - if: failure()
         run: docker compose -f docker-compose.demo.yml logs --no-color postgres
+      - if: failure()
+        run: docker compose -f docker-compose.control.yml logs --no-color control-postgres
       - if: always()
         run: docker compose -f docker-compose.demo.yml down -v --remove-orphans
+      - if: always()
+        run: docker compose -f docker-compose.control.yml down -v --remove-orphans
+
+  supply-chain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      DOCKER_BUILDKIT: "1"
+      EVIDENCE_DIRECTORY: .local/supply-chain
+      IMAGE_NAME: schemabridge-runtime:${{ github.sha }}
+      REPOSITORY_URL: https://github.com/${{ github.repository }}
+      SOURCE_REVISION: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@eb1897b8dc4b5d5bfe39a428a8f2304605e0983c # v7.0.0
+        with:
+          version: "0.11.30"
+          enable-cache: true
+      - name: Install the complete frozen environment
+        run: make bootstrap
+      - name: Verify immutable inputs and hashed exports
+        run: make supply-chain-static
+      - name: Build the wheel once
+        run: >-
+          .venv/bin/uv build --wheel --no-build-isolation --no-create-gitignore
+          --out-dir "$EVIDENCE_DIRECTORY/dist"
+      - name: Build the runtime image once
+        run: >-
+          docker build --file Dockerfile.runtime
+          --build-arg "SCHEMABRIDGE_RELEASE_REF=$SOURCE_REVISION"
+          --tag "$IMAGE_NAME" .
+      - name: Record the immutable local image digest
+        id: image
+        run: |
+          image_digest="$(docker image inspect --format '{{.Id}}' "$IMAGE_NAME")"
+          case "$image_digest" in
+            sha256:[0-9a-f][0-9a-f]*) ;;
+            *) printf '%s\n' 'Docker returned an invalid image digest.' >&2; exit 1 ;;
+          esac
+          printf 'digest=%s\n' "$image_digest" >> "$GITHUB_OUTPUT"
+      - name: Generate the complete runtime-image CycloneDX SBOM
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.69.3
+          scan-type: image
+          image-ref: ${{ env.IMAGE_NAME }}
+          cache-dir: .local/trivy-cache
+          format: cyclonedx
+          output: .local/supply-chain/runtime-image.cdx.json
+      - name: Scan the runtime image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.69.3
+          scan-type: image
+          image-ref: ${{ env.IMAGE_NAME }}
+          cache-dir: .local/trivy-cache
+          scanners: vuln
+          format: json
+          output: .local/supply-chain/trivy-image.json
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          list-all-pkgs: true
+          exit-code: "0"
+      - name: Audit exact Python runtime dependencies
+        run: |
+          set +e
+          .venv/bin/pip-audit --disable-pip --require-hashes --format json \
+            --output "$EVIDENCE_DIRECTORY/pip-audit.json" \
+            --requirement requirements/runtime.txt \
+            --requirement requirements/build.txt \
+            --requirement requirements/watchdog-build.txt
+          audit_status=$?
+          set -e
+          if [[ "$audit_status" -gt 1 ]]; then
+            exit "$audit_status"
+          fi
+      - name: Generate unsigned attestable provenance and bind both SBOMs
+        run: |
+          wheel_path="$(find "$EVIDENCE_DIRECTORY/dist" -maxdepth 1 -type f -name '*.whl')"
+          test -n "$wheel_path"
+          test "$(printf '%s\n' "$wheel_path" | wc -l | tr -d ' ')" = "1"
+          .venv/bin/python scripts/verify_supply_chain.py generate-evidence \
+            --repository "$REPOSITORY_URL" \
+            --revision "$SOURCE_REVISION" \
+            --wheel "$wheel_path" \
+            --image-name "$IMAGE_NAME" \
+            --image-digest "${{ steps.image.outputs.digest }}" \
+            --output-directory "$EVIDENCE_DIRECTORY" \
+            --workflow ".github/workflows/ci.yml"
+      - name: Enforce vulnerability exceptions and evidence bindings
+        run: |
+          .venv/bin/python scripts/verify_supply_chain.py vulnerabilities \
+            --report "$EVIDENCE_DIRECTORY/pip-audit.json" \
+            --report "$EVIDENCE_DIRECTORY/trivy-image.json" \
+            --image-name "$IMAGE_NAME" \
+            --image-digest "${{ steps.image.outputs.digest }}"
+          wheel_path="$(find "$EVIDENCE_DIRECTORY/dist" -maxdepth 1 -type f -name '*.whl')"
+          .venv/bin/python scripts/verify_supply_chain.py verify-evidence \
+            --repository "$REPOSITORY_URL" \
+            --revision "$SOURCE_REVISION" \
+            --wheel "$wheel_path" \
+            --image-name "$IMAGE_NAME" \
+            --image-digest "${{ steps.image.outputs.digest }}" \
+            --output-directory "$EVIDENCE_DIRECTORY" \
+            --workflow ".github/workflows/ci.yml"
+      - if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: supply-chain-evidence-${{ github.sha }}
+          path: |
+            .local/supply-chain/dist/*.whl
+            .local/supply-chain/wheel.cdx.json
+            .local/supply-chain/runtime-image.cdx.json
+            .local/supply-chain/provenance.intoto.json
+            .local/supply-chain/direct-licenses.json
+            .local/supply-chain/pip-audit.json
+            .local/supply-chain/trivy-image.json
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 14

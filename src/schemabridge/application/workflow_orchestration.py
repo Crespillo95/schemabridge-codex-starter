@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 
+from schemabridge.application.connectors import ConnectorTargetError
 from schemabridge.application.governed_execution import (
     ExecuteGovernedRequest,
     GovernedPreparedQuery,
@@ -23,7 +25,15 @@ from schemabridge.application.ports.catalog import (
     PageRequest,
 )
 from schemabridge.application.ports.intents import IntentParserError
-from schemabridge.application.ports.planning import PlanningPortError
+from schemabridge.application.ports.planning import (
+    PlanningPortError,
+    PlanningPortErrorCode,
+    ProtectedSourceOperationCancelled,
+)
+from schemabridge.application.ports.publication_audit import (
+    PublicationAuditStoreError,
+    PublicationAuditStorePort,
+)
 from schemabridge.application.ports.recipes import RecipeError, RecipeErrorCode
 from schemabridge.application.ports.requests import RequestWorkflowError
 from schemabridge.application.ports.workflows import (
@@ -33,17 +43,28 @@ from schemabridge.application.ports.workflows import (
     WorkflowErrorCode,
     WorkflowPublicationPort,
 )
+from schemabridge.application.query_cost import (
+    AssessGovernedQueryCost,
+    QueryCostError,
+    QueryCostErrorCode,
+)
 from schemabridge.application.query_execution import (
     QueryCompilationError,
     QueryPreviewError,
     QueryPreviewResult,
+    QueryPreviewTimeoutError,
+    QueryPreviewUnavailableError,
     SqlPolicyViolation,
 )
 from schemabridge.application.query_recipes import (
     AssessQueryRecipeReuse,
     source_schema_fingerprint,
 )
-from schemabridge.domain.intents import IntentConfirmation
+from schemabridge.application.semantic_change import SemanticChangeError
+from schemabridge.domain.connectors import QueryCostAssessment
+from schemabridge.domain.intents import IntentConfirmation, UserLanguage
+from schemabridge.domain.publication_audit import validate_publication_audit_binding
+from schemabridge.domain.query_studio import ConfirmedQueryStudioRequest
 from schemabridge.domain.request_context import validated_analytical_request_fingerprint
 from schemabridge.domain.resolution import (
     RejectedSourceReport,
@@ -70,6 +91,7 @@ from schemabridge.domain.workflows import (
     WorkflowOperation,
     WorkflowPublicationApproval,
     WorkflowPublicationProposal,
+    WorkflowPublicationStatus,
     WorkflowScalar,
     WorkflowStage,
     WorkflowTraceEvent,
@@ -77,6 +99,10 @@ from schemabridge.domain.workflows import (
     WorkflowTraceStatus,
     fingerprint_payload,
 )
+
+
+def _continue_execution() -> bool:
+    return True
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +116,7 @@ class AgentWorkflowOrchestrator:
     prepare: PrepareGovernedRequest
     execute: ExecuteGovernedRequest
     publisher: WorkflowPublicationPort
+    audit_store: PublicationAuditStorePort
     recipe_assessor: AssessQueryRecipeReuse | None = None
 
     def start(self, command: StartWorkflowCommand) -> AgentWorkflowDraft:
@@ -107,10 +134,70 @@ class AgentWorkflowOrchestrator:
         self.store.save(draft, expected_revision=None)
         return self._retrieve_context(draft)
 
+    def start_confirmed(
+        self,
+        workflow_id: str,
+        confirmed: ConfirmedQueryStudioRequest,
+    ) -> AgentWorkflowDraft:
+        """Start from an exact Query Studio confirmation without replaying model output.
+
+        Semantic resolution is used once before persistence only to derive the bounded physical
+        catalog slice. The normal workflow then reloads that exact catalog slice, resolves the
+        current registry again, runs the M26 semantic gate, compiles deterministically, and
+        independently validates SQL before it can request execution approval.
+        """
+
+        try:
+            preflight = self.prepare.planner.execute(confirmed.validated_request)
+        except (ConnectorTargetError, PlanningPortError, SemanticResolutionError) as error:
+            raise WorkflowError(
+                WorkflowErrorCode.INVALID_TRANSITION,
+                "the confirmed Query Studio request is no longer valid in the current registry",
+            ) from error
+        datasets = tuple(asset.dataset for asset in preflight.query_policy.assets)
+        now = self.clock.now()
+        draft = AgentWorkflowDraft(
+            id=workflow_id,
+            revision=1,
+            stage=WorkflowStage.CREATED,
+            text=(
+                confirmed.original_text.root
+                if confirmed.original_text is not None
+                else "Confirmed guided Query Studio request."
+            ),
+            language=confirmed.language or UserLanguage.ENGLISH,
+            requested_datasets=datasets,
+            validated_request=confirmed.validated_request,
+            created_at=now,
+            updated_at=now,
+        )
+        self.store.save(draft, expected_revision=None)
+        return self._retrieve_context(draft)
+
+    def inspect(self, workflow_id: str) -> AgentWorkflowDraft:
+        """Load durable state without advancing or repairing the workflow."""
+
+        return self._load(workflow_id)
+
     def resume(self, workflow_id: str) -> AgentWorkflowDraft:
-        """Reload state and convert interrupted work into an explicit typed retry."""
+        """Backward-compatible, read-only alias for :meth:`inspect`."""
+
+        return self.inspect(workflow_id)
+
+    def recover_interrupted(
+        self,
+        workflow_id: str,
+        *,
+        expected_operation: WorkflowOperation,
+    ) -> AgentWorkflowDraft:
+        """Repair one explicitly authorized interrupted transition without external I/O."""
 
         draft = self._load(workflow_id)
+        recovery_operation = workflow_recovery_operation(draft)
+        if recovery_operation is None:
+            raise _invalid_transition("workflow has no interrupted transition to recover")
+        if recovery_operation is not expected_operation:
+            raise _decision_mismatch("workflow recovery operation changed before authorization")
         if draft.trace and draft.trace[-1].status is WorkflowTraceStatus.STARTED:
             return self._fail_external(
                 draft,
@@ -181,6 +268,8 @@ class AgentWorkflowOrchestrator:
         self,
         workflow_id: str,
         decision: ExecutionWorkflowDecision,
+        *,
+        should_continue: Callable[[], bool] | None = None,
     ) -> AgentWorkflowDraft:
         draft = self._load(workflow_id)
         self._require_checkpoint(draft, WorkflowCheckpointKind.EXECUTION_APPROVAL)
@@ -208,7 +297,11 @@ class AgentWorkflowOrchestrator:
         prepared, current = self._revalidate_resolved(decided)
         if prepared is None:
             return current
-        return self._execute_preview(current, prepared)
+        return self._execute_preview(
+            current,
+            prepared,
+            should_continue=should_continue or _continue_execution,
+        )
 
     def decide_publication(
         self,
@@ -234,6 +327,7 @@ class AgentWorkflowOrchestrator:
         assert decision.confirmation is not None
         approved_at = self.clock.now()
         approval = WorkflowPublicationApproval(
+            id=f"workflow-publication-{proposal.idempotency_key}",
             workflow_id=draft.id,
             proposal_fingerprint=proposal.fingerprint,
             idempotency_key=proposal.idempotency_key,
@@ -255,6 +349,9 @@ class AgentWorkflowOrchestrator:
         self,
         workflow_id: str,
         decision: RetryWorkflowDecision,
+        *,
+        reserved_execution: ExecutionWorkflowDecision | None = None,
+        should_continue: Callable[[], bool] | None = None,
     ) -> AgentWorkflowDraft:
         draft = self._load(workflow_id)
         failure = draft.failure
@@ -268,6 +365,28 @@ class AgentWorkflowOrchestrator:
             or decision.operation is not failure.operation
         ):
             raise _decision_mismatch("retry decision does not match the recorded failure")
+        if reserved_execution is not None and (
+            reserved_execution.action is not WorkflowDecisionAction.APPROVE
+            or reserved_execution.actor != decision.actor
+            or reserved_execution.plan_fingerprint != draft.plan_fingerprint
+            or failure.operation
+            not in {
+                WorkflowOperation.SQL_VALIDATION,
+                WorkflowOperation.PREVIEW_EXECUTION,
+                WorkflowOperation.REJECTION_INSPECTION,
+            }
+            or not any(
+                prior.kind is WorkflowDecisionKind.EXECUTION
+                and prior.action is WorkflowDecisionAction.APPROVE
+                and prior.actor == reserved_execution.actor
+                and prior.bound_fingerprint == reserved_execution.plan_fingerprint
+                for prior in draft.decisions
+            )
+        ):
+            raise _decision_mismatch(
+                "reserved execution retry does not match the original approval"
+            )
+        continuation = should_continue or _continue_execution
         retried = self._record_decision(
             draft,
             kind=WorkflowDecisionKind.RETRY,
@@ -293,7 +412,13 @@ class AgentWorkflowOrchestrator:
             assessed = self._lookup_recipe(current)
             if assessed.stage is WorkflowStage.FAILED:
                 return assessed
-            return self._pause_for_execution(assessed, prepared)
+            if reserved_execution is None:
+                return self._pause_for_execution(assessed, prepared)
+            return self._execute_preview(
+                assessed,
+                prepared,
+                should_continue=continuation,
+            )
         if failure.operation is WorkflowOperation.QUERY_RECIPE_LOOKUP:
             assessed = self._lookup_recipe(retried)
             if assessed.stage is WorkflowStage.FAILED:
@@ -306,12 +431,20 @@ class AgentWorkflowOrchestrator:
             prepared, current = self._revalidate_resolved(retried)
             if prepared is None:
                 return current
-            return self._execute_preview(current, prepared)
+            return self._execute_preview(
+                current,
+                prepared,
+                should_continue=continuation,
+            )
         if failure.operation is WorkflowOperation.REJECTION_INSPECTION:
             prepared, current = self._revalidate_resolved(retried)
             if prepared is None:
                 return current
-            return self._inspect_rejections(current, prepared)
+            return self._inspect_rejections(
+                current,
+                prepared,
+                should_continue=continuation,
+            )
         if failure.operation is WorkflowOperation.CONTEXT_PUBLICATION:
             return self._publish(retried)
         raise WorkflowError(
@@ -374,6 +507,8 @@ class AgentWorkflowOrchestrator:
                 "context_assets": tuple(assets),
             },
         )
+        if completed.validated_request is not None:
+            return self._resolve_semantics(completed)
         return self._resolve_intent(completed)
 
     def _resolve_intent(self, draft: AgentWorkflowDraft) -> AgentWorkflowDraft:
@@ -431,8 +566,8 @@ class AgentWorkflowOrchestrator:
         validated_request = started.validated_request
         assert validated_request is not None
         try:
-            resolved = self.prepare.planner.execute(validated_request)
-        except (PlanningPortError, SemanticResolutionError) as error:
+            resolved = self.prepare.plan(validated_request)
+        except (ConnectorTargetError, PlanningPortError, SemanticResolutionError) as error:
             code = getattr(error, "code", "semantic_resolution_failed")
             code_value = code.value if hasattr(code, "value") else str(code)
             return self._fail_external(
@@ -515,7 +650,11 @@ class AgentWorkflowOrchestrator:
         self,
         draft: AgentWorkflowDraft,
     ) -> tuple[GovernedPreparedQuery | None, AgentWorkflowDraft]:
-        if draft.resolved_plan is None or draft.plan_fingerprint is None:
+        if (
+            draft.resolved_plan is None
+            or draft.plan_fingerprint is None
+            or draft.validated_request is None
+        ):
             raise _invalid_transition("SQL validation requires an exact resolved plan")
         current_fingerprint = resolved_semantic_plan_fingerprint(draft.resolved_plan)
         if current_fingerprint != draft.plan_fingerprint:
@@ -527,10 +666,41 @@ class AgentWorkflowOrchestrator:
             input_refs=(draft.plan_fingerprint,),
         )
         resolved_plan = started.resolved_plan
-        assert resolved_plan is not None
+        validated_request = started.validated_request
+        assert resolved_plan is not None and validated_request is not None
         try:
-            prepared = self.prepare.validate_resolved(resolved_plan)
-        except (QueryCompilationError, SqlPolicyViolation) as error:
+            prepared = self.prepare.refresh_and_validate(
+                validated_request,
+                resolved_plan,
+            )
+        except SemanticChangeError as error:
+            return None, self._fail_external(
+                started,
+                WorkflowOperation.SQL_VALIDATION,
+                code=error.code.value,
+                retryable=False,
+            )
+        except PlanningPortError as error:
+            return None, self._fail_external(
+                started,
+                WorkflowOperation.SQL_VALIDATION,
+                code=error.code.value,
+                retryable=error.code.value == "planning_context_unavailable",
+            )
+        except QueryCostError as error:
+            return None, self._fail_external(
+                started,
+                WorkflowOperation.SQL_VALIDATION,
+                code=error.code.value,
+                retryable=error.code
+                in {QueryCostErrorCode.TIMEOUT, QueryCostErrorCode.UNAVAILABLE},
+            )
+        except (
+            ConnectorTargetError,
+            QueryCompilationError,
+            SqlPolicyViolation,
+            SemanticResolutionError,
+        ) as error:
             code = getattr(error, "code", "sql_policy_rejected")
             code_value = code.value if hasattr(code, "value") else str(code)
             return None, self._fail_external(
@@ -539,6 +709,18 @@ class AgentWorkflowOrchestrator:
                 code=code_value,
                 retryable=False,
             )
+        if prepared.cost_assessment is not None:
+            try:
+                AssessGovernedQueryCost.require_accepted(prepared.cost_assessment)
+            except QueryCostError as error:
+                return None, self._fail_external(
+                    started,
+                    WorkflowOperation.SQL_VALIDATION,
+                    code=error.code.value,
+                    retryable=error.code
+                    in {QueryCostErrorCode.TIMEOUT, QueryCostErrorCode.UNAVAILABLE},
+                    extra_facts=_cost_trace_facts(prepared),
+                )
         query_fingerprint = _query_fingerprint(prepared)
         if draft.query_fingerprint is not None and draft.query_fingerprint != query_fingerprint:
             raise _decision_mismatch(
@@ -552,6 +734,7 @@ class AgentWorkflowOrchestrator:
                 _fact("query", query_fingerprint),
                 _fact("policy_status", prepared.policy_status),
                 _fact("preview_limit", prepared.query.max_rows),
+                *_cost_trace_facts(prepared),
             ),
             updates={"query_fingerprint": query_fingerprint},
         )
@@ -578,9 +761,17 @@ class AgentWorkflowOrchestrator:
         self,
         draft: AgentWorkflowDraft,
         prepared: GovernedPreparedQuery,
+        *,
+        should_continue: Callable[[], bool],
     ) -> AgentWorkflowDraft:
         if draft.execution is not None:
-            return self._inspect_rejections(draft, prepared)
+            return self._inspect_rejections(
+                draft,
+                prepared,
+                should_continue=should_continue,
+            )
+        if not should_continue():
+            return draft
         started = self._begin_external(
             draft,
             stage=WorkflowStage.EXECUTION,
@@ -589,12 +780,53 @@ class AgentWorkflowOrchestrator:
         )
         try:
             preview = self.execute.execute_preview(prepared)
-        except QueryPreviewError as error:
+        except SemanticChangeError as error:
             return self._fail_external(
                 started,
                 WorkflowOperation.PREVIEW_EXECUTION,
-                code=_error_code(error, "preview_execution_failed"),
+                code=error.code.value,
+                retryable=False,
+            )
+        except ConnectorTargetError as error:
+            return self._fail_external(
+                started,
+                WorkflowOperation.PREVIEW_EXECUTION,
+                code=error.code.value,
+                retryable=error.code.value == "connector_target_unavailable",
+            )
+        except QueryCostError as error:
+            return self._fail_external(
+                started,
+                WorkflowOperation.PREVIEW_EXECUTION,
+                code=error.code.value,
+                retryable=error.code
+                in {QueryCostErrorCode.TIMEOUT, QueryCostErrorCode.UNAVAILABLE},
+                extra_facts=(
+                    _cost_trace_facts_from_assessment(error.assessment)
+                    if error.assessment is not None
+                    else ()
+                ),
+            )
+        except QueryPreviewTimeoutError:
+            return self._fail_external(
+                started,
+                WorkflowOperation.PREVIEW_EXECUTION,
+                code="source_timeout",
                 retryable=True,
+            )
+        except QueryPreviewUnavailableError:
+            return self._fail_external(
+                started,
+                WorkflowOperation.PREVIEW_EXECUTION,
+                code="source_unavailable",
+                retryable=True,
+            )
+        except QueryPreviewError:
+            return self._fail_external(
+                started,
+                WorkflowOperation.PREVIEW_EXECUTION,
+                code="source_policy_rejected",
+                retryable=False,
             )
         record = _execution_record(started, preview)
         executed = self._finish_external(
@@ -609,17 +841,25 @@ class AgentWorkflowOrchestrator:
             ),
             updates={"execution": record},
         )
-        return self._inspect_rejections(executed, prepared)
+        return self._inspect_rejections(
+            executed,
+            prepared,
+            should_continue=should_continue,
+        )
 
     def _inspect_rejections(
         self,
         draft: AgentWorkflowDraft,
         prepared: GovernedPreparedQuery,
+        *,
+        should_continue: Callable[[], bool],
     ) -> AgentWorkflowDraft:
         if draft.execution is None:
             raise _invalid_transition("rejection inspection requires a completed preview")
         if draft.execution.rejection_complete:
             return self._propose_publication(draft)
+        if not should_continue():
+            return draft
         started = self._begin_external(
             draft,
             stage=WorkflowStage.EXECUTION,
@@ -627,13 +867,46 @@ class AgentWorkflowOrchestrator:
             input_refs=(draft.execution.preview_fingerprint,),
         )
         try:
-            report = self.execute.inspect_rejections(prepared)
-        except PlanningPortError as error:
+            report = self.execute.inspect_rejections(
+                prepared,
+                should_continue=should_continue,
+            )
+        except SemanticChangeError as error:
             return self._fail_external(
                 started,
                 WorkflowOperation.REJECTION_INSPECTION,
                 code=error.code.value,
-                retryable=error.code.value == "rejection_inspection_unavailable",
+                retryable=False,
+            )
+        except ConnectorTargetError as error:
+            return self._fail_external(
+                started,
+                WorkflowOperation.REJECTION_INSPECTION,
+                code=error.code.value,
+                retryable=error.code.value == "connector_target_unavailable",
+            )
+        except ProtectedSourceOperationCancelled:
+            return self._fail_external(
+                started,
+                WorkflowOperation.REJECTION_INSPECTION,
+                code="operation_cancelled",
+                retryable=True,
+            )
+        except PlanningPortError as error:
+            if error.code is PlanningPortErrorCode.REJECTION_INSPECTION_TIMEOUT:
+                code = "source_timeout"
+                retryable = True
+            elif error.code is PlanningPortErrorCode.REJECTION_INSPECTION_UNAVAILABLE:
+                code = "source_unavailable"
+                retryable = True
+            else:
+                code = "source_policy_rejected"
+                retryable = False
+            return self._fail_external(
+                started,
+                WorkflowOperation.REJECTION_INSPECTION,
+                code=code,
+                retryable=retryable,
             )
         execution = _complete_rejections(started.execution, report)
         assert execution is not None
@@ -643,6 +916,7 @@ class AgentWorkflowOrchestrator:
             stage=WorkflowStage.EXECUTED,
             facts=(
                 _fact("rejected_count", execution.rejected_count),
+                _fact("inspection_truncated", execution.rejection_truncated),
                 _fact("inspection_user", report.database_user or "none"),
                 _fact("read_only", report.transaction_read_only is True),
             ),
@@ -699,6 +973,38 @@ class AgentWorkflowOrchestrator:
             )
         if result.idempotency_key != proposal.idempotency_key:
             raise _decision_mismatch("publisher returned a different idempotency key")
+        try:
+            validate_publication_audit_binding(
+                result.audit_records,
+                approval_id=approval.id,
+                actor=approval.actor,
+                approved_at=approval.approved_at,
+                new_fingerprint=proposal.fingerprint,
+            )
+            self.audit_store.append(result.audit_records)
+        except ValueError:
+            return self._fail_external(
+                started,
+                WorkflowOperation.CONTEXT_PUBLICATION,
+                code="workflow_publication_invalid_audit",
+                retryable=False,
+            )
+        except PublicationAuditStoreError:
+            return self._fail_external(
+                started,
+                WorkflowOperation.CONTEXT_PUBLICATION,
+                code="workflow_audit_store_failed",
+                retryable=True,
+            )
+        if result.status is WorkflowPublicationStatus.FAILED:
+            assert result.failure_code is not None
+            return self._fail_external(
+                started,
+                WorkflowOperation.CONTEXT_PUBLICATION,
+                code=result.failure_code,
+                retryable=True,
+                updates={"publication_result": result},
+            )
         return self._finish_external(
             started,
             operation=WorkflowOperation.CONTEXT_PUBLICATION,
@@ -769,6 +1075,8 @@ class AgentWorkflowOrchestrator:
         *,
         code: str,
         retryable: bool,
+        updates: dict[str, object] | None = None,
+        extra_facts: tuple[WorkflowTraceFact, ...] = (),
     ) -> AgentWorkflowDraft:
         now = self.clock.now()
         attempt = sum(
@@ -791,6 +1099,7 @@ class AgentWorkflowOrchestrator:
             facts=(
                 _fact("error_code", failure.code),
                 _fact("retryable", failure.retryable),
+                *extra_facts,
             ),
             duration_ms=_duration_ms(draft.trace[-1].occurred_at, now),
         )
@@ -805,6 +1114,7 @@ class AgentWorkflowOrchestrator:
         )
         return self._save_changes(
             draft,
+            **(updates or {}),
             stage=WorkflowStage.FAILED,
             failure=failure,
             checkpoint=checkpoint,
@@ -963,7 +1273,29 @@ def _query_fingerprint(prepared: GovernedPreparedQuery) -> str:
             "parameters": [_to_scalar(item) for item in prepared.query.parameters],
             "max_rows": prepared.query.max_rows,
             "statement_timeout_ms": prepared.query.statement_timeout_ms,
+            "dialect": prepared.query.dialect.value,
+            "target_fingerprint": prepared.query.target_fingerprint,
         }
+    )
+
+
+def _cost_trace_facts(
+    prepared: GovernedPreparedQuery,
+) -> tuple[WorkflowTraceFact, ...]:
+    return _cost_trace_facts_from_assessment(prepared.cost_assessment)
+
+
+def _cost_trace_facts_from_assessment(
+    assessment: QueryCostAssessment | None,
+) -> tuple[WorkflowTraceFact, ...]:
+    if assessment is None:
+        return ()
+    return (
+        _fact("cost_decision", assessment.decision.value),
+        _fact("cost_assessment", assessment.fingerprint),
+        _fact("estimated_total_cost", assessment.total_cost),
+        _fact("estimated_root_rows", assessment.estimated_root_rows),
+        _fact("plan_node_count", assessment.plan_node_count),
     )
 
 
@@ -987,6 +1319,7 @@ def _execution_record(
         query_fingerprint=draft.query_fingerprint,
         columns=preview.columns,
         rows=rows,
+        row_count=len(rows),
         database_user=preview.database_user,
         transaction_read_only=preview.transaction_read_only,
         statement_timeout_ms=preview.statement_timeout_ms,
@@ -1006,7 +1339,8 @@ def _complete_rejections(
         {
             **execution.model_dump(mode="python"),
             "rejection_codes": codes,
-            "rejected_count": len(codes),
+            "rejected_count": report.total_records,
+            "rejection_truncated": report.truncated,
             "rejection_complete": True,
         }
     )
@@ -1058,6 +1392,25 @@ def _retry_stage(operation: WorkflowOperation) -> WorkflowStage:
         WorkflowOperation.REJECTION_INSPECTION: WorkflowStage.EXECUTION,
         WorkflowOperation.CONTEXT_PUBLICATION: WorkflowStage.PUBLICATION_PROPOSED,
     }.get(operation, WorkflowStage.FAILED)
+
+
+def workflow_recovery_operation(draft: AgentWorkflowDraft) -> WorkflowOperation | None:
+    """Describe the exact state-repair operation required, without mutating the draft."""
+
+    if draft.trace and draft.trace[-1].status is WorkflowTraceStatus.STARTED:
+        return draft.trace[-1].operation
+    pending = _pending_resume_operation(draft)
+    if pending is not None:
+        return pending
+    if (
+        draft.stage is WorkflowStage.VALIDATED
+        and draft.checkpoint is None
+        and draft.plan_fingerprint is not None
+    ):
+        return WorkflowOperation.HUMAN_DECISION
+    if draft.stage is WorkflowStage.EXECUTED:
+        return WorkflowOperation.HUMAN_DECISION
+    return None
 
 
 def _pending_resume_operation(draft: AgentWorkflowDraft) -> WorkflowOperation | None:

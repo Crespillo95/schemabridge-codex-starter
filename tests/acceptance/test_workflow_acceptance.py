@@ -18,6 +18,7 @@ from schemabridge.adapters.postgres.rejections import PsycopgRejectedSourceRepor
 from schemabridge.adapters.requests.recorded_context import RecordedRequestContextAdapter
 from schemabridge.adapters.sql.compiler import PostgresQueryCompiler
 from schemabridge.adapters.sql.guard import SqlGlotPolicyGuard
+from schemabridge.adapters.storage.publication_audit import SqlitePublicationAuditStore
 from schemabridge.adapters.storage.workflows import SqliteWorkflowDraftStore
 from schemabridge.adapters.workflows.fake import SqliteFakeWorkflowPublisher
 from schemabridge.adapters.workflows.system import SystemWorkflowClock
@@ -98,6 +99,7 @@ def _orchestrator(
             ),
         ),
         publisher=publisher or SqliteFakeWorkflowPublisher(database_path),
+        audit_store=SqlitePublicationAuditStore(database_path),
         recipe_assessor=AssessQueryRecipeReuse(recipes) if recipes is not None else None,
     )
 
@@ -172,9 +174,10 @@ def test_live_datahub_and_postgres_complete_local_north_star(tmp_path: Path) -> 
         pytest.skip(
             "DataHub MCP/writer credentials are absent; run the M04/M07 provisioning targets"
         )
+    database_path = tmp_path / "live-workflow.db"
     publisher = DataHubWorkflowPublicationAdapter.from_env_file(ROOT / ".local/datahub/writer.env")
     orchestrator = _orchestrator(
-        tmp_path / "live-workflow.db",
+        database_path,
         build_catalog_reader("live", repository_root=ROOT),
         publisher,
     )
@@ -237,3 +240,10 @@ def test_live_datahub_and_postgres_complete_local_north_star(tmp_path: Path) -> 
     ).publish(executed.publication_proposal, published.publication_approval)
     assert replay.status is WorkflowPublicationStatus.ALREADY_CURRENT
     assert replay.document_ref == published.publication_result.document_ref
+    records = SqlitePublicationAuditStore(database_path).list_for_approval(
+        published.publication_approval.id
+    )
+    assert len(records) == 1
+    assert records[0].actor == published.publication_approval.actor
+    assert records[0].approved_at == published.publication_approval.approved_at
+    assert records[0].new_fingerprint == executed.publication_proposal.fingerprint

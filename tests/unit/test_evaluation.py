@@ -35,23 +35,24 @@ def test_evaluation_composition_uses_the_fixed_demo_reader_when_url_is_absent() 
         settings=Settings.model_validate({"DATABASE_URL": None}),
     )
 
-    assert runner.ground_truth.load().version == 1
+    assert runner.ground_truth.load().version == 2
 
 
 def test_versioned_ground_truth_loads_every_small_synthetic_denominator() -> None:
     truth = RecordedEvaluationGroundTruthAdapter(ROOT).load()
 
-    assert truth.version == 1
+    assert truth.version == 2
     assert {item.name: item.version for item in truth.sources} == {
         "approved_logical_context": 1,
         "join_contracts": 1,
         "planning_mappings": 1,
-        "query_cases": 1,
-        "query_recipe": 1,
+        "query_cases": 2,
+        "query_recipe": 4,
         "semantic_mappings": 1,
         "sql_guard_cases": 1,
+        "semantic_registry": 1,
     }
-    assert len(truth.queries) == 2
+    assert len(truth.queries) == 5
     assert len(truth.joins) == 2
     assert len(truth.safety_cases) == 38
     assert len(truth.recipe_reuse_cases) == 2

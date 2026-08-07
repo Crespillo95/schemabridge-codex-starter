@@ -1,0 +1,604 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: schemabridge-system
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []
+  egress: []
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: schemabridge-web
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/component: web
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: web
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: controller
+      ports:
+        - protocol: TCP
+          port: 7860
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: api
+      ports:
+        - protocol: TCP
+          port: 8520
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              schemabridge.io/egress-plane: "true"
+          podSelector:
+            matchLabels:
+              schemabridge.io/egress-capability: secret-manager
+        - namespaceSelector:
+            matchLabels:
+              schemabridge.io/egress-plane: "true"
+          podSelector:
+            matchLabels:
+              schemabridge.io/egress-capability: oidc
+        - namespaceSelector:
+            matchLabels:
+              schemabridge.io/egress-plane: "true"
+          podSelector:
+            matchLabels:
+              schemabridge.io/egress-capability: control-runtime
+        - namespaceSelector:
+            matchLabels:
+              schemabridge.io/egress-plane: "true"
+          podSelector:
+            matchLabels:
+              schemabridge.io/egress-capability: datahub-registry
+      ports:
+        - protocol: TCP
+          port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: schemabridge-api
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/component: api
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: api
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: controller
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: web
+      ports:
+        - protocol: TCP
+          port: 8520
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9464
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              schemabridge.io/egress-plane: "true"
+          podSelector:
+            matchLabels:
+              schemabridge.io/egress-capability: oidc
+        - namespaceSelector:
+            matchLabels:
+              schemabridge.io/egress-plane: "true"
+          podSelector:
+            matchLabels:
+              schemabridge.io/egress-capability: control-api
+      ports:
+        - protocol: TCP
+          port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: schemabridge-worker
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/component: worker
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: worker
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9464
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              schemabridge.io/egress-plane: "true"
+          podSelector:
+            matchLabels:
+              schemabridge.io/egress-capability: secret-manager
+        - namespaceSelector:
+            matchLabels:
+              schemabridge.io/egress-plane: "true"
+          podSelector:
+            matchLabels:
+              schemabridge.io/egress-capability: control-worker
+        - namespaceSelector:
+            matchLabels:
+              schemabridge.io/egress-plane: "true"
+          podSelector:
+            matchLabels:
+              schemabridge.io/egress-capability: source-execution
+        - namespaceSelector:
+            matchLabels:
+              schemabridge.io/egress-plane: "true"
+          podSelector:
+            matchLabels:
+              schemabridge.io/egress-capability: datahub-registry
+      ports:
+        - protocol: TCP
+          port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: schemabridge-catalog
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/component: catalog
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: catalog
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9464
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              schemabridge.io/egress-plane: "true"
+          podSelector:
+            matchLabels:
+              schemabridge.io/egress-capability: secret-manager
+        - namespaceSelector:
+            matchLabels:
+              schemabridge.io/egress-plane: "true"
+          podSelector:
+            matchLabels:
+              schemabridge.io/egress-capability: control-catalog
+        - namespaceSelector:
+            matchLabels:
+              schemabridge.io/egress-plane: "true"
+          podSelector:
+            matchLabels:
+              schemabridge.io/egress-capability: datahub-catalog
+      ports:
+        - protocol: TCP
+          port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: schemabridge-profile
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/component: profile
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: profile
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9464
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              schemabridge.io/egress-plane: "true"
+          podSelector:
+            matchLabels:
+              schemabridge.io/egress-capability: secret-manager
+        - namespaceSelector:
+            matchLabels:
+              schemabridge.io/egress-plane: "true"
+          podSelector:
+            matchLabels:
+              schemabridge.io/egress-capability: control-worker
+        - namespaceSelector:
+            matchLabels:
+              schemabridge.io/egress-plane: "true"
+          podSelector:
+            matchLabels:
+              schemabridge.io/egress-capability: source-profile
+        - namespaceSelector:
+            matchLabels:
+              schemabridge.io/egress-plane: "true"
+          podSelector:
+            matchLabels:
+              schemabridge.io/egress-capability: datahub-registry
+      ports:
+        - protocol: TCP
+          port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: schemabridge-publisher
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/component: publisher
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: publisher
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9464
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              schemabridge.io/egress-plane: "true"
+          podSelector:
+            matchLabels:
+              schemabridge.io/egress-capability: secret-manager
+        - namespaceSelector:
+            matchLabels:
+              schemabridge.io/egress-plane: "true"
+          podSelector:
+            matchLabels:
+              schemabridge.io/egress-capability: control-publisher
+        - namespaceSelector:
+            matchLabels:
+              schemabridge.io/egress-plane: "true"
+          podSelector:
+            matchLabels:
+              schemabridge.io/egress-capability: datahub-registry-writer
+      ports:
+        - protocol: TCP
+          port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: schemabridge-reconciler
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/component: reconciler
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: reconciler
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9464
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              schemabridge.io/egress-plane: "true"
+          podSelector:
+            matchLabels:
+              schemabridge.io/egress-capability: control-reconciler
+        - namespaceSelector:
+            matchLabels:
+              schemabridge.io/egress-plane: "true"
+          podSelector:
+            matchLabels:
+              schemabridge.io/egress-capability: datahub-registry
+        - namespaceSelector:
+            matchLabels:
+              schemabridge.io/egress-plane: "true"
+          podSelector:
+            matchLabels:
+              schemabridge.io/egress-capability: secret-manager
+      ports:
+        - protocol: TCP
+          port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: schemabridge-migrator
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/component: migrator
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: migrator
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              schemabridge.io/egress-plane: "true"
+          podSelector:
+            matchLabels:
+              schemabridge.io/egress-capability: secret-manager
+        - namespaceSelector:
+            matchLabels:
+              schemabridge.io/egress-plane: "true"
+          podSelector:
+            matchLabels:
+              schemabridge.io/egress-capability: control-migrator
+      ports:
+        - protocol: TCP
+          port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: schemabridge-backup
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/component: backup
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: backup
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              schemabridge.io/egress-plane: "true"
+          podSelector:
+            matchLabels:
+              schemabridge.io/egress-capability: control-backup
+      ports:
+        - protocol: TCP
+          port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: schemabridge-observer
+  namespace: schemabridge-system
+  labels:
+    app.kubernetes.io/component: observer
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: observer
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9464
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              schemabridge.io/egress-plane: "true"
+          podSelector:
+            matchLabels:
+              schemabridge.io/egress-capability: control-observer
+      ports:
+        - protocol: TCP
+          port: 443

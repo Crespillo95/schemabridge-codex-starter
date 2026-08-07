@@ -1,0 +1,49 @@
+1
+00:00:00,000 --> 00:00:16,000
+A customer key is a padded string here, an integer there,
+and an unsafe float elsewhere. Valid SQL can still be wrong.
+
+2
+00:00:16,000 --> 00:00:34,000
+SchemaBridge reads bounded schemas and governance context from DataHub.
+Missing evidence stays missing; it is never invented.
+
+3
+00:00:34,000 --> 00:00:56,000
+It proposes one Customer key with evidence, confidence,
+normalization, and risk. A human still approves the mapping.
+
+4
+00:00:56,000 --> 00:01:12,000
+The approved Customer to AccountHolder join is one-to-many.
+Entity counts require the contract's exact distinct-key mitigation.
+
+5
+00:01:12,000 --> 00:01:30,000
+The request counts customers by registration date
+when the holder role is secondary.
+
+6
+00:01:30,000 --> 00:01:55,000
+A typed plan selects approved versions. A deterministic compiler
+produces PostgreSQL, then an independent AST guard validates it.
+
+7
+00:01:55,000 --> 00:02:15,000
+The read-only preview returns 2, 1, and 1.
+Fractional, non-finite, and null identifiers are rejected visibly.
+
+8
+00:02:15,000 --> 00:02:39,000
+With explicit approval, SchemaBridge writes governed context
+and a SQL-free recipe back to DataHub with target-level audit facts.
+
+9
+00:02:39,000 --> 00:02:51,000
+A later workflow retrieves the context but still replans,
+recompiles, validates, and asks for execution approval.
+
+10
+00:02:51,000 --> 00:02:55,000
+SchemaBridge: govern the semantic layer
+before asking an agent to query it.

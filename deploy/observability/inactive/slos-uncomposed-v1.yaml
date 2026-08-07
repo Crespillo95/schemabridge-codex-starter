@@ -1,0 +1,57 @@
+schema_version: schemabridge.slo.v1
+evidence_class: synthetic_local_not_production
+window_days: 30
+slos:
+  - id: api_availability
+    category: availability
+    owner: platform-operations
+    objective: 0.995
+    error_budget_fraction: 0.005
+    indicator:
+      type: success_ratio
+      metrics:
+        - schemabridge_http_requests_total
+      good_outcome: success
+      total_outcomes:
+        - success
+        - error
+        - denied
+
+  - id: api_latency
+    category: latency
+    owner: platform-operations
+    objective: 0.95
+    error_budget_fraction: 0.05
+    indicator:
+      type: histogram_threshold_ratio
+      metrics:
+        - schemabridge_http_request_duration_seconds
+      threshold_seconds: 0.75
+
+  - id: operational_freshness
+    category: freshness
+    owner: data-platform-operations
+    objective: 0.99
+    error_budget_fraction: 0.01
+    indicator:
+      type: age_threshold_ratio
+      metrics:
+        - schemabridge_queue_oldest_age_seconds
+        - schemabridge_reconciliation_age_seconds
+        - schemabridge_backup_age_seconds
+      queue_threshold_seconds: 300
+      reconciliation_threshold_seconds: 86400
+      backup_threshold_seconds: 3600
+
+  - id: governed_correctness
+    category: correctness
+    owner: security-operations
+    objective: 1.0
+    error_budget_fraction: 0.0
+    indicator:
+      type: zero_failure_ratio
+      metrics:
+        - schemabridge_integrity_failures_total
+        - schemabridge_runtime_control_failures_total
+        - schemabridge_release_policy_checks_total
+      accepted_failure_count: 0

@@ -26,7 +26,12 @@ Snapshot: pre-fix M16 working tree plus clean-reset observations, 2026-07-21/22.
   a single target audit fact.
 - Proposed regression: persist and read back one immutable per-target audit record with actor,
   timestamp, old/new fingerprints, operation, result, and approval/decision IDs.
-- Disposition: accepted as `GOV-001` and explicitly blocks release; it was not silently downgraded.
+- Disposition: accepted and fixed. `PublicationTargetAuditRecord` now colocates family, operation,
+  target, approval ID, actor/time, old/new fingerprints, decision IDs, outcome, and stable failure
+  reason. All four publication families validate the exact approval binding before atomically
+  appending to a shared SQLite ledger; approval-ID identity is immutable, fresh-process reads and
+  partial retry are covered. The lack of a DataHub/SQLite distributed transaction remains the
+  narrower medium residual risk `GOV-002`.
 
 ### DH-003 — High — Release procedure did not prove governed state after restart
 
@@ -54,7 +59,10 @@ Snapshot: pre-fix M16 working tree plus clean-reset observations, 2026-07-21/22.
 - Reproduction: precreate the version URN with different content and replay publication.
 - Risk: an external collision can be reported less precisely.
 - Proposed regression: require an exact fingerprint match or a typed immutable conflict.
-- Disposition: retained in the unresolved-risk register.
+- Disposition: accepted and fixed. Join, recipe, and canonical version targets read and validate
+  their own prior fingerprint, reject a different immutable payload before mutation, and require
+  typed post-write read-back before reporting success. The remaining concurrent-writer window of
+  DataHub's unconditional upsert is tracked separately as `GOV-003`.
 
 ### DH-006 — High — Health could select an unrelated GMS-like container
 
@@ -96,7 +104,29 @@ Snapshot: pre-fix M16 working tree plus clean-reset observations, 2026-07-21/22.
 - Proposed regression: add bounded revocation or return a safe revocation identifier.
 - Disposition: retained as a documented residual risk; no token is printed or saved on failure.
 
+### DH-010 — High — Workflow read-back accepted fingerprints without approval/audit evidence
+
+- Evidence: the workflow adapter's current-state predicate compared five payload fingerprints but
+  did not verify workflow ID, approval ID/actor/time, or the embedded per-target audit record.
+- Reproduction: return a DataHub document containing only those fingerprints; the pre-fix adapter
+  reports `already_current`, or reports a write as successful after an unchanged no-op target.
+- Risk: application/ledger evidence could claim a governed workflow publication even though the
+  target did not carry the asserted approval and audit facts. A manually constructed proposal could
+  also reuse another payload's idempotency key because its hashes were not recomputed.
+- Proposed regression: require exact approval/audit target read-back before replay or post-write
+  success, reject any proposal whose idempotency key/fingerprint differs from recomputation, and
+  never overwrite a deterministic target carrying another valid fingerprint.
+- Disposition: accepted and fixed. The adapter parses and validates the embedded audit and binds it
+  to the exact target, approval, actor/time, workflow, and payload; post-write compares the exact
+  successful record. `WorkflowPublicationProposal` now enforces both deterministic hashes, and an
+  immutable target conflict fails before `upsert`. Focused regressions and the live DataHub
+  workflow acceptance/replay pass.
+
 ## Conclusion
 
-Clean reset, ingest, scoped read/write, MCP read-only behavior, and restart persistence passed. The
-unified per-target audit fact remains a high release blocker; other retained risks are explicit.
+Clean reset, ingest, scoped read/write, MCP read-only behavior, restart persistence, and the unified
+per-target audit contract pass. `GOV-001` is closed without fabricating old state: targets that
+cannot expose a fingerprint record null and are revalidated structurally. Cross-system
+reconciliation (`GOV-002`), the no-CAS writer race (`GOV-003`), and the other retained risks remain
+explicit. The current remediation still needs reviewed-commit and strict clean-room evidence before
+release.

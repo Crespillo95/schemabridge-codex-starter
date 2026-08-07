@@ -22,3 +22,27 @@
 | 18 | M17 | blocked | requires accepted M16 |
 | 19 | M18 | blocked | requires M15–M17 |
 | 20 | M19 | optional | only after accepted M18 |
+
+## Productionization continuation
+
+This track follows the locally verified development baseline without accepting the blocked public
+M17/M18 release evidence.
+
+| Order | ID | Status | Dependency note |
+|---:|---|---|---|
+| 21 | M20 | locally complete; accepted as productionization baseline | identity/RBAC/workflow isolation evidence recorded |
+| 22 | M21 | complete; accepted as productionization baseline | atomic registry and diverse corpus gates pass |
+| 23 | M22 | complete; accepted | live DataHub registry and browser gates pass |
+| 24 | M23 | complete; accepted as productionization baseline | durable activation, migrations, rollback, reconciliation, recovery, and browser gates pass |
+| 25 | M24 | complete; accepted locally | authenticated API, queues/workers, leases, cancellation, and idempotency |
+| 26 | M25 | complete; accepted locally | dynamic inventory, scale, full gate, and browser evidence recorded |
+| 27 | M26 | complete; accepted locally | all 30 criteria and final technical/browser gates recorded |
+| 28 | M27 | complete; accepted locally | dynamic governed matching and final gates recorded |
+| 29 | M28 | complete; accepted locally | governed connector routing, cost controls, full gate, and browser evidence recorded |
+| 30 | M29 | complete; accepted locally | operations/supply-chain local gates pass; external operated evidence remains open |
+| 31 | M32 | complete; accepted locally | bounded copy-first PostgreSQL capability; production gates remain open |
+| 32 | M33 | complete; accepted locally | generic tenant onboarding to an immutable ready-for-publication proposal |
+| 33 | M34 | complete; accepted locally | isolated writer/readback and activation-ready bridge pass local gates |
+| 34 | M35 | complete; accepted locally | bounded registry-v2 join and one-model replacement/remediation lifecycle |
+| 35 | M30 | Phase 0 + Phase 1a + fail-closed Phase 1b policy preparation + schema-v2 qsp3 target binding published on draft PR #1; D137/D138 pass the 174-test M30 cut, while D139 `cryptography==50.0.0` passes 277 targeted tests, the 4,073-test full local gate and the exact-hotfix local/recorded browser regression; campaign blocked | policy validation remains trust/auth false and 0/24; managed/operated browser, external trust/raw derivation/CAS ledger, dedicated evaluator/fd-consumption/mount isolation, protected exact candidate, 24 operated/independent/owner controls and corpus execution are absent |
+| 36 | M31 | blocked | requires accepted M30; M31 produces the operated pilot evidence |

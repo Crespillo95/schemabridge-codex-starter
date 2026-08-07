@@ -1,0 +1,35 @@
+version: 1
+fixture_notice: >-
+  Frozen synthetic paraphrases for the M27 v7 live-provider qualification campaign.
+  They contain no employer, customer, source-row, credential, or proprietary data.
+core_paraphrases:
+  - id: secondary-holders-by-registration-date
+    paraphrases:
+      - language: es
+        text: cuenta clientes que sean segundo titular por fecha de registro
+      - language: es
+        text: agrupa por fecha de alta los clientes que sean segundo titular de una cuenta
+  - id: active-customers-by-country
+    paraphrases:
+      - language: en
+        text: count customers that are active grouped by country
+      - language: en
+        text: group active customers by country
+  - id: active-products-by-category
+    paraphrases:
+      - language: es
+        text: agrupa los productos activos por categoría
+      - language: es
+        text: cuenta productos que sean activos por categoría
+  - id: delivered-orders-by-day
+    paraphrases:
+      - language: en
+        text: count delivered orders by delivery date
+      - language: en
+        text: group delivered orders by shipment delivery day
+  - id: revenue-by-order-date-and-category
+    paraphrases:
+      - language: es
+        text: suma el ingreso neto por fecha del pedido y categoría del producto
+      - language: es
+        text: totaliza el importe neto por fecha de pedido y categoría de producto

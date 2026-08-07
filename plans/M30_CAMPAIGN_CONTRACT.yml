@@ -1,0 +1,188 @@
+schema_version: 2
+milestone: M30
+candidate_sku:
+  dialect: postgresql
+  typed_query_plan_version: 2
+  output_mode: copy_first
+  automatic_execution: false
+  confirmation_required: true
+  max_connections_per_query: 1
+  max_tables_per_query: 3
+  max_joins_per_query: 2
+  max_context_models: 3
+  max_context_fields: 12
+  max_natural_query_characters: 2000
+  max_semantic_mentions: 12
+  max_predicate_depth: 4
+  max_predicate_leaves: 16
+  max_in_values: 64
+  max_windows_per_query: 4
+  preview_enabled_by_default: false
+  default_preview_row_limit: 500
+  maximum_preview_row_limit: 10000
+  statement_timeout_ms: 5000
+  null_policy: preserve_governed_nulls
+  fanout_policy: reject_unsafe_require_explicit_mitigation
+  managed_copy_sql:
+    required_registry_format_version: 2
+    confirmation_token: qsp3
+    target_binding_fields:
+      - connection_id
+      - target_route_revision
+      - target_fingerprint
+      - target_type_contract_fingerprint
+    m26_current_checkpoints:
+      - complete_registry_before_target_or_provider
+      - selected_plan_after_interpretation
+      - selected_plan_at_confirmation
+      - selected_plan_before_generation
+    target_resolution_checkpoints:
+      - before_provider
+      - after_interpretation
+      - at_confirmation
+      - before_compilation
+    target_bound_consumers:
+      - resolved_plan_fingerprint
+      - deterministic_compiler
+      - parameterized_ast_guard
+      - copy_renderer
+      - standalone_ast_guard
+      - copy_artifact
+    artifact_rerun_policy: provider_free_revalidate_regenerate_compare_before_display_or_download
+    unbound_output_policy: local_recorded_noncommercial_only
+case_minimums:
+  - case_class: supported_simple
+    minimum_cases: 200
+    minimum_spanish_cases: 100
+    minimum_english_cases: 100
+  - case_class: supported_advanced
+    minimum_cases: 300
+    minimum_spanish_cases: 150
+    minimum_english_cases: 150
+  - case_class: ambiguous
+    minimum_cases: 150
+    minimum_spanish_cases: 75
+    minimum_english_cases: 75
+  - case_class: unsupported
+    minimum_cases: 150
+    minimum_spanish_cases: 75
+    minimum_english_cases: 75
+  - case_class: adversarial_security
+    minimum_cases: 200
+    minimum_spanish_cases: 100
+    minimum_english_cases: 100
+thresholds:
+  unauthorized_writes_max: 0
+  cross_tenant_events_max: 0
+  forbidden_sql_emissions_max: 0
+  compiler_correctness_min: 1.0
+  ast_acceptance_min: 1.0
+  supported_semantic_correctness_min: 0.95
+  safe_no_sql_min: 0.99
+  critical_safe_no_sql_min: 1.0
+  critical_semantic_failures_max: 0
+  critical_regressions_max: 0
+  confirmation_bypass_max: 0
+  result_equivalence_min: 1.0
+  material_regression_policy: signed_exception_and_affected_rerun
+supported_families:
+  - aggregates
+  - conditional_aggregates
+  - dates
+  - filters
+  - having
+  - identifiers
+  - lag_lead
+  - limits
+  - moving_windows
+  - null_semantics
+  - numeric_buckets
+  - percentages
+  - projection
+  - ranking
+  - running_totals
+  - sorting
+  - top_n
+unsupported_families:
+  - arbitrary_subqueries
+  - cross_join
+  - federation
+  - gaps_and_islands
+  - over_limit_plans
+  - recursion
+  - self_join
+  - set_operations
+  - unsafe_rollup
+required_controls:
+  - code: adversarial_browser_api
+    label: Operated CSRF XSS injection body-limit pagination and error-sanitization campaign
+    evidence_class: operated_target
+  - code: blind_bilingual_corpus
+    label: Independent blind bilingual corpus and hidden answer authority
+    evidence_class: independent_third_party
+  - code: candidate_clean_room_install
+    label: Exact-candidate clean-room wheel and image installation verification
+    evidence_class: hosted_ci
+  - code: browser_accessibility_matrix
+    label: Operated browser compatibility and accessibility matrix
+    evidence_class: operated_target
+  - code: candidate_owner_signatures
+    label: Candidate-specific product security operations semantic and release approvals
+    evidence_class: owner_approval
+  - code: execution_ast_equivalence
+    label: Independent PostgreSQL result-equivalence and AST-safety campaign
+    evidence_class: independent_third_party
+  - code: hosted_postgres_integration
+    label: Exact-candidate hosted PostgreSQL integration and acceptance gates
+    evidence_class: hosted_ci
+  - code: hosted_quality_gate
+    label: Exact-candidate hosted quality and runtime-wheel gates
+    evidence_class: hosted_ci
+  - code: hosted_supply_chain_subjects
+    label: Exact-candidate wheel image SBOM scan and provenance subjects
+    evidence_class: hosted_ci
+  - code: independent_pentest
+    label: Independent threat-model review and penetration test with no open Critical or High
+    evidence_class: independent_third_party
+  - code: immutable_raw_result_bundle
+    label: Signed immutable raw campaign result bundle bound to the exact candidate
+    evidence_class: independent_third_party
+  - code: operated_datahub_iam
+    label: Target DataHub least-privilege publisher isolation and read-back
+    evidence_class: operated_target
+  - code: operated_incident_drill
+    label: Target incident detection response containment and evidence-preservation drill
+    evidence_class: operated_target
+  - code: operated_m35_lifecycle
+    label: Target M35 replacement remediation publication and separate activation campaign
+    evidence_class: operated_target
+  - code: operated_oidc_tenant_isolation
+    label: Target OIDC group freshness tenant isolation IDOR and separation-of-duty campaign
+    evidence_class: operated_target
+  - code: operated_recovery_drill
+    label: Signed fresh-target restore with measured RPO RTO and rollback
+    evidence_class: operated_target
+  - code: operated_secret_rotation
+    label: Target secret creation rotation revocation and leak-response drill
+    evidence_class: operated_target
+  - code: operated_siem_paging
+    label: Target SIEM delivery paging loss detection and incident resolution
+    evidence_class: operated_target
+  - code: independent_source_readonly
+    label: Independent target-source read-only timeout and allowlist verification
+    evidence_class: independent_third_party
+  - code: operated_target_cluster
+    label: Target cluster admission NetworkPolicy identity TLS and egress enforcement
+    evidence_class: operated_target
+  - code: published_artifact_attestation
+    label: Published immutable wheel and image signature and attestation verification
+    evidence_class: hosted_ci
+  - code: release_risk_register
+    label: Candidate-specific risk register adjudication trail and signed go-no-go record
+    evidence_class: owner_approval
+  - code: scale_cost_soak_campaign
+    label: Operated scale cost failure and one-hour soak campaign
+    evidence_class: operated_target
+  - code: signed_campaign_manifest
+    label: Signed immutable campaign manifest bound to every frozen candidate input
+    evidence_class: hosted_ci

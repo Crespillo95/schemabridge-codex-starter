@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from schemabridge.domain.decisions import DecisionRecord
 from schemabridge.domain.join_reviews import (
@@ -46,6 +46,17 @@ class RelationshipEvidencePort(Protocol):
 
     def profile(self, proposal: JoinProposal) -> RelationshipProfile:
         """Profile normalized keys without returning or modifying source rows."""
+
+
+@runtime_checkable
+class BatchRelationshipEvidencePort(Protocol):
+    """Return ordered aggregate evidence after preparing a complete proposal batch."""
+
+    def profiles(
+        self,
+        proposals: tuple[JoinProposal, ...],
+    ) -> tuple[RelationshipProfile, ...]:
+        """Prepare every proposal before reporting that any batch evidence is pending."""
 
 
 class JoinReviewStorePort(Protocol):

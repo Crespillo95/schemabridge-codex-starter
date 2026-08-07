@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 from schemabridge.adapters.datahub.canonical_urns import (
     CUSTOMER_KEY_TERM_URN,
     DECISION_PROPERTY_URN,
@@ -10,6 +12,11 @@ from schemabridge.adapters.datahub.canonical_urns import (
 )
 from schemabridge.application.ports.reviews import ReviewErrorCode, ReviewWorkflowError
 from schemabridge.domain.decisions import ApprovalStatus, DecisionAction
+from schemabridge.domain.publication_audit import (
+    PublicationAuditOutcome,
+    PublicationFamily,
+    PublicationTargetAuditRecord,
+)
 from schemabridge.domain.reviews import (
     CanonicalPublication,
     PublicationApproval,
@@ -22,13 +29,31 @@ from schemabridge.domain.reviews import (
     PublishedCanonicalContext,
 )
 
+_UNFINGERPRINTED_TARGET_KINDS = {
+    PublicationItemKind.STRUCTURED_PROPERTY,
+    PublicationItemKind.PHYSICAL_LINK,
+}
+
+
+@dataclass(slots=True)
+class FakeCatalogWriteBackend:
+    """Shared per-target catalog state for partial-failure retry tests."""
+
+    current: PublishedCanonicalContext | None = None
+    target_fingerprints: dict[tuple[PublicationItemKind, str], str] = field(default_factory=dict)
+
 
 class FakeCatalogWriteAdapter:
     """Inert writer with idempotency and injectable typed partial failure."""
 
-    def __init__(self, fail_at: PublicationItemKind | None = None) -> None:
+    def __init__(
+        self,
+        fail_at: PublicationItemKind | None = None,
+        *,
+        backend: FakeCatalogWriteBackend | None = None,
+    ) -> None:
         self._fail_at = fail_at
-        self._contexts: dict[str, PublishedCanonicalContext] = {}
+        self._backend = backend or FakeCatalogWriteBackend()
         self.publish_calls = 0
 
     def publish(
@@ -40,19 +65,39 @@ class FakeCatalogWriteAdapter:
         self.publish_calls += 1
         targets = _publication_targets(publication)
         decision_refs = _decision_refs(publication)
-        current = self._contexts.get(publication.fingerprint)
-        if current is not None:
+        previous_fingerprints = {
+            (kind, target): (
+                None
+                if kind in _UNFINGERPRINTED_TARGET_KINDS
+                else self._backend.target_fingerprints.get((kind, target))
+            )
+            for kind, target in targets
+        }
+        document_previous = next(
+            previous_fingerprints[(kind, target)]
+            for kind, target in targets
+            if kind is PublicationItemKind.DECISION_DOCUMENT
+        )
+        if document_previous is not None and document_previous != publication.fingerprint:
+            raise ReviewWorkflowError(
+                ReviewErrorCode.CONFLICT,
+                "immutable canonical decision document already identifies different content",
+            )
+        if all(previous == publication.fingerprint for previous in previous_fingerprints.values()):
             return PublicationResult(
                 approval_id=approval.id,
                 draft_id=publication.draft_id,
                 fingerprint=publication.fingerprint,
                 status=PublicationStatus.ALREADY_CURRENT,
                 items=tuple(
-                    PublicationItemResult(
-                        kind=kind,
-                        target=target,
-                        status=PublicationItemStatus.ALREADY_CURRENT,
-                        decision_refs=decision_refs,
+                    _item(
+                        publication,
+                        approval,
+                        kind,
+                        target,
+                        PublicationItemStatus.ALREADY_CURRENT,
+                        decision_refs,
+                        previous_fingerprints[(kind, target)],
                     )
                     for kind, target in targets
                 ),
@@ -61,34 +106,58 @@ class FakeCatalogWriteAdapter:
         items: list[PublicationItemResult] = []
         failed = False
         for kind, target in targets:
+            previous_fingerprint = previous_fingerprints[(kind, target)]
             if failed:
                 items.append(
-                    PublicationItemResult(
-                        kind=kind,
-                        target=target,
-                        status=PublicationItemStatus.NOT_ATTEMPTED,
+                    _item(
+                        publication,
+                        approval,
+                        kind,
+                        target,
+                        PublicationItemStatus.NOT_ATTEMPTED,
+                        decision_refs,
+                        previous_fingerprint,
                         reason_code="prior_item_failed",
-                        decision_refs=decision_refs,
+                    )
+                )
+            elif previous_fingerprint == publication.fingerprint:
+                items.append(
+                    _item(
+                        publication,
+                        approval,
+                        kind,
+                        target,
+                        PublicationItemStatus.ALREADY_CURRENT,
+                        decision_refs,
+                        previous_fingerprint,
                     )
                 )
             elif kind is self._fail_at:
                 failed = True
                 items.append(
-                    PublicationItemResult(
-                        kind=kind,
-                        target=target,
-                        status=PublicationItemStatus.FAILED,
+                    _item(
+                        publication,
+                        approval,
+                        kind,
+                        target,
+                        PublicationItemStatus.FAILED,
+                        decision_refs,
+                        previous_fingerprint,
                         reason_code="injected_catalog_failure",
-                        decision_refs=decision_refs,
                     )
                 )
             else:
+                if kind not in _UNFINGERPRINTED_TARGET_KINDS:
+                    self._backend.target_fingerprints[(kind, target)] = publication.fingerprint
                 items.append(
-                    PublicationItemResult(
-                        kind=kind,
-                        target=target,
-                        status=PublicationItemStatus.PUBLISHED,
-                        decision_refs=decision_refs,
+                    _item(
+                        publication,
+                        approval,
+                        kind,
+                        target,
+                        PublicationItemStatus.PUBLISHED,
+                        decision_refs,
+                        previous_fingerprint,
                     )
                 )
 
@@ -102,7 +171,7 @@ class FakeCatalogWriteAdapter:
                     }
                 )
             )
-            self._contexts[publication.fingerprint] = PublishedCanonicalContext(
+            self._backend.current = PublishedCanonicalContext(
                 logical_model_urn=LOGICAL_CUSTOMER_URN,
                 fingerprint=publication.fingerprint,
                 fields=tuple(field.id for field in publication.fields),
@@ -123,7 +192,51 @@ class FakeCatalogWriteAdapter:
         self,
         publication: CanonicalPublication,
     ) -> PublishedCanonicalContext | None:
-        return self._contexts.get(publication.fingerprint)
+        if (
+            self._backend.current is not None
+            and self._backend.current.fingerprint == publication.fingerprint
+        ):
+            return self._backend.current
+        return None
+
+
+def _item(
+    publication: CanonicalPublication,
+    approval: PublicationApproval,
+    kind: PublicationItemKind,
+    target: str,
+    status: PublicationItemStatus,
+    decision_refs: tuple[PublicationDecisionRef, ...],
+    previous_fingerprint: str | None,
+    *,
+    reason_code: str | None = None,
+) -> PublicationItemResult:
+    outcome = {
+        PublicationItemStatus.PUBLISHED: PublicationAuditOutcome.SUCCEEDED,
+        PublicationItemStatus.ALREADY_CURRENT: PublicationAuditOutcome.ALREADY_CURRENT,
+        PublicationItemStatus.FAILED: PublicationAuditOutcome.FAILED,
+        PublicationItemStatus.NOT_ATTEMPTED: PublicationAuditOutcome.NOT_ATTEMPTED,
+    }[status]
+    return PublicationItemResult(
+        kind=kind,
+        target=target,
+        status=status,
+        decision_refs=decision_refs,
+        reason_code=reason_code,
+        audit_record=PublicationTargetAuditRecord(
+            family=PublicationFamily.CANONICAL,
+            operation=kind.value,
+            target=target,
+            approval_id=approval.id,
+            actor=approval.actor,
+            approved_at=approval.approved_at,
+            previous_fingerprint=previous_fingerprint,
+            new_fingerprint=publication.fingerprint,
+            outcome=outcome,
+            decision_ids=tuple(reference.id for reference in decision_refs),
+            reason_code=reason_code,
+        ),
+    )
 
 
 def _validate_approval(

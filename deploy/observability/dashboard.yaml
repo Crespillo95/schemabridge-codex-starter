@@ -1,0 +1,60 @@
+schema_version: schemabridge.operations-dashboard.v1
+evidence_class: synthetic_local_not_production
+title: SchemaBridge operations
+refresh_seconds: 30
+panels:
+  - id: api-availability
+    title: API requests by outcome
+    metric: schemabridge_http_requests_total
+    visualization: timeseries
+    unit: requests
+    related_alerts:
+      - SchemaBridgeApiAvailability
+  - id: api-latency
+    title: API request latency
+    metric: schemabridge_http_request_duration_seconds
+    visualization: timeseries
+    unit: seconds
+    related_alerts:
+      - SchemaBridgeApiP95Latency
+  - id: authorization-denials
+    title: API authorization denials
+    metric: schemabridge_http_authorization_denials_total
+    visualization: timeseries
+    unit: requests
+    related_alerts:
+      - SchemaBridgeAuthorizationDenials
+  - id: queue-depth
+    title: Queue depth
+    metric: schemabridge_queue_depth
+    visualization: timeseries
+    unit: items
+    related_alerts:
+      - SchemaBridgeQueueBacklog
+  - id: queue-age
+    title: Oldest queued work
+    metric: schemabridge_queue_oldest_age_seconds
+    visualization: timeseries
+    unit: seconds
+    related_alerts:
+      - SchemaBridgeQueueBacklog
+  - id: job-transitions
+    title: Governed job transitions
+    metric: schemabridge_job_transitions_total
+    visualization: timeseries
+    unit: transitions
+    related_alerts:
+      - SchemaBridgeUnsafeJobTransitions
+  - id: source-operations
+    title: Source operations by outcome
+    metric: schemabridge_source_operations_total
+    visualization: timeseries
+    unit: operations
+    related_alerts:
+      - SchemaBridgeSourceFailureRate
+  - id: process-readiness
+    title: Process-local last readiness check
+    metric: schemabridge_process_ready
+    visualization: stat
+    unit: boolean
+    related_alerts: []

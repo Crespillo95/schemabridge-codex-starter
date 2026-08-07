@@ -8,8 +8,16 @@ from sqlglot import exp, parse
 from schemabridge.adapters.sql.compiler import PostgresQueryCompiler
 from schemabridge.application.query_demo import build_north_star_query_plan
 from schemabridge.application.query_execution import QueryCompilationError
-from schemabridge.domain.plans import FilterPredicate, MappedExpression, ParameterValue
-from schemabridge.domain.requests import FilterOperator
+from schemabridge.domain.plans import (
+    FilterPredicate,
+    MappedExpression,
+    OrderItem,
+    OutputAlias,
+    ParameterValue,
+    QueryPlan,
+    SelectItem,
+)
+from schemabridge.domain.requests import FilterOperator, SortDirection
 from schemabridge.domain.transformations import ParseDateStep, TransformationPlan
 
 
@@ -68,14 +76,14 @@ def test_compiler_rejects_invalid_preview_policy() -> None:
     assert captured.value.code == "invalid_preview_limit"
 
 
-def test_compiler_fails_closed_for_unimplemented_transformation() -> None:
+def test_compiler_rejects_parse_date_until_calendar_validation_is_total() -> None:
     plan = build_north_star_query_plan()
     original_filter = plan.filters[0]
     assert isinstance(original_filter.expression, MappedExpression)
     unsupported = MappedExpression(
         source=original_filter.expression.source,
         transformation_plan=TransformationPlan(
-            steps=(ParseDateStep(format="%Y-%m-%d"),),
+            steps=(ParseDateStep(format="YYYY-MM-DD"),),
         ),
     )
     unsupported_plan = plan.model_copy(
@@ -93,4 +101,28 @@ def test_compiler_fails_closed_for_unimplemented_transformation() -> None:
     with pytest.raises(QueryCompilationError) as captured:
         PostgresQueryCompiler().compile(unsupported_plan, max_preview_rows=500)
 
-    assert captured.value.code == "unsupported_transformation"
+    assert captured.value.code == "unsafe_date_parse"
+    assert "calendar validation" in str(captured.value)
+
+
+def test_compiler_groups_parameterized_dimension_by_projection_position() -> None:
+    original = build_north_star_query_plan()
+    mapped_role = original.filters[0].expression
+    assert isinstance(mapped_role, MappedExpression)
+    plan = QueryPlan(
+        root_scan=original.root_scan,
+        joins=original.joins,
+        projections=(
+            SelectItem(expression=mapped_role, alias=OutputAlias("holder_role")),
+            original.projections[1],
+        ),
+        group_by=(mapped_role,),
+        order_by=(OrderItem(expression=mapped_role, direction=SortDirection.ASC),),
+        limit=original.limit,
+    )
+
+    compiled = PostgresQueryCompiler().compile(plan, max_preview_rows=500)
+
+    assert compiled.sql.count("%s") == len(compiled.parameters) == 10
+    assert "GROUP BY\n  1" in compiled.sql
+    assert "ORDER BY\n  1" in compiled.sql

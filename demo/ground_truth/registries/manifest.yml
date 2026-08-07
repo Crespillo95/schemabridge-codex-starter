@@ -1,0 +1,9 @@
+format_version: 1
+active_registry: synthetic_enterprise
+registries:
+  - registry_id: synthetic_enterprise
+    version: 1
+    catalog_scope: synthetic-demo
+    path: synthetic_enterprise.yml
+    sha256: 4f086f8b9f0679d6405beab45d48c6601520b9b6e0c5f20d7dc0ad987485a723
+    fingerprint: 0710148874049078f751ac96f0a18131cf01daa41f27dc034ca52a8b212dd966

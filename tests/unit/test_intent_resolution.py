@@ -17,7 +17,11 @@ from schemabridge.application.intent_resolution import (
     ResolveNaturalLanguageIntent,
     build_intent_vocabulary,
 )
-from schemabridge.application.ports.intents import IntentParserPort
+from schemabridge.application.ports.intents import (
+    IntentParserError,
+    IntentParserErrorCode,
+    IntentParserPort,
+)
 from schemabridge.domain.concepts import LogicalFieldRef, LogicalModelRef
 from schemabridge.domain.intents import (
     IntentAlternativeId,
@@ -368,6 +372,7 @@ def test_intent_vocabulary_is_minimal_logical_context_without_samples_or_credent
 @dataclass(slots=True)
 class ParsedResponse:
     output_parsed: object
+    model: str = "gpt-5-nano-2025-08-07"
 
 
 class CapturingResponses:
@@ -393,7 +398,11 @@ def test_live_openai_adapter_uses_structured_output_without_tools_or_storage() -
     )
     expected = FakeIntentParser().parse(parse_input)
     responses = CapturingResponses(expected)
-    adapter = OpenAIIntentParser(CapturingClient(responses), "configured-model")
+    adapter = OpenAIIntentParser(
+        CapturingClient(responses),
+        "gpt-5-nano-2025-08-07",
+        metadata_approved_public=True,
+    )
 
     result = adapter.parse(parse_input)
 
@@ -401,9 +410,33 @@ def test_live_openai_adapter_uses_structured_output_without_tools_or_storage() -
     call = responses.calls[0]
     assert call["text_format"] is IntentModelOutput
     assert call["store"] is False
-    assert "tools" not in call
+    assert call["tools"] == ()
+    assert call["tool_choice"] == "none"
+    assert call["max_output_tokens"] == 4_096
+    assert call["timeout"] == 20.0
+    assert call["safety_identifier"].startswith("sb_ai_v1_")
     provider_input = str(call["input"])
     assert "UNTRUSTED_BUSINESS_TEXT_BEGIN" in provider_input
+    assert "UNTRUSTED_CATALOG_METADATA_BEGIN" in provider_input
     assert "crm." not in provider_input
     assert "bank." not in provider_input
     assert "api_key" not in provider_input.casefold()
+
+
+def test_live_openai_adapter_rejects_metadata_without_explicit_public_approval() -> None:
+    parse_input = IntentParseInput(
+        text=NORTH_STAR_ES,
+        language=UserLanguage.SPANISH,
+        vocabulary=build_intent_vocabulary(CONTEXT.load()),
+    )
+    responses = CapturingResponses(FakeIntentParser().parse(parse_input))
+    adapter = OpenAIIntentParser(
+        CapturingClient(responses),
+        "gpt-5-nano-2025-08-07",
+    )
+
+    with pytest.raises(IntentParserError) as exc_info:
+        adapter.parse(parse_input)
+
+    assert exc_info.value.code is IntentParserErrorCode.INVALID_MODEL_OUTPUT
+    assert responses.calls == []

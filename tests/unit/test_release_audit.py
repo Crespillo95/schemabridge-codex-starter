@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
-from scripts.release_audit import scan_architecture, scan_markdown_links, scan_secrets
+from scripts.release_audit import (
+    candidate_files,
+    scan_architecture,
+    scan_candidate_artifacts,
+    scan_external_links,
+    scan_git_history_secrets,
+    scan_markdown_links,
+    scan_secrets,
+)
 
 from schemabridge.domain import candidates, joins, request_context
 
@@ -49,3 +58,158 @@ def test_secret_and_broken_link_scans_report_exact_candidate(tmp_path: Path) -> 
     assert secret_findings[0].path == "unsafe.txt:1"
     assert link_findings[0].code == "broken_local_link"
     assert link_findings[0].path == "README.md:1"
+
+
+def test_git_history_secret_scan_reports_only_path_and_revision(tmp_path: Path) -> None:
+    subprocess.run(("git", "init", "--quiet"), cwd=tmp_path, check=True)
+    subprocess.run(
+        ("git", "config", "user.email", "audit@example.invalid"), cwd=tmp_path, check=True
+    )
+    subprocess.run(("git", "config", "user.name", "Release Audit"), cwd=tmp_path, check=True)
+    removed = tmp_path / "removed.txt"
+    removed.write_text("credential=" + "sk-" + "a" * 24 + "\n", encoding="utf-8")
+    subprocess.run(("git", "add", "removed.txt"), cwd=tmp_path, check=True)
+    subprocess.run(("git", "commit", "--quiet", "-m", "add fixture"), cwd=tmp_path, check=True)
+    removed.unlink()
+    subprocess.run(("git", "add", "-u"), cwd=tmp_path, check=True)
+    subprocess.run(("git", "commit", "--quiet", "-m", "remove fixture"), cwd=tmp_path, check=True)
+
+    revision_count, findings = scan_git_history_secrets(tmp_path)
+
+    assert revision_count == 2
+    assert [finding.code for finding in findings] == ["openai_key", "openai_key"]
+    assert all(finding.path.startswith("removed.txt@") for finding in findings)
+    assert all("sk-" not in finding.message for finding in findings)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected_code"),
+    [
+        ("AIza" + "A" * 35, "google_api_key"),
+        ("glpat-" + "A" * 24, "gitlab_token"),
+        ("xoxb-" + "A" * 24, "slack_token"),
+        ("sk_live_" + "A" * 24, "stripe_live_key"),
+    ],
+)
+def test_additional_high_confidence_secret_formats_are_rejected(
+    tmp_path: Path,
+    value: str,
+    expected_code: str,
+) -> None:
+    candidate = tmp_path / "unsafe.txt"
+    candidate.write_text(f"credential={value}\n", encoding="utf-8")
+
+    findings = scan_secrets(tmp_path, (candidate,))
+
+    assert [finding.code for finding in findings] == [expected_code]
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        ".streamlit/secrets.toml",
+        "client.p12",
+        "client.pfx",
+        "truststore.jks",
+        "runtime.keystore",
+    ],
+)
+def test_private_credential_artifacts_are_rejected(tmp_path: Path, name: str) -> None:
+    candidate = tmp_path / name
+    candidate.parent.mkdir(parents=True, exist_ok=True)
+    candidate.write_text("synthetic\n", encoding="utf-8")
+
+    findings = scan_candidate_artifacts(tmp_path, (candidate,))
+
+    assert [finding.code for finding in findings] == ["secret_or_os_artifact"]
+
+
+def test_forced_commit_visible_parallel_coverage_artifact_is_rejected(tmp_path: Path) -> None:
+    subprocess.run(("git", "init", "--quiet"), cwd=tmp_path, check=True)
+    (tmp_path / ".gitignore").write_text(".coverage.*\n", encoding="utf-8")
+    parallel_coverage = tmp_path / ".coverage.worker-1"
+    parallel_coverage.write_text("synthetic coverage data\n", encoding="utf-8")
+    similarly_named = tmp_path / ".coverage-report"
+    similarly_named.write_text("synthetic report\n", encoding="utf-8")
+    subprocess.run(
+        ("git", "add", "--force", parallel_coverage.name),
+        cwd=tmp_path,
+        check=True,
+    )
+
+    candidates = candidate_files(tmp_path)
+    findings = scan_candidate_artifacts(tmp_path, candidates)
+
+    assert parallel_coverage in candidates
+    assert similarly_named in candidates
+    assert [(finding.code, finding.path) for finding in findings] == [
+        ("runtime_artifact", ".coverage.worker-1")
+    ]
+
+
+def test_external_link_scan_checks_only_human_facing_non_placeholder_urls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    readme = tmp_path / "README.md"
+    readme.write_text(
+        "\n".join(
+            (
+                "[Project](https://project.test/demo)",
+                "Inline code: `https://api.example.invalid/v1`",
+                "```bash",
+                "curl https://api.openai.com/v1",
+                "```",
+                "Placeholder: https://identity.example.com",
+                "Template: https://github.com/${OWNER}/${REPOSITORY}",
+            )
+        ),
+        encoding="utf-8",
+    )
+    deployment = tmp_path / "deployment.yml"
+    deployment.write_text("issuer: https://ignored.test\n", encoding="utf-8")
+    calls: list[tuple[str, ...]] = []
+
+    def fake_run(command: tuple[str, ...], **_: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    checked, findings = scan_external_links(tmp_path, (readme, deployment))
+
+    assert checked == 1
+    assert findings == ()
+    assert calls == [
+        (
+            "curl",
+            "-fsSL",
+            "--max-time",
+            "30",
+            "--retry",
+            "1",
+            "-o",
+            "/dev/null",
+            "https://project.test/demo",
+        )
+    ]
+
+
+def test_external_link_scan_reports_the_visible_source_line(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    readme = tmp_path / "README.md"
+    readme.write_text("intro\n[Broken](https://broken.test/page)\n", encoding="utf-8")
+
+    def fake_run(command: tuple[str, ...], **_: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 22, "", "not found")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    checked, findings = scan_external_links(tmp_path, (readme,))
+
+    assert checked == 1
+    assert [(finding.code, finding.path) for finding in findings] == [
+        ("broken_external_link", "README.md:2")
+    ]

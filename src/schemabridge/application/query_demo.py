@@ -183,6 +183,7 @@ def build_demo_query_policy(
 ) -> QueryPolicy:
     """Return the synthetic database allowlist used by M03 demos and tests."""
 
+    approved_join_contracts = tuple(join.contract for join in build_north_star_query_plan().joins)
     return QueryPolicy(
         assets=(
             AllowedAsset(
@@ -228,6 +229,7 @@ def build_demo_query_policy(
                 ),
             ),
         ),
+        approved_join_contracts=approved_join_contracts,
         max_tables=3,
         max_preview_rows=max_preview_rows,
         statement_timeout_ms=statement_timeout_ms,

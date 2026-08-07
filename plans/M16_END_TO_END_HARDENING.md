@@ -1,6 +1,6 @@
 # M16: Ultra end-to-end architecture, security, integration, and submission audit
 
-- Status: planned
+- Status: partial; development remediation verified, pending reviewed release commit and operator acceptance
 - Timebox: 4 hours
 - Recommended Codex: GPT-5.6 Sol — Ultra
 - Dependencies: M00–M15
@@ -33,13 +33,13 @@ This is the one milestone where Ultra and subagents materially improve quality b
 
 ## Acceptance criteria
 
-- [ ] All critical/high accepted findings are fixed or explicitly block release.
-- [ ] No domain/application dependency-direction violation remains.
-- [ ] All security-matrix cases pass at compiler, guard, and database layers as applicable.
-- [ ] DataHub read/write/reuse works from a clean reset or a documented verified fallback is honestly represented.
+- [x] All critical/high accepted findings are fixed or explicitly block release.
+- [x] No domain/application dependency-direction violation remains.
+- [x] All security-matrix cases pass at compiler, guard, and database layers as applicable.
+- [x] DataHub read/write/reuse works from a clean reset or a documented verified fallback is honestly represented.
 - [ ] Full deterministic evaluation and acceptance suites pass from the release commit.
 - [ ] No secrets, proprietary data, broken links, missing license, or unverified submission claims remain.
-- [ ] The audit report lists unresolved medium/low risks without hiding them.
+- [x] The audit report lists unresolved medium/low risks without hiding them.
 
 ## Required automated checks
 

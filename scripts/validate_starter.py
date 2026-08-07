@@ -17,6 +17,16 @@ def fail(message: str) -> None:
     raise RuntimeError(message)
 
 
+def is_versioned_mapping(value: object) -> bool:
+    """Return whether a YAML root declares a positive integer schema version."""
+
+    if not isinstance(value, dict):
+        return False
+    version_key = "version" if "version" in value else "format_version"
+    version = value.get(version_key)
+    return isinstance(version, int) and not isinstance(version, bool) and version > 0
+
+
 def main() -> int:
     """Validate configuration syntax, milestone coverage, and YAML fixtures."""
 
@@ -42,7 +52,7 @@ def main() -> int:
     for path in sorted((ROOT / "demo" / "ground_truth").glob("*.yml")):
         with path.open(encoding="utf-8") as stream:
             loaded = yaml.safe_load(stream)
-        if not isinstance(loaded, dict) or loaded.get("version") != 1:
+        if not is_versioned_mapping(loaded):
             fail(f"Invalid ground-truth file: {path.relative_to(ROOT)}")
 
     required = [

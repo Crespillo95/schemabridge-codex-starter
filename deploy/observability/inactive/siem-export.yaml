@@ -1,0 +1,56 @@
+schema_version: schemabridge.siem-export.v1
+payload_schema: schemabridge.telemetry.v1
+transport:
+  scheme: https
+  verify_tls: true
+  require_mutual_tls: true
+  authentication: workload_identity
+  follow_redirects: false
+buffer:
+  max_events: 10000
+  max_event_bytes: 4096
+  max_batch_events: 100
+  max_retry_attempts: 5
+  overflow_policy: reject_and_signal_loss
+delivery:
+  allowed_fields:
+    - schema_version
+    - timestamp
+    - severity
+    - service
+    - environment
+    - event
+    - outcome
+    - duration_ms
+    - correlation_id
+    - error_code
+    - authorization_denials
+    - dead_letters
+    - jobs_completed
+    - jobs_failed
+    - leases_reclaimed
+    - records_processed
+    - requests_completed
+    - retries_scheduled
+    - source_timeouts
+    - telemetry_dropped
+  forbidden_fields:
+    - credential
+    - secret_path
+    - secret_binding
+    - token
+    - sql
+    - parameter
+    - prompt
+    - claim
+    - source_value
+    - result_row
+    - raw_plan
+    - stack_trace
+    - dsn
+    - endpoint
+    - username
+    - password
+  loss_metric: schemabridge_telemetry_exports_total
+  loss_label:
+    outcome: dropped

@@ -6,6 +6,10 @@ import hashlib
 from dataclasses import dataclass
 from datetime import datetime
 
+from schemabridge.application.ports.publication_audit import (
+    PublicationAuditStoreError,
+    PublicationAuditStorePort,
+)
 from schemabridge.application.ports.reviews import (
     CanonicalContextReadPort,
     CatalogWritePort,
@@ -21,6 +25,7 @@ from schemabridge.domain.decisions import (
     DecisionTargetType,
 )
 from schemabridge.domain.mappings import ColumnMapping
+from schemabridge.domain.publication_audit import validate_publication_audit_binding
 from schemabridge.domain.reviews import (
     CanonicalPublication,
     CanonicalReviewDraft,
@@ -242,6 +247,7 @@ class PrepareCanonicalPublication:
 class PublishCanonicalReview:
     store: ReviewStorePort
     writer: CatalogWritePort
+    audit_store: PublicationAuditStorePort
 
     def execute(
         self,
@@ -273,6 +279,26 @@ class PublishCanonicalReview:
                 "publication approval does not match the current approved payload",
             )
         result = self.writer.publish(publication, approval)
+        try:
+            validate_publication_audit_binding(
+                result.audit_records,
+                approval_id=approval.id,
+                actor=approval.actor,
+                approved_at=approval.approved_at,
+                new_fingerprint=publication.fingerprint,
+                approved_decision_ids=approval.decision_ids,
+            )
+            self.audit_store.append(result.audit_records)
+        except ValueError as error:
+            raise ReviewWorkflowError(
+                ReviewErrorCode.CATALOG_INVALID_RESPONSE,
+                "catalog returned publication audit facts outside the exact approval",
+            ) from error
+        except PublicationAuditStoreError as error:
+            raise ReviewWorkflowError(
+                ReviewErrorCode.STORE_FAILURE,
+                "canonical publication audit could not be persisted",
+            ) from error
         self.store.record_publication(result)
         return result
 

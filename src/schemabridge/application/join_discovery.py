@@ -13,6 +13,10 @@ from schemabridge.application.ports.catalog import (
     LineageDirection,
     PageRequest,
 )
+from schemabridge.application.ports.publication_audit import (
+    PublicationAuditStoreError,
+    PublicationAuditStorePort,
+)
 from schemabridge.application.ports.relationships import (
     JoinContextReadPort,
     JoinContextWritePort,
@@ -46,6 +50,7 @@ from schemabridge.domain.joins import (
     RelationshipContextEvidence,
     score_join_candidate,
 )
+from schemabridge.domain.publication_audit import validate_publication_audit_binding
 
 
 @dataclass(frozen=True, slots=True)
@@ -310,6 +315,7 @@ class PrepareJoinPublication:
 class PublishJoinContracts:
     store: JoinReviewStorePort
     writer: JoinContextWritePort
+    audit_store: PublicationAuditStorePort
 
     def execute(self, draft_id: str, approval: JoinPublicationApproval) -> JoinPublicationResult:
         if not isinstance(approval, JoinPublicationApproval):
@@ -330,6 +336,26 @@ class PublishJoinContracts:
                 "join publication approval does not match the approved payload",
             )
         result = self.writer.publish(publication, approval)
+        try:
+            validate_publication_audit_binding(
+                result.audit_records,
+                approval_id=approval.id,
+                actor=approval.actor,
+                approved_at=approval.approved_at,
+                new_fingerprint=publication.fingerprint,
+                approved_decision_ids=approval.decision_ids,
+            )
+            self.audit_store.append(result.audit_records)
+        except ValueError as error:
+            raise RelationshipWorkflowError(
+                RelationshipErrorCode.CATALOG_INVALID_RESPONSE,
+                "catalog returned join audit facts outside the exact approval",
+            ) from error
+        except PublicationAuditStoreError as error:
+            raise RelationshipWorkflowError(
+                RelationshipErrorCode.STORE_FAILURE,
+                "join publication audit could not be persisted",
+            ) from error
         self.store.record_publication(result)
         return result
 

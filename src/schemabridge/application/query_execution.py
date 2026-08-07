@@ -4,9 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
-from schemabridge.domain.plans import ParameterScalar, QueryPlan, QueryPolicy
+from schemabridge.domain.advanced_plans import RestrictedQueryPlan
+from schemabridge.domain.connectors import (
+    GovernedExecutionTarget,
+    SourceDialect,
+)
+from schemabridge.domain.plans import ParameterScalar, QueryPolicy
 
 
 class QueryCompilationError(RuntimeError):
@@ -25,6 +30,9 @@ class SqlRejectionCode(StrEnum):
     FORBIDDEN_STATEMENT = "forbidden_statement"
     SELECT_INTO = "select_into"
     RECURSIVE_CTE = "recursive_cte"
+    INVALID_CTE_TOPOLOGY = "invalid_cte_topology"
+    UNSUPPORTED_QUERY_SHAPE = "unsupported_query_shape"
+    EXCESSIVE_COMPLEXITY = "excessive_complexity"
     UNKNOWN_ASSET = "unknown_asset"
     REPEATED_ASSET = "repeated_asset"
     DUPLICATE_ALIAS = "duplicate_alias"
@@ -36,7 +44,10 @@ class SqlRejectionCode(StrEnum):
     MISSING_PREVIEW_LIMIT = "missing_preview_limit"
     INVALID_PREVIEW_LIMIT = "invalid_preview_limit"
     UNSAFE_FUNCTION = "unsafe_function"
+    UNSAFE_WINDOW = "unsafe_window"
     PARAMETER_MISMATCH = "parameter_mismatch"
+    DIALECT_MISMATCH = "dialect_mismatch"
+    TARGET_MISMATCH = "target_mismatch"
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,23 +77,33 @@ class QueryPreviewTimeoutError(QueryPreviewError):
     """The preview exceeded its configured statement timeout."""
 
 
+class QueryPreviewRejectedError(QueryPreviewError):
+    """The preview failed a permanent source or runtime safety contract."""
+
+
 @dataclass(frozen=True, slots=True)
 class CompiledQuery:
-    """Parameterized PostgreSQL produced by a compiler adapter."""
+    """Parameterized SQL plus the public compiler capability that produced it."""
 
     sql: str
     parameters: tuple[ParameterScalar, ...]
     effective_limit: int
+    dialect: SourceDialect = SourceDialect.POSTGRESQL
+    target_fingerprint: str | None = None
+    plan_version: Literal[1, 2] = 1
 
 
 @dataclass(frozen=True, slots=True)
 class ValidatedQuery:
-    """Final SQL accepted by an independent policy guard."""
+    """Final SQL accepted for one explicit dialect and public target."""
 
     sql: str
     parameters: tuple[ParameterScalar, ...]
     max_rows: int
     statement_timeout_ms: int
+    dialect: SourceDialect = SourceDialect.POSTGRESQL
+    target_fingerprint: str | None = None
+    plan_version: Literal[1, 2] = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,17 +129,34 @@ class QueryPreviewResult:
 
 
 class QueryCompilerPort(Protocol):
-    def compile(self, plan: QueryPlan, *, max_preview_rows: int) -> CompiledQuery:
+    def compile(
+        self,
+        plan: RestrictedQueryPlan,
+        *,
+        max_preview_rows: int,
+        target: GovernedExecutionTarget | None = None,
+    ) -> CompiledQuery:
         """Compile restricted IR into parameterized SQL."""
 
 
 class SqlPolicyGuardPort(Protocol):
-    def validate(self, query: CompiledQuery, policy: QueryPolicy) -> ValidatedQuery:
+    def validate(
+        self,
+        query: CompiledQuery,
+        policy: QueryPolicy,
+        *,
+        target: GovernedExecutionTarget | None = None,
+    ) -> ValidatedQuery:
         """Reparse and independently validate final SQL."""
 
 
 class QueryPreviewPort(Protocol):
-    def execute(self, query: ValidatedQuery) -> QueryPreviewResult:
+    def execute(
+        self,
+        query: ValidatedQuery,
+        *,
+        target: GovernedExecutionTarget | None = None,
+    ) -> QueryPreviewResult:
         """Execute one guarded query through a bounded read-only transaction."""
 
 
@@ -130,7 +168,7 @@ class PrepareQuery:
     guard: SqlPolicyGuardPort
     policy: QueryPolicy
 
-    def execute(self, plan: QueryPlan) -> ValidatedQuery:
+    def execute(self, plan: RestrictedQueryPlan) -> ValidatedQuery:
         compiled = self.compiler.compile(plan, max_preview_rows=self.policy.max_preview_rows)
         return self.guard.validate(compiled, self.policy)
 
@@ -142,5 +180,5 @@ class PreviewQuery:
     prepare: PrepareQuery
     executor: QueryPreviewPort
 
-    def execute(self, plan: QueryPlan) -> QueryPreviewResult:
+    def execute(self, plan: RestrictedQueryPlan) -> QueryPreviewResult:
         return self.executor.execute(self.prepare.execute(plan))

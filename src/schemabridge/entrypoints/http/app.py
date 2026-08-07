@@ -1,0 +1,2872 @@
+"""FastAPI boundary for bounded authenticated execution jobs."""
+
+from __future__ import annotations
+
+import json
+import logging
+import re
+import secrets
+from asyncio import Lock
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from contextlib import asynccontextmanager, suppress
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum, auto
+from time import perf_counter
+from typing import Annotated, Protocol
+
+from fastapi import FastAPI, Header, Path, Query, Request, Response
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from starlette.datastructures import URL
+from starlette.exceptions import HTTPException as StarletteHttpException
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+from schemabridge.application.api_capacity import (
+    ApiCapacityError,
+    ApiCapacityErrorCode,
+)
+from schemabridge.application.api_workflows import (
+    ExecutionJobUseCaseError,
+    ExecutionJobUseCaseErrorCode,
+)
+from schemabridge.application.authentication import AuthenticationBoundaryError
+from schemabridge.application.authorization import AuthorizationError, AuthorizationErrorCode
+from schemabridge.application.catalog_inventory import (
+    CatalogUseCaseError,
+    CatalogUseCaseErrorCode,
+)
+from schemabridge.application.ports.authentication import BearerAuthenticationPort
+from schemabridge.application.ports.operational_telemetry import (
+    OperationalErrorCode,
+    OperationalEvent,
+    OperationalOutcome,
+    OperationalResourceAccessCause,
+    OperationalTelemetryPort,
+)
+from schemabridge.application.ports.registry_publication import (
+    RegistryPublicationJobMutation,
+)
+from schemabridge.application.ports.semantic_change_read import (
+    SemanticChangeFindingFilter,
+    SemanticChangeFindingPublic,
+    SemanticChangeImpactFilter,
+    SemanticChangeImpactPublic,
+    SemanticChangePage,
+    SemanticChangePageRequest,
+    SemanticChangeReportFilter,
+    SemanticChangeReportPublic,
+)
+from schemabridge.application.registry_changes import (
+    RegistryChangeAuthoringError,
+    RegistryChangeAuthoringErrorCode,
+)
+from schemabridge.application.registry_publication import (
+    RegistryPublicationError,
+    RegistryPublicationErrorCode,
+)
+from schemabridge.application.semantic_change_read import (
+    SemanticChangeReadError,
+    SemanticChangeReadErrorCode,
+)
+from schemabridge.application.semantic_onboarding import (
+    SemanticOnboardingError,
+    SemanticOnboardingErrorCode,
+    SemanticOnboardingSnapshot,
+)
+from schemabridge.domain.background_jobs import (
+    BackgroundJob,
+    JobSubmissionResult,
+)
+from schemabridge.domain.catalog_inventory import (
+    CatalogAssetFilter,
+    CatalogAssetLocator,
+    CatalogAssetSummary,
+    CatalogConnectionFilter,
+    CatalogConnectionId,
+    CatalogConnectionKind,
+    CatalogConnectionRegistrationResult,
+    CatalogConnectionSummary,
+    CatalogFieldFilter,
+    CatalogFieldSummary,
+    CatalogRefreshId,
+    CatalogRefreshMode,
+    CatalogRefreshRequestResult,
+    CatalogRefreshSummary,
+    InventoryPage,
+    InventoryPageRequest,
+)
+from schemabridge.domain.decisions import DecisionAction
+from schemabridge.domain.identity import AuthenticatedPrincipal
+from schemabridge.domain.registry_change_authoring import (
+    RegistryJoinChangeSnapshot,
+    RegistryJoinDraftMutation,
+    RegistryJoinPreparation,
+    RegistryJoinProfileAuthoringMutation,
+    RegistryJoinProfileAuthoringRequest,
+    RequestRegistryJoinProfileInput,
+)
+from schemabridge.domain.registry_model_change_authoring import (
+    CreateRegistryModelChangeInput,
+    RegistryModelChangeDraft,
+    RegistryModelChangeMutation,
+    RegistryModelChangeSnapshot,
+    RegistryModelJoinProfileMutation,
+    RequestRegistryModelJoinProfileInput,
+)
+from schemabridge.domain.registry_publication import (
+    RegistryPublicationAuthorizationConfirmation,
+)
+from schemabridge.domain.registry_publication_jobs import RegistryPublicationJob
+from schemabridge.domain.semantic_onboarding import (
+    CreateSemanticOnboardingRequest,
+    OnboardingEvidence,
+    PreflightSemanticOnboardingRequest,
+    SemanticOnboardingDraft,
+    SemanticOnboardingDraftMutation,
+    SemanticOnboardingPreflight,
+    SemanticOnboardingPreparation,
+    SemanticOnboardingTargetKind,
+)
+from schemabridge.entrypoints.http.schemas import (
+    CatalogAssetListQuery,
+    CatalogAssetPageResponse,
+    CatalogConnectionDisableRequest,
+    CatalogConnectionListQuery,
+    CatalogConnectionPageResponse,
+    CatalogConnectionRegistrationRequest,
+    CatalogConnectionRegistrationResponse,
+    CatalogConnectionResponse,
+    CatalogFieldListQuery,
+    CatalogFieldPageResponse,
+    CatalogRefreshRequest,
+    CatalogRefreshRequestResponse,
+    CatalogRefreshResponse,
+    ExecutionJobCancellationRequest,
+    ExecutionJobResponse,
+    ExecutionJobSubmissionRequest,
+    ExecutionJobSubmissionResponse,
+    HealthResponse,
+    ProblemResponse,
+    RegistryJoinChangeInspectionQuery,
+    RegistryJoinChangeListQuery,
+    RegistryJoinChangeListResponse,
+    RegistryJoinChangeResponse,
+    RegistryJoinDecisionRequest,
+    RegistryJoinDraftFinalizationRequest,
+    RegistryJoinDraftMutationResponse,
+    RegistryJoinPreparationRequest,
+    RegistryJoinPreparationResponse,
+    RegistryJoinProfileMutationResponse,
+    RegistryJoinProfileRequest,
+    RegistryModelChangeCreateRequest,
+    RegistryModelChangeInspectionQuery,
+    RegistryModelChangeListQuery,
+    RegistryModelChangeListResponse,
+    RegistryModelChangeMutationResponse,
+    RegistryModelChangeResponse,
+    RegistryModelDecisionRequest,
+    RegistryModelPreparationRequest,
+    RegistryModelPreparationResponse,
+    RegistryModelProfileFinalizationRequest,
+    RegistryModelProfileMutationResponse,
+    RegistryModelProfileRequest,
+    RegistryPublicationAuthorizationRequest,
+    RegistryPublicationCancellationRequest,
+    RegistryPublicationJobResponse,
+    RegistryPublicationSubmissionRequest,
+    RegistryPublicationSubmissionResponse,
+    SemanticChangeFindingListQuery,
+    SemanticChangeFindingPageResponse,
+    SemanticChangeImpactListQuery,
+    SemanticChangeImpactPageResponse,
+    SemanticChangeReportListQuery,
+    SemanticChangeReportPageResponse,
+    SemanticChangeReportResponse,
+    SemanticOnboardingDecisionRequest,
+    SemanticOnboardingDraftCreateRequest,
+    SemanticOnboardingDraftInspectionQuery,
+    SemanticOnboardingDraftListQuery,
+    SemanticOnboardingDraftListResponse,
+    SemanticOnboardingDraftMutationResponse,
+    SemanticOnboardingDraftResponse,
+    SemanticOnboardingPreflightRequest,
+    SemanticOnboardingPreflightResponse,
+    SemanticOnboardingPreparationRequest,
+    SemanticOnboardingPreparationResponse,
+)
+
+logger = logging.getLogger(__name__)
+_BEARER_PREFIX = "Bearer "
+_JOB_ID_PATTERN = r"^[a-z0-9][a-z0-9_-]{2,199}$"
+_CONNECTION_ID_PATTERN = r"^[a-z0-9][a-z0-9_-]{2,199}$"
+_REFRESH_ID_PATTERN = r"^[a-z0-9][a-z0-9_-]{2,199}$"
+_ASSET_ID_PATTERN = r"^[^\x00-\x1f\x7f]{1,500}$"
+_SEMANTIC_CHANGE_REPORT_ID_PATTERN = r"^report_[0-9a-f]{64}$"
+_SEMANTIC_ONBOARDING_DRAFT_ID_PATTERN = r"^[a-z][a-z0-9_-]{2,79}$"
+_REGISTRY_JOIN_CHANGE_ID_PATTERN = r"^[a-z][a-z0-9_-]{2,79}$"
+_REGISTRY_MODEL_CHANGE_ID_PATTERN = r"^[a-z][a-z0-9_-]{2,79}$"
+_REGISTRY_PUBLICATION_JOB_ID_PATTERN = r"^[a-z0-9][a-z0-9_-]{2,199}$"
+_IDEMPOTENCY_PATTERN = r"^[A-Za-z0-9._~-]{16,128}$"
+_JSON_MEDIA_TYPE = "application/json"
+_SECURITY_HEADERS = (
+    (b"cache-control", b"no-store"),
+    (b"x-content-type-options", b"nosniff"),
+    (b"referrer-policy", b"no-referrer"),
+    (b"permissions-policy", b"camera=(), microphone=(), geolocation=()"),
+)
+_HTTP_RESOURCE_ACCESS_CAUSE_STATE = "schemabridge_http_resource_access_cause"
+_BUSINESS_HTTP_ROUTES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("POST", re.compile(r"^/v1/workflows/[a-z0-9][a-z0-9_-]{2,63}/execution-jobs$")),
+    ("GET", re.compile(r"^/v1/execution-jobs/[a-z0-9][a-z0-9_-]{2,199}$")),
+    ("POST", re.compile(r"^/v1/execution-jobs/[a-z0-9][a-z0-9_-]{2,199}/cancel$")),
+    ("GET", re.compile(r"^/v1/catalog/connections$")),
+    ("POST", re.compile(r"^/v1/catalog/connections$")),
+    ("POST", re.compile(r"^/v1/catalog/connections/[a-z0-9][a-z0-9_-]{2,199}/disable$")),
+    ("GET", re.compile(r"^/v1/catalog/connections/[a-z0-9][a-z0-9_-]{2,199}/assets$")),
+    (
+        "GET",
+        re.compile(
+            r"^/v1/catalog/connections/[a-z0-9][a-z0-9_-]{2,199}"
+            r"/assets/[^\x00-\x1f\x7f]{1,500}/fields$"
+        ),
+    ),
+    (
+        "POST",
+        re.compile(r"^/v1/catalog/connections/[a-z0-9][a-z0-9_-]{2,199}/refreshes$"),
+    ),
+    ("GET", re.compile(r"^/v1/catalog/refreshes/[a-z0-9][a-z0-9_-]{2,199}$")),
+    ("GET", re.compile(r"^/v1/semantic-changes/reports$")),
+    ("GET", re.compile(r"^/v1/semantic-changes/reports/report_[0-9a-f]{64}$")),
+    (
+        "GET",
+        re.compile(r"^/v1/semantic-changes/reports/report_[0-9a-f]{64}/findings$"),
+    ),
+    (
+        "GET",
+        re.compile(r"^/v1/semantic-changes/reports/report_[0-9a-f]{64}/impacts$"),
+    ),
+    ("POST", re.compile(r"^/v1/semantic-onboarding/preflight$")),
+    ("GET", re.compile(r"^/v1/semantic-onboarding/drafts$")),
+    ("POST", re.compile(r"^/v1/semantic-onboarding/drafts$")),
+    (
+        "GET",
+        re.compile(r"^/v1/semantic-onboarding/drafts/[a-z][a-z0-9_-]{2,79}$"),
+    ),
+    (
+        "POST",
+        re.compile(
+            r"^/v1/semantic-onboarding/drafts/[a-z][a-z0-9_-]{2,79}"
+            r"/(?:model-decisions|mapping-decisions|prepare-publication)$"
+        ),
+    ),
+    ("GET", re.compile(r"^/v1/registry-changes/joins$")),
+    ("POST", re.compile(r"^/v1/registry-changes/joins$")),
+    (
+        "GET",
+        re.compile(r"^/v1/registry-changes/joins/[a-z][a-z0-9_-]{2,79}$"),
+    ),
+    (
+        "POST",
+        re.compile(
+            r"^/v1/registry-changes/joins/[a-z][a-z0-9_-]{2,79}"
+            r"/(?:finalize|decide|prepare-publication)$"
+        ),
+    ),
+    ("POST", re.compile(r"^/v1/registry-changes/model-profiles$")),
+    (
+        "POST",
+        re.compile(r"^/v1/registry-changes/model-profiles/[a-z][a-z0-9_-]{2,79}/finalize$"),
+    ),
+    ("GET", re.compile(r"^/v1/registry-changes/models$")),
+    ("POST", re.compile(r"^/v1/registry-changes/models$")),
+    (
+        "GET",
+        re.compile(r"^/v1/registry-changes/models/[a-z][a-z0-9_-]{2,79}$"),
+    ),
+    (
+        "POST",
+        re.compile(
+            r"^/v1/registry-changes/models/[a-z][a-z0-9_-]{2,79}"
+            r"/(?:decide|prepare-publication)$"
+        ),
+    ),
+    ("POST", re.compile(r"^/v1/registry-publications$")),
+    (
+        "GET",
+        re.compile(r"^/v1/registry-publications/[a-z0-9][a-z0-9_-]{2,199}$"),
+    ),
+    (
+        "POST",
+        re.compile(r"^/v1/registry-publications/[a-z0-9][a-z0-9_-]{2,199}/(?:authorize|cancel)$"),
+    ),
+)
+
+
+def _emit_safe_operational_event(
+    telemetry: OperationalTelemetryPort | None,
+    *,
+    event: OperationalEvent,
+    outcome: OperationalOutcome,
+    duration_ms: int,
+    correlation_id: str | None = None,
+    error_code: OperationalErrorCode | None = None,
+    counts: Mapping[str, int] | None = None,
+) -> None:
+    """Use the injected sink, retaining only a fixed safe fallback for test apps."""
+
+    if telemetry is not None:
+        with suppress(Exception):
+            telemetry.emit(
+                event=event,
+                outcome=outcome,
+                duration_ms=duration_ms,
+                correlation_id=correlation_id,
+                error_code=error_code,
+                counts=counts,
+            )
+        return
+    message = f"{event} outcome={outcome}"
+    if error_code is not None:
+        message = f"{message} error_code={error_code}"
+    level = logging.ERROR if outcome in {"failed", "denied", "degraded"} else logging.INFO
+    logger.log(level, message)
+
+
+class _HttpTrafficClass(Enum):
+    BUSINESS = auto()
+    EXCLUDED = auto()
+
+
+def _classify_http_traffic(scope: Scope) -> _HttpTrafficClass:
+    method = scope.get("method")
+    path = scope.get("path")
+    if not isinstance(method, str) or not isinstance(path, str):
+        return _HttpTrafficClass.EXCLUDED
+    if any(
+        method == expected_method and pattern.fullmatch(path) is not None
+        for expected_method, pattern in _BUSINESS_HTTP_ROUTES
+    ):
+        return _HttpTrafficClass.BUSINESS
+    return _HttpTrafficClass.EXCLUDED
+
+
+def _mark_resource_access_cause(
+    request: Request,
+    cause: OperationalResourceAccessCause,
+) -> None:
+    state = request.scope.setdefault("state", {})
+    state[_HTTP_RESOURCE_ACCESS_CAUSE_STATE] = cause
+
+
+class ApiClockPort(Protocol):
+    def now(self) -> datetime:
+        """Return one aware current instant."""
+
+
+class ApiLifecycleResource(Protocol):
+    def open(self) -> None:
+        """Acquire and validate process resources."""
+
+    def close(self) -> None:
+        """Release process resources idempotently."""
+
+
+class ExecutionJobSubmissionPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        *,
+        workflow_id: str,
+        expected_workflow_revision: int,
+        expected_plan_fingerprint: str,
+        confirmation: str,
+        idempotency_key: str,
+    ) -> JobSubmissionResult:
+        """Authorize and atomically submit or replay one execution job."""
+
+
+class ExecutionJobInspectionPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        *,
+        job_id: str,
+    ) -> BackgroundJob:
+        """Return one authorized sanitized job domain value."""
+
+
+class ExecutionJobCancellationPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        *,
+        job_id: str,
+    ) -> BackgroundJob:
+        """Request or replay one authorized cancellation."""
+
+
+class ApiReadinessPort(Protocol):
+    def require_ready(self) -> None:
+        """Fail with a sanitized exception unless dependencies are current."""
+
+
+class ApiAdmissionPort(Protocol):
+    def execute(self, principal: AuthenticatedPrincipal) -> object:
+        """Apply one durable authenticated request admission."""
+
+
+class CatalogConnectionListPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        *,
+        filters: CatalogConnectionFilter,
+        page: InventoryPageRequest,
+    ) -> InventoryPage[CatalogConnectionSummary]:
+        """Return one bounded tenant-scoped connection page."""
+
+
+class CatalogConnectionRegistrationPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        *,
+        connection_id: CatalogConnectionId,
+        display_name: str,
+        kind: CatalogConnectionKind,
+        environment: str,
+        catalog_scope: str,
+        confirmation: str,
+        idempotency_key: str,
+        platform_instance: str | None = None,
+    ) -> CatalogConnectionRegistrationResult:
+        """Register or exactly replay public connection metadata."""
+
+
+class CatalogConnectionDisablePort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        connection_id: CatalogConnectionId,
+        *,
+        confirmation: str,
+        idempotency_key: str,
+    ) -> CatalogConnectionSummary:
+        """Logically disable one connection."""
+
+
+class CatalogAssetListPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        connection_id: CatalogConnectionId,
+        *,
+        filters: CatalogAssetFilter,
+        page: InventoryPageRequest,
+        generation: int | None = None,
+    ) -> InventoryPage[CatalogAssetSummary]:
+        """Return one bounded generation-bound asset page."""
+
+
+class CatalogFieldListPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        asset: CatalogAssetLocator,
+        *,
+        filters: CatalogFieldFilter,
+        page: InventoryPageRequest,
+        generation: int | None = None,
+    ) -> InventoryPage[CatalogFieldSummary]:
+        """Return one bounded generation-bound field page."""
+
+
+class CatalogRefreshRequestPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        connection_id: CatalogConnectionId,
+        *,
+        mode: CatalogRefreshMode,
+        confirmation: str,
+        idempotency_key: str,
+    ) -> CatalogRefreshRequestResult:
+        """Request or exactly replay one asynchronous metadata refresh."""
+
+
+class CatalogRefreshInspectionPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        refresh_id: CatalogRefreshId,
+    ) -> CatalogRefreshSummary:
+        """Return one tenant-scoped sanitized refresh summary."""
+
+
+class SemanticChangeReportListPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        *,
+        filters: SemanticChangeReportFilter,
+        page: SemanticChangePageRequest,
+    ) -> SemanticChangePage[SemanticChangeReportPublic]:
+        """Return one bounded tenant-scoped report page."""
+
+
+class SemanticChangeReportInspectionPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        *,
+        report_id: str,
+    ) -> SemanticChangeReportPublic:
+        """Return one currently visible tenant-scoped report."""
+
+
+class SemanticChangeFindingListPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        *,
+        report_id: str,
+        filters: SemanticChangeFindingFilter,
+        page: SemanticChangePageRequest,
+    ) -> SemanticChangePage[SemanticChangeFindingPublic]:
+        """Return one bounded page from a visible report."""
+
+
+class SemanticChangeImpactListPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        *,
+        report_id: str,
+        filters: SemanticChangeImpactFilter,
+        page: SemanticChangePageRequest,
+    ) -> SemanticChangePage[SemanticChangeImpactPublic]:
+        """Return one bounded deduplicated blast-radius page."""
+
+
+class SemanticOnboardingDraftListPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        *,
+        limit: int = 50,
+    ) -> tuple[SemanticOnboardingDraft, ...]:
+        """Return a bounded tenant-scoped draft list."""
+
+
+class SemanticOnboardingPreflightUseCasePort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        request: PreflightSemanticOnboardingRequest,
+    ) -> SemanticOnboardingPreflight:
+        """Resolve one current tenant-bound, read-only authoring context."""
+
+
+class SemanticOnboardingDraftCreationPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        request: CreateSemanticOnboardingRequest,
+        *,
+        idempotency_key: str,
+    ) -> SemanticOnboardingDraftMutation:
+        """Create or exactly replay one tenant-derived semantic draft."""
+
+
+class SemanticOnboardingDraftInspectionPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        draft_id: str,
+        *,
+        history_limit: int = 25,
+    ) -> SemanticOnboardingSnapshot:
+        """Return one authorized onboarding snapshot."""
+
+
+class SemanticOnboardingDecisionPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        draft_id: str,
+        *,
+        target_kind: SemanticOnboardingTargetKind,
+        target_id: str,
+        action: DecisionAction,
+        expected_revision: int,
+        confirmed_draft_fingerprint: str,
+        rationale: str,
+        evidence: tuple[OnboardingEvidence, ...],
+        idempotency_key: str,
+    ) -> SemanticOnboardingDraftMutation:
+        """Record or exactly replay one governed semantic decision."""
+
+
+class SemanticOnboardingPreparationPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        draft_id: str,
+        *,
+        expected_revision: int,
+        confirmed_draft_fingerprint: str,
+        idempotency_key: str,
+    ) -> SemanticOnboardingPreparation:
+        """Prepare one immutable non-executable publication proposal."""
+
+
+class RegistryJoinProfileRequestPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        request: RequestRegistryJoinProfileInput,
+        *,
+        idempotency_key: str,
+    ) -> RegistryJoinProfileAuthoringMutation:
+        """Persist, enqueue and bind one exact aggregate join-profile request."""
+
+
+class RegistryJoinChangeListPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        *,
+        limit: int = 50,
+    ) -> tuple[RegistryJoinProfileAuthoringRequest, ...]:
+        """Return a bounded tenant-scoped join-change list."""
+
+
+class RegistryJoinChangeInspectionPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        change_id: str,
+        *,
+        history_limit: int = 25,
+    ) -> RegistryJoinChangeSnapshot:
+        """Return one authorized join-change snapshot."""
+
+
+class RegistryJoinDraftFinalizationPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        change_id: str,
+        *,
+        confirmed_authoring_fingerprint: str,
+        idempotency_key: str,
+    ) -> RegistryJoinDraftMutation:
+        """Finalize one draft from an exact current completed profile."""
+
+
+class RegistryJoinDecisionPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        change_id: str,
+        *,
+        action: DecisionAction,
+        expected_revision: int,
+        confirmed_draft_fingerprint: str,
+        rationale: str,
+        idempotency_key: str,
+    ) -> RegistryJoinDraftMutation:
+        """Record or exactly replay one explicit join decision."""
+
+
+class RegistryJoinPreparationPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        change_id: str,
+        *,
+        expected_revision: int,
+        confirmed_draft_fingerprint: str,
+        idempotency_key: str,
+    ) -> RegistryJoinPreparation:
+        """Prepare one immutable add-join publication proposal."""
+
+
+class RegistryModelProfileRequestPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        request: RequestRegistryModelJoinProfileInput,
+        *,
+        idempotency_key: str,
+    ) -> RegistryModelJoinProfileMutation:
+        """Persist, enqueue, and bind one exact replacement join profile."""
+
+
+class RegistryModelProfileFinalizationPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        request_id: str,
+        *,
+        confirmed_authoring_fingerprint: str,
+        idempotency_key: str,
+    ) -> RegistryModelJoinProfileMutation:
+        """Record one exact completed aggregate profile as a durable witness."""
+
+
+class RegistryModelChangeCreationPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        request: CreateRegistryModelChangeInput,
+        *,
+        idempotency_key: str,
+    ) -> RegistryModelChangeMutation:
+        """Create one complete model replacement/remediation draft."""
+
+
+class RegistryModelChangeListPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        *,
+        limit: int = 50,
+    ) -> tuple[RegistryModelChangeDraft, ...]:
+        """Return a bounded tenant-scoped model-change list."""
+
+
+class RegistryModelChangeInspectionPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        change_id: str,
+        *,
+        history_limit: int = 25,
+    ) -> RegistryModelChangeSnapshot:
+        """Inspect one authorized model replacement/remediation."""
+
+
+class RegistryModelChangeDecisionPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        change_id: str,
+        *,
+        action: DecisionAction,
+        expected_revision: int,
+        confirmed_draft_fingerprint: str,
+        rationale: str,
+        idempotency_key: str,
+    ) -> RegistryModelChangeMutation:
+        """Record or replay one explicit outer replacement decision."""
+
+
+class RegistryModelChangePreparationPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        change_id: str,
+        *,
+        expected_revision: int,
+        confirmed_draft_fingerprint: str,
+        idempotency_key: str,
+    ) -> RegistryModelChangeMutation:
+        """Prepare one immutable replacement publication proposal."""
+
+
+class RegistryPublicationSubmissionPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        *,
+        proposal_id: str,
+        confirmed_proposal_fingerprint: str,
+        idempotency_key: str,
+    ) -> RegistryPublicationJobMutation:
+        """Reserve or exactly replay one tenant-bound publication target."""
+
+
+class RegistryPublicationInspectionPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        job_id: str,
+    ) -> RegistryPublicationJob:
+        """Return one tenant-bound publication job."""
+
+
+class RegistryPublicationAuthorizationPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        job_id: str,
+        *,
+        expected_revision: int,
+        confirmed_candidate_fingerprint: str,
+        confirmation: RegistryPublicationAuthorizationConfirmation,
+    ) -> RegistryPublicationJob:
+        """Authorize one exact fully assembled publication candidate."""
+
+
+class RegistryPublicationCancellationPort(Protocol):
+    def execute(
+        self,
+        principal: AuthenticatedPrincipal,
+        job_id: str,
+        *,
+        expected_revision: int,
+    ) -> RegistryPublicationJob:
+        """Request or exactly replay cooperative cancellation."""
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogHttpServices:
+    list_connections: CatalogConnectionListPort
+    register_connection: CatalogConnectionRegistrationPort
+    disable_connection: CatalogConnectionDisablePort
+    list_assets: CatalogAssetListPort
+    list_fields: CatalogFieldListPort
+    request_refresh: CatalogRefreshRequestPort
+    inspect_refresh: CatalogRefreshInspectionPort
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticChangeHttpServices:
+    list_reports: SemanticChangeReportListPort
+    inspect_report: SemanticChangeReportInspectionPort
+    list_findings: SemanticChangeFindingListPort
+    list_impacts: SemanticChangeImpactListPort
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticOnboardingHttpServices:
+    preflight: SemanticOnboardingPreflightUseCasePort
+    list_drafts: SemanticOnboardingDraftListPort
+    create_draft: SemanticOnboardingDraftCreationPort
+    inspect_draft: SemanticOnboardingDraftInspectionPort
+    decide: SemanticOnboardingDecisionPort
+    prepare_publication: SemanticOnboardingPreparationPort
+
+
+@dataclass(frozen=True, slots=True)
+class RegistryChangeHttpServices:
+    request_join_profile: RegistryJoinProfileRequestPort
+    list_join_changes: RegistryJoinChangeListPort
+    inspect_join_change: RegistryJoinChangeInspectionPort
+    finalize_join_draft: RegistryJoinDraftFinalizationPort
+    decide_join: RegistryJoinDecisionPort
+    prepare_join_publication: RegistryJoinPreparationPort
+
+
+@dataclass(frozen=True, slots=True)
+class RegistryModelChangeHttpServices:
+    request_profile: RegistryModelProfileRequestPort
+    finalize_profile: RegistryModelProfileFinalizationPort
+    create_change: RegistryModelChangeCreationPort
+    list_changes: RegistryModelChangeListPort
+    inspect_change: RegistryModelChangeInspectionPort
+    decide_change: RegistryModelChangeDecisionPort
+    prepare_publication: RegistryModelChangePreparationPort
+
+
+@dataclass(frozen=True, slots=True)
+class RegistryPublicationHttpServices:
+    submit: RegistryPublicationSubmissionPort
+    inspect: RegistryPublicationInspectionPort
+    authorize: RegistryPublicationAuthorizationPort
+    cancel: RegistryPublicationCancellationPort
+
+
+@dataclass(frozen=True, slots=True)
+class ApiHttpServices:
+    authenticator: BearerAuthenticationPort
+    clock: ApiClockPort
+    submit: ExecutionJobSubmissionPort
+    inspect: ExecutionJobInspectionPort
+    cancel: ExecutionJobCancellationPort
+    readiness: ApiReadinessPort
+    catalog: CatalogHttpServices | None = None
+    admission: ApiAdmissionPort | None = None
+    semantic_changes: SemanticChangeHttpServices | None = None
+    semantic_onboarding: SemanticOnboardingHttpServices | None = None
+    registry_changes: RegistryChangeHttpServices | None = None
+    registry_model_changes: RegistryModelChangeHttpServices | None = None
+    registry_publication: RegistryPublicationHttpServices | None = None
+
+
+class ApiConcurrencyMiddleware:
+    """Reject excess in-process work through the same sanitized HTTP contract."""
+
+    def __init__(self, app: ASGIApp, *, max_concurrency: int) -> None:
+        if isinstance(max_concurrency, bool) or not 1 <= max_concurrency <= 1_000:
+            raise ValueError("API concurrency limit must be between 1 and 1000")
+        self._app = app
+        self._max_concurrency = max_concurrency
+        self._active_requests = 0
+        self._counter_lock = Lock()
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+        state = scope.setdefault("state", {})
+        request_id = state.setdefault("request_id", secrets.token_hex(16))
+        if not await self._try_enter():
+            await _send_problem(
+                send,
+                status=503,
+                code="service_busy",
+                title="The service is temporarily busy.",
+                request_id=request_id,
+            )
+            return
+        try:
+            await self._app(scope, receive, send)
+        finally:
+            await self._leave()
+
+    async def _try_enter(self) -> bool:
+        async with self._counter_lock:
+            if self._active_requests >= self._max_concurrency:
+                return False
+            self._active_requests += 1
+            return True
+
+    async def _leave(self) -> None:
+        async with self._counter_lock:
+            self._active_requests -= 1
+
+
+class ApiBoundaryMiddleware:
+    """Enforce host/body/encoding bounds before request parsing."""
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        max_body_bytes: int,
+        allowed_hosts: tuple[str, ...],
+        telemetry: OperationalTelemetryPort | None,
+    ) -> None:
+        self._app = app
+        self._max_body_bytes = max_body_bytes
+        self._allowed_hosts = frozenset(host.casefold() for host in allowed_hosts)
+        self._telemetry = telemetry
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+        state = scope.setdefault("state", {})
+        request_id = state.setdefault("request_id", secrets.token_hex(16))
+        raw_headers = scope.get("headers", ())
+        hosts = [value.decode("latin-1") for name, value in raw_headers if name.lower() == b"host"]
+        try:
+            hostname = URL(scope=scope).hostname
+        except ValueError:
+            hostname = None
+        if len(hosts) != 1 or hostname is None or hostname.casefold() not in self._allowed_hosts:
+            await _send_problem(
+                send,
+                status=400,
+                code="invalid_host",
+                title="The request host is not accepted.",
+                request_id=request_id,
+            )
+            return
+        encodings = [
+            value.decode("latin-1").strip().casefold()
+            for name, value in raw_headers
+            if name.lower() == b"content-encoding"
+        ]
+        if encodings and encodings != ["identity"]:
+            await _send_problem(
+                send,
+                status=415,
+                code="unsupported_content_encoding",
+                title="Compressed request bodies are not accepted.",
+                request_id=request_id,
+            )
+            return
+        content_lengths = [
+            value.decode("ascii", errors="ignore")
+            for name, value in raw_headers
+            if name.lower() == b"content-length"
+        ]
+        if len(content_lengths) > 1:
+            await _send_problem(
+                send,
+                status=400,
+                code="invalid_content_length",
+                title="The request content length is invalid.",
+                request_id=request_id,
+            )
+            return
+        if content_lengths:
+            try:
+                declared_length = int(content_lengths[0])
+            except ValueError:
+                declared_length = -1
+            if declared_length < 0:
+                await _send_problem(
+                    send,
+                    status=400,
+                    code="invalid_content_length",
+                    title="The request content length is invalid.",
+                    request_id=request_id,
+                )
+                return
+            if declared_length > self._max_body_bytes:
+                await _send_problem(
+                    send,
+                    status=413,
+                    code="request_too_large",
+                    title="The request body exceeds the configured limit.",
+                    request_id=request_id,
+                )
+                return
+        if scope["method"] == "POST":
+            content_types = [
+                value.decode("latin-1").split(";", 1)[0].strip().casefold()
+                for name, value in raw_headers
+                if name.lower() == b"content-type"
+            ]
+            if len(content_types) != 1 or content_types[0] != _JSON_MEDIA_TYPE:
+                await _send_problem(
+                    send,
+                    status=415,
+                    code="unsupported_content_type",
+                    title="POST request bodies must use application/json.",
+                    request_id=request_id,
+                )
+                return
+
+        received = 0
+
+        async def bounded_receive() -> Message:
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > self._max_body_bytes:
+                    raise _RequestTooLarge
+            return message
+
+        pending_response: list[Message] = []
+
+        async def request_id_send(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", ()))
+                headers.append((b"x-request-id", request_id.encode("ascii")))
+                headers.extend(_SECURITY_HEADERS)
+                message = {**message, "headers": headers}
+            pending_response.append(message)
+
+        try:
+            await self._app(scope, bounded_receive, request_id_send)
+        except _RequestTooLarge:
+            await _send_problem(
+                send,
+                status=413,
+                code="request_too_large",
+                title="The request body exceeds the configured limit.",
+                request_id=request_id,
+            )
+            return
+        except Exception:
+            _emit_safe_operational_event(
+                self._telemetry,
+                event="http.request",
+                outcome="failed",
+                duration_ms=0,
+                correlation_id=request_id,
+                error_code="internal_failure",
+                counts={"requests_completed": 1},
+            )
+            await _send_problem(
+                send,
+                status=500,
+                code="internal_error",
+                title="The request could not be completed.",
+                request_id=request_id,
+            )
+            return
+        for message in pending_response:
+            await send(message)
+
+
+class ApiOperationalTelemetryMiddleware:
+    """Measure only allowlisted business traffic with a safe internal denial signal."""
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        telemetry: OperationalTelemetryPort,
+    ) -> None:
+        self._app = app
+        self._telemetry = telemetry
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+        state = scope.setdefault("state", {})
+        request_id = state.setdefault("request_id", secrets.token_hex(16))
+        traffic_class = _classify_http_traffic(scope)
+        started = perf_counter()
+        status_code = 500
+
+        async def status_send(message: Message) -> None:
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+            await send(message)
+
+        try:
+            await self._app(scope, receive, status_send)
+        finally:
+            if traffic_class is _HttpTrafficClass.BUSINESS:
+                duration_ms = min(int((perf_counter() - started) * 1_000), 86_400_000)
+                authorization_denied = state.get(
+                    _HTTP_RESOURCE_ACCESS_CAUSE_STATE
+                ) is OperationalResourceAccessCause.DENIED or status_code in {401, 403}
+                outcome: OperationalOutcome
+                error_code: OperationalErrorCode | None
+                if status_code >= 500:
+                    outcome = "failed"
+                    error_code = "internal_failure"
+                elif authorization_denied:
+                    outcome = "denied"
+                    error_code = "unauthorized"
+                elif status_code == 429:
+                    outcome = "denied"
+                    error_code = "request_rejected"
+                else:
+                    outcome = "succeeded"
+                    error_code = None
+                counts = {"requests_completed": 1}
+                if authorization_denied and status_code < 500:
+                    counts["authorization_denials"] = 1
+                self._telemetry.emit(
+                    event="http.request",
+                    outcome=outcome,
+                    duration_ms=duration_ms,
+                    correlation_id=request_id,
+                    error_code=error_code,
+                    counts=counts,
+                )
+
+
+class _RequestTooLarge(Exception):
+    pass
+
+
+def create_http_app(
+    services: ApiHttpServices,
+    *,
+    max_body_bytes: int = 65_536,
+    max_concurrency: int = 100,
+    allowed_hosts: tuple[str, ...] = ("127.0.0.1", "localhost", "testserver"),
+    docs_enabled: bool = False,
+    lifecycle_resources: tuple[ApiLifecycleResource, ...] = (),
+    metrics_exporter: ApiLifecycleResource | None = None,
+    telemetry: OperationalTelemetryPort | None = None,
+) -> FastAPI:
+    """Create an explicit dependency-injected HTTP application."""
+
+    @asynccontextmanager
+    async def lifespan(_application: FastAPI) -> AsyncIterator[None]:
+        opened: list[ApiLifecycleResource] = []
+        metrics_exporter_opened = False
+        started = perf_counter()
+        try:
+            for resource in lifecycle_resources:
+                resource.open()
+                opened.append(resource)
+            if telemetry is not None:
+                telemetry.emit(
+                    event="service.health",
+                    outcome="succeeded",
+                    duration_ms=min(int((perf_counter() - started) * 1_000), 86_400_000),
+                )
+            if metrics_exporter is not None:
+                metrics_exporter.open()
+                metrics_exporter_opened = True
+            yield
+        except Exception:
+            if telemetry is not None:
+                telemetry.emit(
+                    event="service.health",
+                    outcome="failed",
+                    duration_ms=min(int((perf_counter() - started) * 1_000), 86_400_000),
+                    error_code="internal_failure",
+                )
+            raise
+        finally:
+            if metrics_exporter_opened and metrics_exporter is not None:
+                metrics_exporter.close()
+            for resource in reversed(opened):
+                resource.close()
+
+    app = FastAPI(
+        title="SchemaBridge API",
+        version="1",
+        debug=False,
+        docs_url="/docs" if docs_enabled else None,
+        redoc_url=None,
+        openapi_url="/openapi.json" if docs_enabled else None,
+        lifespan=lifespan,
+    )
+    app.add_middleware(
+        ApiBoundaryMiddleware,
+        max_body_bytes=max_body_bytes,
+        allowed_hosts=allowed_hosts,
+        telemetry=telemetry,
+    )
+    app.add_middleware(
+        ApiConcurrencyMiddleware,
+        max_concurrency=max_concurrency,
+    )
+    if telemetry is not None:
+        app.add_middleware(
+            ApiOperationalTelemetryMiddleware,
+            telemetry=telemetry,
+        )
+
+    @app.exception_handler(StarletteHttpException)
+    async def http_error(
+        request: Request,
+        error: StarletteHttpException,
+    ) -> JSONResponse:
+        status = error.status_code if 400 <= error.status_code <= 599 else 500
+        code, title = {
+            404: ("not_found", "The requested endpoint is not available."),
+            405: ("method_not_allowed", "The request method is not accepted."),
+        }.get(
+            status,
+            ("http_error", "The HTTP request could not be completed."),
+        )
+        return _problem_response(
+            request,
+            status=status,
+            code=code,
+            title=title,
+        )
+
+    @app.exception_handler(AuthenticationBoundaryError)
+    async def authentication_error(
+        request: Request,
+        error: AuthenticationBoundaryError,
+    ) -> JSONResponse:
+        status = 503 if error.code == "authentication_unavailable" else 401
+        return _problem_response(
+            request,
+            status=status,
+            code=error.code,
+            title=(
+                "Authentication is temporarily unavailable."
+                if status == 503
+                else "Bearer authentication failed."
+            ),
+            headers={"WWW-Authenticate": "Bearer"} if status == 401 else None,
+        )
+
+    @app.exception_handler(ApiCapacityError)
+    async def api_capacity_error(
+        request: Request,
+        error: ApiCapacityError,
+    ) -> JSONResponse:
+        if error.code is ApiCapacityErrorCode.RATE_LIMITED:
+            retry_after = error.retry_after_seconds
+            if retry_after is None or not 1 <= retry_after <= 60:
+                retry_after = 60
+            return _problem_response(
+                request,
+                status=429,
+                code=error.code.value,
+                title="The authenticated request rate has been reached.",
+                headers={"Retry-After": str(retry_after)},
+            )
+        return _problem_response(
+            request,
+            status=503,
+            code=error.code.value,
+            title="API capacity admission is temporarily unavailable.",
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def invalid_request(
+        request: Request,
+        error: RequestValidationError,
+    ) -> JSONResponse:
+        del error
+        return _problem_response(
+            request,
+            status=422,
+            code="invalid_request",
+            title="The request does not match the required schema.",
+        )
+
+    @app.exception_handler(ExecutionJobUseCaseError)
+    async def execution_job_error(
+        request: Request,
+        error: ExecutionJobUseCaseError,
+    ) -> JSONResponse:
+        if error.code is ExecutionJobUseCaseErrorCode.UNAVAILABLE:
+            assert error.resource_access_cause is not None
+            _mark_resource_access_cause(request, error.resource_access_cause)
+        status = {
+            ExecutionJobUseCaseErrorCode.INVALID_REQUEST: 422,
+            ExecutionJobUseCaseErrorCode.UNAVAILABLE: 404,
+            ExecutionJobUseCaseErrorCode.IDEMPOTENCY_CONFLICT: 409,
+            ExecutionJobUseCaseErrorCode.CAPACITY_EXCEEDED: 429,
+            ExecutionJobUseCaseErrorCode.SERVICE_UNAVAILABLE: 503,
+        }[error.code]
+        return _problem_response(
+            request,
+            status=status,
+            code=error.code.value,
+            title={
+                404: "The execution job is not available.",
+                409: "The idempotency identity conflicts with another request.",
+                429: "The tenant execution-job capacity has been reached.",
+                422: "The execution-job request is invalid.",
+                503: "The execution-job service is temporarily unavailable.",
+            }[status],
+        )
+
+    @app.exception_handler(CatalogUseCaseError)
+    async def catalog_error(
+        request: Request,
+        error: CatalogUseCaseError,
+    ) -> JSONResponse:
+        if error.code is CatalogUseCaseErrorCode.UNAVAILABLE:
+            assert error.resource_access_cause is not None
+            _mark_resource_access_cause(request, error.resource_access_cause)
+        status = {
+            CatalogUseCaseErrorCode.INVALID_REQUEST: 422,
+            CatalogUseCaseErrorCode.UNAVAILABLE: 404,
+            CatalogUseCaseErrorCode.IDEMPOTENCY_CONFLICT: 409,
+            CatalogUseCaseErrorCode.CAPACITY_EXCEEDED: 429,
+            CatalogUseCaseErrorCode.CURSOR_UNAVAILABLE: 404,
+            CatalogUseCaseErrorCode.SERVICE_UNAVAILABLE: 503,
+        }[error.code]
+        return _problem_response(
+            request,
+            status=status,
+            code=error.code.value,
+            title={
+                CatalogUseCaseErrorCode.INVALID_REQUEST: ("The catalog request is invalid."),
+                CatalogUseCaseErrorCode.UNAVAILABLE: ("The catalog resource is not available."),
+                CatalogUseCaseErrorCode.IDEMPOTENCY_CONFLICT: (
+                    "The idempotency identity conflicts with another request."
+                ),
+                CatalogUseCaseErrorCode.CAPACITY_EXCEEDED: (
+                    "The tenant catalog capacity has been reached."
+                ),
+                CatalogUseCaseErrorCode.CURSOR_UNAVAILABLE: (
+                    "The inventory cursor is not available."
+                ),
+                CatalogUseCaseErrorCode.SERVICE_UNAVAILABLE: (
+                    "The catalog service is temporarily unavailable."
+                ),
+            }[error.code],
+            headers={"Retry-After": "60"} if status == 429 else None,
+        )
+
+    @app.exception_handler(SemanticChangeReadError)
+    async def semantic_change_read_error(
+        request: Request,
+        error: SemanticChangeReadError,
+    ) -> JSONResponse:
+        if error.code is SemanticChangeReadErrorCode.UNAVAILABLE:
+            assert error.resource_access_cause is not None
+            _mark_resource_access_cause(request, error.resource_access_cause)
+        status = {
+            SemanticChangeReadErrorCode.INVALID_REQUEST: 422,
+            SemanticChangeReadErrorCode.UNAVAILABLE: 404,
+            SemanticChangeReadErrorCode.SERVICE_UNAVAILABLE: 503,
+        }[error.code]
+        return _problem_response(
+            request,
+            status=status,
+            code=error.code.value,
+            title={
+                SemanticChangeReadErrorCode.INVALID_REQUEST: (
+                    "The semantic-change request is invalid."
+                ),
+                SemanticChangeReadErrorCode.UNAVAILABLE: (
+                    "The semantic-change resource is not available."
+                ),
+                SemanticChangeReadErrorCode.SERVICE_UNAVAILABLE: (
+                    "The semantic-change service is temporarily unavailable."
+                ),
+            }[error.code],
+        )
+
+    @app.exception_handler(SemanticOnboardingError)
+    async def semantic_onboarding_error(
+        request: Request,
+        error: SemanticOnboardingError,
+    ) -> JSONResponse:
+        if error.code is SemanticOnboardingErrorCode.UNAVAILABLE:
+            _mark_resource_access_cause(request, OperationalResourceAccessCause.DENIED)
+        status = {
+            SemanticOnboardingErrorCode.INVALID_REQUEST: 422,
+            SemanticOnboardingErrorCode.UNAVAILABLE: 404,
+            SemanticOnboardingErrorCode.CONFLICT: 409,
+            SemanticOnboardingErrorCode.STALE_CATALOG: 409,
+            SemanticOnboardingErrorCode.STALE_REGISTRY: 409,
+            SemanticOnboardingErrorCode.NOT_READY: 409,
+            SemanticOnboardingErrorCode.SEPARATION_OF_DUTIES: 403,
+            SemanticOnboardingErrorCode.SERVICE_UNAVAILABLE: 503,
+        }[error.code]
+        return _problem_response(
+            request,
+            status=status,
+            code=error.code.value,
+            title={
+                SemanticOnboardingErrorCode.INVALID_REQUEST: (
+                    "The semantic-onboarding request is invalid."
+                ),
+                SemanticOnboardingErrorCode.UNAVAILABLE: (
+                    "The semantic-onboarding resource is not available."
+                ),
+                SemanticOnboardingErrorCode.CONFLICT: (
+                    "The semantic-onboarding draft changed; reload and retry."
+                ),
+                SemanticOnboardingErrorCode.STALE_CATALOG: (
+                    "The bound catalog observation is no longer current."
+                ),
+                SemanticOnboardingErrorCode.STALE_REGISTRY: (
+                    "The active semantic-registry base changed."
+                ),
+                SemanticOnboardingErrorCode.NOT_READY: (
+                    "The semantic-onboarding decision closure is incomplete."
+                ),
+                SemanticOnboardingErrorCode.SEPARATION_OF_DUTIES: (
+                    "A separate current publisher is required."
+                ),
+                SemanticOnboardingErrorCode.SERVICE_UNAVAILABLE: (
+                    "The semantic-onboarding service is temporarily unavailable."
+                ),
+            }[error.code],
+        )
+
+    @app.exception_handler(RegistryPublicationError)
+    async def registry_publication_error(
+        request: Request,
+        error: RegistryPublicationError,
+    ) -> JSONResponse:
+        if error.code is RegistryPublicationErrorCode.UNAVAILABLE:
+            _mark_resource_access_cause(request, OperationalResourceAccessCause.DENIED)
+        status = {
+            RegistryPublicationErrorCode.INVALID_REQUEST: 422,
+            RegistryPublicationErrorCode.UNAVAILABLE: 404,
+            RegistryPublicationErrorCode.CONFLICT: 409,
+            RegistryPublicationErrorCode.TARGET_RESERVED: 409,
+            RegistryPublicationErrorCode.NOT_READY: 409,
+            RegistryPublicationErrorCode.STALE_SESSION: 401,
+            RegistryPublicationErrorCode.SERVICE_UNAVAILABLE: 503,
+        }[error.code]
+        return _problem_response(
+            request,
+            status=status,
+            code=error.code.value,
+            title={
+                RegistryPublicationErrorCode.INVALID_REQUEST: (
+                    "The registry-publication request is invalid."
+                ),
+                RegistryPublicationErrorCode.UNAVAILABLE: (
+                    "The registry-publication resource is not available."
+                ),
+                RegistryPublicationErrorCode.CONFLICT: (
+                    "The registry-publication job changed; reload and retry."
+                ),
+                RegistryPublicationErrorCode.TARGET_RESERVED: (
+                    "The registry version is already reserved."
+                ),
+                RegistryPublicationErrorCode.NOT_READY: (
+                    "The registry-publication job is not ready for this operation."
+                ),
+                RegistryPublicationErrorCode.STALE_SESSION: (
+                    "A recent authenticated publisher session is required."
+                ),
+                RegistryPublicationErrorCode.SERVICE_UNAVAILABLE: (
+                    "The registry-publication service is temporarily unavailable."
+                ),
+            }[error.code],
+            headers={"WWW-Authenticate": "Bearer"} if status == 401 else None,
+        )
+
+    @app.exception_handler(RegistryChangeAuthoringError)
+    async def registry_change_authoring_error(
+        request: Request,
+        error: RegistryChangeAuthoringError,
+    ) -> JSONResponse:
+        if error.code is RegistryChangeAuthoringErrorCode.UNAVAILABLE:
+            _mark_resource_access_cause(request, OperationalResourceAccessCause.DENIED)
+        status = {
+            RegistryChangeAuthoringErrorCode.INVALID_REQUEST: 422,
+            RegistryChangeAuthoringErrorCode.UNAVAILABLE: 404,
+            RegistryChangeAuthoringErrorCode.CONFLICT: 409,
+            RegistryChangeAuthoringErrorCode.STALE_BASE: 409,
+            RegistryChangeAuthoringErrorCode.STALE_CATALOG: 409,
+            RegistryChangeAuthoringErrorCode.STALE_TARGET: 409,
+            RegistryChangeAuthoringErrorCode.PROFILE_NOT_READY: 409,
+            RegistryChangeAuthoringErrorCode.PROFILE_STALE: 409,
+            RegistryChangeAuthoringErrorCode.NOT_READY: 409,
+            RegistryChangeAuthoringErrorCode.SEPARATION_OF_DUTIES: 403,
+            RegistryChangeAuthoringErrorCode.SERVICE_UNAVAILABLE: 503,
+        }[error.code]
+        return _problem_response(
+            request,
+            status=status,
+            code=error.code.value,
+            title={
+                RegistryChangeAuthoringErrorCode.INVALID_REQUEST: (
+                    "The registry-change request is invalid."
+                ),
+                RegistryChangeAuthoringErrorCode.UNAVAILABLE: (
+                    "The registry-change resource is not available."
+                ),
+                RegistryChangeAuthoringErrorCode.CONFLICT: (
+                    "The registry-change state changed; reload and retry."
+                ),
+                RegistryChangeAuthoringErrorCode.STALE_BASE: (
+                    "The active registry base changed; start a fresh change."
+                ),
+                RegistryChangeAuthoringErrorCode.STALE_CATALOG: (
+                    "The bound catalog authority is no longer current."
+                ),
+                RegistryChangeAuthoringErrorCode.STALE_TARGET: (
+                    "The governed connector target changed."
+                ),
+                RegistryChangeAuthoringErrorCode.PROFILE_NOT_READY: (
+                    "The exact aggregate profile is not complete."
+                ),
+                RegistryChangeAuthoringErrorCode.PROFILE_STALE: (
+                    "The exact aggregate profile is no longer current."
+                ),
+                RegistryChangeAuthoringErrorCode.NOT_READY: (
+                    "The registry change is not ready for this operation."
+                ),
+                RegistryChangeAuthoringErrorCode.SEPARATION_OF_DUTIES: (
+                    "A separate current publisher is required."
+                ),
+                RegistryChangeAuthoringErrorCode.SERVICE_UNAVAILABLE: (
+                    "The registry-change service is temporarily unavailable."
+                ),
+            }[error.code],
+        )
+
+    @app.exception_handler(AuthorizationError)
+    async def authorization_error(
+        request: Request,
+        error: AuthorizationError,
+    ) -> JSONResponse:
+        _mark_resource_access_cause(request, OperationalResourceAccessCause.DENIED)
+        if error.code is AuthorizationErrorCode.WORKFLOW_ACCESS_DENIED:
+            semantic_onboarding_route = request.url.path.startswith("/v1/semantic-onboarding/")
+            registry_change_route = request.url.path.startswith("/v1/registry-changes/")
+            registry_publication_route = request.url.path.startswith("/v1/registry-publications")
+            return _problem_response(
+                request,
+                status=404,
+                code=(
+                    RegistryPublicationErrorCode.UNAVAILABLE.value
+                    if registry_publication_route
+                    else (
+                        RegistryChangeAuthoringErrorCode.UNAVAILABLE.value
+                        if registry_change_route
+                        else (
+                            SemanticOnboardingErrorCode.UNAVAILABLE.value
+                            if semantic_onboarding_route
+                            else "resource_unavailable"
+                        )
+                    )
+                ),
+                title=(
+                    "The registry-publication resource is not available."
+                    if registry_publication_route
+                    else (
+                        "The registry-change resource is not available."
+                        if registry_change_route
+                        else (
+                            "The semantic-onboarding resource is not available."
+                            if semantic_onboarding_route
+                            else "The requested resource is not available."
+                        )
+                    )
+                ),
+            )
+        status = {
+            AuthorizationErrorCode.PRINCIPAL_NOT_CURRENT: 401,
+            AuthorizationErrorCode.PERMISSION_DENIED: 403,
+            AuthorizationErrorCode.POLICY_UNAVAILABLE: 503,
+        }[error.code]
+        return _problem_response(
+            request,
+            status=status,
+            code=error.code.value,
+            title={
+                AuthorizationErrorCode.PRINCIPAL_NOT_CURRENT: (
+                    "The authenticated session is no longer current."
+                ),
+                AuthorizationErrorCode.PERMISSION_DENIED: (
+                    "The authenticated principal is not authorized for this operation."
+                ),
+                AuthorizationErrorCode.POLICY_UNAVAILABLE: (
+                    "Authorization is temporarily unavailable."
+                ),
+            }[error.code],
+            headers={"WWW-Authenticate": "Bearer"} if status == 401 else None,
+        )
+
+    def principal(request: Request) -> AuthenticatedPrincipal:
+        raw_values = request.headers.getlist("authorization")
+        if (
+            len(raw_values) != 1
+            or not raw_values[0].startswith(_BEARER_PREFIX)
+            or len(raw_values[0]) <= len(_BEARER_PREFIX)
+        ):
+            raise AuthenticationBoundaryError("invalid_bearer_token")
+        authenticated = services.authenticator.authenticate(
+            raw_values[0][len(_BEARER_PREFIX) :],
+            services.clock.now(),
+        )
+        if services.admission is not None:
+            services.admission.execute(authenticated)
+        return authenticated
+
+    @app.get("/health/live", response_model=HealthResponse)
+    def live() -> HealthResponse:
+        return HealthResponse(status="live")
+
+    @app.get(
+        "/health/ready",
+        response_model=HealthResponse,
+        responses={503: {"model": ProblemResponse}},
+    )
+    def ready(request: Request) -> HealthResponse | JSONResponse:
+        try:
+            services.readiness.require_ready()
+        except Exception:
+            _emit_safe_operational_event(
+                telemetry,
+                event="service.health",
+                outcome="failed",
+                duration_ms=0,
+                correlation_id=_request_id(request),
+                error_code="queue_unavailable",
+            )
+            return _problem_response(
+                request,
+                status=503,
+                code="not_ready",
+                title="The service is not ready.",
+            )
+        _emit_safe_operational_event(
+            telemetry,
+            event="service.health",
+            outcome="succeeded",
+            duration_ms=0,
+            correlation_id=_request_id(request),
+        )
+        return HealthResponse(status="ready")
+
+    @app.post(
+        "/v1/workflows/{workflow_id}/execution-jobs",
+        response_model=ExecutionJobSubmissionResponse,
+        responses={
+            200: {"model": ExecutionJobSubmissionResponse},
+            202: {"model": ExecutionJobSubmissionResponse},
+        },
+    )
+    def submit_job(
+        body: ExecutionJobSubmissionRequest,
+        response: Response,
+        request: Request,
+        workflow_id: str = Path(pattern=r"^[a-z0-9][a-z0-9_-]{2,63}$"),
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> ExecutionJobSubmissionResponse:
+        idempotency_values = request.headers.getlist("idempotency-key")
+        if len(idempotency_values) != 1 or idempotency_values[0] != idempotency_key:
+            raise ExecutionJobUseCaseError(
+                ExecutionJobUseCaseErrorCode.INVALID_REQUEST,
+                "The execution-job request is invalid.",
+            )
+        result = services.submit.execute(
+            principal(request),
+            workflow_id=workflow_id,
+            expected_workflow_revision=body.expected_workflow_revision,
+            expected_plan_fingerprint=body.expected_plan_fingerprint,
+            confirmation=body.confirmation,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 202
+        return ExecutionJobSubmissionResponse(
+            job=ExecutionJobResponse.from_domain(result.job),
+            replayed=result.replayed,
+        )
+
+    @app.get(
+        "/v1/execution-jobs/{job_id}",
+        response_model=ExecutionJobResponse,
+    )
+    def inspect_job(
+        request: Request,
+        job_id: str = Path(pattern=_JOB_ID_PATTERN),
+    ) -> ExecutionJobResponse:
+        job = services.inspect.execute(principal(request), job_id=job_id)
+        return ExecutionJobResponse.from_domain(job)
+
+    @app.post(
+        "/v1/execution-jobs/{job_id}/cancel",
+        response_model=ExecutionJobResponse,
+    )
+    def cancel_job(
+        body: ExecutionJobCancellationRequest,
+        request: Request,
+        job_id: str = Path(pattern=_JOB_ID_PATTERN),
+    ) -> ExecutionJobResponse:
+        job = services.cancel.execute(
+            principal(request),
+            job_id=job_id,
+        )
+        return ExecutionJobResponse.from_domain(job)
+
+    @app.get(
+        "/v1/catalog/connections",
+        response_model=CatalogConnectionPageResponse,
+    )
+    def list_catalog_connections(
+        request: Request,
+        query: Annotated[CatalogConnectionListQuery, Query()],
+    ) -> CatalogConnectionPageResponse:
+        authenticated = principal(request)
+        catalog = _catalog_services(services)
+        try:
+            filters = query.to_filter()
+            page = InventoryPageRequest(size=query.page_size, cursor=query.cursor)
+        except ValueError as error:
+            raise _catalog_invalid_request() from error
+        result = catalog.list_connections.execute(
+            authenticated,
+            filters=filters,
+            page=page,
+        )
+        return CatalogConnectionPageResponse.from_domain(result)
+
+    @app.post(
+        "/v1/catalog/connections",
+        response_model=CatalogConnectionRegistrationResponse,
+        responses={
+            200: {"model": CatalogConnectionRegistrationResponse},
+            201: {"model": CatalogConnectionRegistrationResponse},
+        },
+    )
+    def register_catalog_connection(
+        body: CatalogConnectionRegistrationRequest,
+        response: Response,
+        request: Request,
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> CatalogConnectionRegistrationResponse:
+        _require_single_idempotency_header(request, idempotency_key)
+        authenticated = principal(request)
+        catalog = _catalog_services(services)
+        try:
+            connection_id = CatalogConnectionId(body.connection_id)
+        except ValueError as error:
+            raise _catalog_invalid_request() from error
+        result = catalog.register_connection.execute(
+            authenticated,
+            connection_id=connection_id,
+            display_name=body.display_name,
+            kind=body.kind,
+            environment=body.environment,
+            catalog_scope=body.catalog_scope,
+            confirmation=body.confirmation,
+            idempotency_key=idempotency_key,
+            platform_instance=body.platform_instance,
+        )
+        response.status_code = 200 if result.replayed else 201
+        return CatalogConnectionRegistrationResponse.from_domain(result)
+
+    @app.post(
+        "/v1/catalog/connections/{connection_id}/disable",
+        response_model=CatalogConnectionResponse,
+    )
+    def disable_catalog_connection(
+        body: CatalogConnectionDisableRequest,
+        request: Request,
+        connection_id: str = Path(pattern=_CONNECTION_ID_PATTERN),
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> CatalogConnectionResponse:
+        _require_single_idempotency_header(request, idempotency_key)
+        authenticated = principal(request)
+        catalog = _catalog_services(services)
+        result = catalog.disable_connection.execute(
+            authenticated,
+            _catalog_connection_id(connection_id),
+            confirmation=body.confirmation,
+            idempotency_key=idempotency_key,
+        )
+        return CatalogConnectionResponse.from_domain(result)
+
+    @app.get(
+        "/v1/catalog/connections/{connection_id}/assets",
+        response_model=CatalogAssetPageResponse,
+    )
+    def list_catalog_assets(
+        request: Request,
+        query: Annotated[CatalogAssetListQuery, Query()],
+        connection_id: str = Path(pattern=_CONNECTION_ID_PATTERN),
+    ) -> CatalogAssetPageResponse:
+        authenticated = principal(request)
+        catalog = _catalog_services(services)
+        try:
+            filters = query.to_filter()
+            page = InventoryPageRequest(size=query.page_size, cursor=query.cursor)
+        except ValueError as error:
+            raise _catalog_invalid_request() from error
+        result = catalog.list_assets.execute(
+            authenticated,
+            _catalog_connection_id(connection_id),
+            filters=filters,
+            page=page,
+            generation=query.generation,
+        )
+        return CatalogAssetPageResponse.from_domain(result)
+
+    @app.get(
+        "/v1/catalog/connections/{connection_id}/assets/{asset_id:path}/fields",
+        response_model=CatalogFieldPageResponse,
+    )
+    def list_catalog_fields(
+        request: Request,
+        query: Annotated[CatalogFieldListQuery, Query()],
+        connection_id: str = Path(pattern=_CONNECTION_ID_PATTERN),
+        asset_id: str = Path(pattern=_ASSET_ID_PATTERN),
+    ) -> CatalogFieldPageResponse:
+        catalog = _catalog_services(services)
+        authenticated = principal(request)
+        try:
+            filters = query.to_filter()
+            page = InventoryPageRequest(size=query.page_size, cursor=query.cursor)
+            asset = CatalogAssetLocator(
+                workspace_id=authenticated.workspace_id,
+                connection_id=_catalog_connection_id(connection_id),
+                asset_id=asset_id,
+            )
+        except ValueError as error:
+            raise _catalog_invalid_request() from error
+        result = catalog.list_fields.execute(
+            authenticated,
+            asset,
+            filters=filters,
+            page=page,
+            generation=query.generation,
+        )
+        return CatalogFieldPageResponse.from_domain(result)
+
+    @app.post(
+        "/v1/catalog/connections/{connection_id}/refreshes",
+        response_model=CatalogRefreshRequestResponse,
+        responses={
+            200: {"model": CatalogRefreshRequestResponse},
+            202: {"model": CatalogRefreshRequestResponse},
+        },
+    )
+    def request_catalog_refresh(
+        body: CatalogRefreshRequest,
+        response: Response,
+        request: Request,
+        connection_id: str = Path(pattern=_CONNECTION_ID_PATTERN),
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> CatalogRefreshRequestResponse:
+        _require_single_idempotency_header(request, idempotency_key)
+        authenticated = principal(request)
+        catalog = _catalog_services(services)
+        result = catalog.request_refresh.execute(
+            authenticated,
+            _catalog_connection_id(connection_id),
+            mode=body.mode,
+            confirmation=body.confirmation,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 202
+        return CatalogRefreshRequestResponse.from_domain(result)
+
+    @app.get(
+        "/v1/catalog/refreshes/{refresh_id}",
+        response_model=CatalogRefreshResponse,
+    )
+    def inspect_catalog_refresh(
+        request: Request,
+        refresh_id: str = Path(pattern=_REFRESH_ID_PATTERN),
+    ) -> CatalogRefreshResponse:
+        authenticated = principal(request)
+        catalog = _catalog_services(services)
+        try:
+            identifier = CatalogRefreshId(refresh_id)
+        except ValueError as error:
+            raise _catalog_invalid_request() from error
+        result = catalog.inspect_refresh.execute(authenticated, identifier)
+        return CatalogRefreshResponse.from_domain(result)
+
+    @app.get(
+        "/v1/semantic-changes/reports",
+        response_model=SemanticChangeReportPageResponse,
+    )
+    def list_semantic_change_reports(
+        request: Request,
+        query: Annotated[SemanticChangeReportListQuery, Query()],
+    ) -> SemanticChangeReportPageResponse:
+        authenticated = principal(request)
+        semantic_changes = _semantic_change_services(services)
+        result = semantic_changes.list_reports.execute(
+            authenticated,
+            filters=query.to_filter(),
+            page=SemanticChangePageRequest(
+                size=query.page_size,
+                cursor=query.cursor,
+            ),
+        )
+        return SemanticChangeReportPageResponse.from_projection(result)
+
+    @app.get(
+        "/v1/semantic-changes/reports/{report_id}",
+        response_model=SemanticChangeReportResponse,
+    )
+    def inspect_semantic_change_report(
+        request: Request,
+        report_id: str = Path(pattern=_SEMANTIC_CHANGE_REPORT_ID_PATTERN),
+    ) -> SemanticChangeReportResponse:
+        authenticated = principal(request)
+        semantic_changes = _semantic_change_services(services)
+        result = semantic_changes.inspect_report.execute(
+            authenticated,
+            report_id=report_id,
+        )
+        return SemanticChangeReportResponse.from_projection(result)
+
+    @app.get(
+        "/v1/semantic-changes/reports/{report_id}/findings",
+        response_model=SemanticChangeFindingPageResponse,
+    )
+    def list_semantic_change_findings(
+        request: Request,
+        query: Annotated[SemanticChangeFindingListQuery, Query()],
+        report_id: str = Path(pattern=_SEMANTIC_CHANGE_REPORT_ID_PATTERN),
+    ) -> SemanticChangeFindingPageResponse:
+        authenticated = principal(request)
+        semantic_changes = _semantic_change_services(services)
+        result = semantic_changes.list_findings.execute(
+            authenticated,
+            report_id=report_id,
+            filters=query.to_filter(),
+            page=SemanticChangePageRequest(
+                size=query.page_size,
+                cursor=query.cursor,
+            ),
+        )
+        return SemanticChangeFindingPageResponse.from_projection(result)
+
+    @app.get(
+        "/v1/semantic-changes/reports/{report_id}/impacts",
+        response_model=SemanticChangeImpactPageResponse,
+    )
+    def list_semantic_change_impacts(
+        request: Request,
+        query: Annotated[SemanticChangeImpactListQuery, Query()],
+        report_id: str = Path(pattern=_SEMANTIC_CHANGE_REPORT_ID_PATTERN),
+    ) -> SemanticChangeImpactPageResponse:
+        authenticated = principal(request)
+        semantic_changes = _semantic_change_services(services)
+        result = semantic_changes.list_impacts.execute(
+            authenticated,
+            report_id=report_id,
+            filters=query.to_filter(),
+            page=SemanticChangePageRequest(
+                size=query.page_size,
+                cursor=query.cursor,
+            ),
+        )
+        return SemanticChangeImpactPageResponse.from_projection(result)
+
+    @app.post(
+        "/v1/semantic-onboarding/preflight",
+        response_model=SemanticOnboardingPreflightResponse,
+    )
+    def preflight_semantic_onboarding_draft(
+        body: SemanticOnboardingPreflightRequest,
+        request: Request,
+    ) -> SemanticOnboardingPreflightResponse:
+        authenticated = principal(request)
+        onboarding = _semantic_onboarding_services(services)
+        try:
+            command = body.to_domain()
+        except ValueError as error:
+            raise _semantic_onboarding_invalid_request() from error
+        result = onboarding.preflight.execute(authenticated, command)
+        return SemanticOnboardingPreflightResponse.from_domain(result)
+
+    @app.get(
+        "/v1/semantic-onboarding/drafts",
+        response_model=SemanticOnboardingDraftListResponse,
+    )
+    def list_semantic_onboarding_drafts(
+        request: Request,
+        query: Annotated[SemanticOnboardingDraftListQuery, Query()],
+    ) -> SemanticOnboardingDraftListResponse:
+        authenticated = principal(request)
+        onboarding = _semantic_onboarding_services(services)
+        result = onboarding.list_drafts.execute(
+            authenticated,
+            limit=query.limit,
+        )
+        return SemanticOnboardingDraftListResponse.from_domain(result)
+
+    @app.post(
+        "/v1/semantic-onboarding/drafts",
+        response_model=SemanticOnboardingDraftMutationResponse,
+        responses={
+            200: {"model": SemanticOnboardingDraftMutationResponse},
+            201: {"model": SemanticOnboardingDraftMutationResponse},
+        },
+    )
+    def create_semantic_onboarding_draft(
+        body: SemanticOnboardingDraftCreateRequest,
+        response: Response,
+        request: Request,
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> SemanticOnboardingDraftMutationResponse:
+        _require_single_semantic_onboarding_idempotency_header(request, idempotency_key)
+        authenticated = principal(request)
+        onboarding = _semantic_onboarding_services(services)
+        try:
+            command = body.to_domain()
+        except ValueError as error:
+            raise _semantic_onboarding_invalid_request() from error
+        result = onboarding.create_draft.execute(
+            authenticated,
+            command,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 201
+        return SemanticOnboardingDraftMutationResponse.from_domain(result)
+
+    @app.get(
+        "/v1/semantic-onboarding/drafts/{draft_id}",
+        response_model=SemanticOnboardingDraftResponse,
+    )
+    def inspect_semantic_onboarding_draft(
+        request: Request,
+        query: Annotated[SemanticOnboardingDraftInspectionQuery, Query()],
+        draft_id: str = Path(pattern=_SEMANTIC_ONBOARDING_DRAFT_ID_PATTERN),
+    ) -> SemanticOnboardingDraftResponse:
+        authenticated = principal(request)
+        onboarding = _semantic_onboarding_services(services)
+        result = onboarding.inspect_draft.execute(
+            authenticated,
+            draft_id,
+            history_limit=query.history_limit,
+        )
+        return SemanticOnboardingDraftResponse(
+            draft=result.draft,
+            draft_fingerprint=result.draft.fingerprint,
+            audit_visible=result.audit_visible,
+            history_truncated=result.history_truncated,
+            decisions=result.decisions,
+            proposals=result.proposals,
+            audit=result.audit,
+        )
+
+    @app.post(
+        "/v1/semantic-onboarding/drafts/{draft_id}/model-decisions",
+        response_model=SemanticOnboardingDraftMutationResponse,
+        responses={
+            200: {"model": SemanticOnboardingDraftMutationResponse},
+            201: {"model": SemanticOnboardingDraftMutationResponse},
+        },
+    )
+    def decide_semantic_onboarding_model(
+        body: SemanticOnboardingDecisionRequest,
+        response: Response,
+        request: Request,
+        draft_id: str = Path(pattern=_SEMANTIC_ONBOARDING_DRAFT_ID_PATTERN),
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> SemanticOnboardingDraftMutationResponse:
+        result = _decide_semantic_onboarding(
+            services,
+            authenticated=principal(request),
+            request=request,
+            body=body,
+            draft_id=draft_id,
+            target_kind=SemanticOnboardingTargetKind.MODEL,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 201
+        return SemanticOnboardingDraftMutationResponse.from_domain(result)
+
+    @app.post(
+        "/v1/semantic-onboarding/drafts/{draft_id}/mapping-decisions",
+        response_model=SemanticOnboardingDraftMutationResponse,
+        responses={
+            200: {"model": SemanticOnboardingDraftMutationResponse},
+            201: {"model": SemanticOnboardingDraftMutationResponse},
+        },
+    )
+    def decide_semantic_onboarding_mapping(
+        body: SemanticOnboardingDecisionRequest,
+        response: Response,
+        request: Request,
+        draft_id: str = Path(pattern=_SEMANTIC_ONBOARDING_DRAFT_ID_PATTERN),
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> SemanticOnboardingDraftMutationResponse:
+        result = _decide_semantic_onboarding(
+            services,
+            authenticated=principal(request),
+            request=request,
+            body=body,
+            draft_id=draft_id,
+            target_kind=SemanticOnboardingTargetKind.MAPPING,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 201
+        return SemanticOnboardingDraftMutationResponse.from_domain(result)
+
+    @app.post(
+        "/v1/semantic-onboarding/drafts/{draft_id}/prepare-publication",
+        response_model=SemanticOnboardingPreparationResponse,
+        responses={
+            200: {"model": SemanticOnboardingPreparationResponse},
+            201: {"model": SemanticOnboardingPreparationResponse},
+        },
+    )
+    def prepare_semantic_onboarding_publication(
+        body: SemanticOnboardingPreparationRequest,
+        response: Response,
+        request: Request,
+        draft_id: str = Path(pattern=_SEMANTIC_ONBOARDING_DRAFT_ID_PATTERN),
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> SemanticOnboardingPreparationResponse:
+        _require_single_semantic_onboarding_idempotency_header(request, idempotency_key)
+        authenticated = principal(request)
+        onboarding = _semantic_onboarding_services(services)
+        result = onboarding.prepare_publication.execute(
+            authenticated,
+            draft_id,
+            expected_revision=body.expected_revision,
+            confirmed_draft_fingerprint=body.confirmed_draft_fingerprint,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 201
+        return SemanticOnboardingPreparationResponse.from_domain(result)
+
+    @app.get(
+        "/v1/registry-changes/joins",
+        response_model=RegistryJoinChangeListResponse,
+    )
+    def list_registry_join_changes(
+        request: Request,
+        query: Annotated[RegistryJoinChangeListQuery, Query()],
+    ) -> RegistryJoinChangeListResponse:
+        authenticated = principal(request)
+        changes = _registry_change_services(services)
+        result = changes.list_join_changes.execute(
+            authenticated,
+            limit=query.limit,
+        )
+        return RegistryJoinChangeListResponse.from_domain(result)
+
+    @app.post(
+        "/v1/registry-changes/joins",
+        response_model=RegistryJoinProfileMutationResponse,
+        responses={
+            200: {"model": RegistryJoinProfileMutationResponse},
+            201: {"model": RegistryJoinProfileMutationResponse},
+        },
+    )
+    def request_registry_join_profile(
+        body: RegistryJoinProfileRequest,
+        response: Response,
+        request: Request,
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> RegistryJoinProfileMutationResponse:
+        _require_single_registry_change_idempotency_header(request, idempotency_key)
+        authenticated = principal(request)
+        changes = _registry_change_services(services)
+        try:
+            command = body.to_domain()
+        except ValueError as error:
+            raise _registry_change_invalid_request() from error
+        result = changes.request_join_profile.execute(
+            authenticated,
+            command,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 201
+        return RegistryJoinProfileMutationResponse.from_domain(result)
+
+    @app.get(
+        "/v1/registry-changes/joins/{change_id}",
+        response_model=RegistryJoinChangeResponse,
+    )
+    def inspect_registry_join_change(
+        request: Request,
+        query: Annotated[RegistryJoinChangeInspectionQuery, Query()],
+        change_id: str = Path(pattern=_REGISTRY_JOIN_CHANGE_ID_PATTERN),
+    ) -> RegistryJoinChangeResponse:
+        authenticated = principal(request)
+        changes = _registry_change_services(services)
+        result = changes.inspect_join_change.execute(
+            authenticated,
+            change_id,
+            history_limit=query.history_limit,
+        )
+        return RegistryJoinChangeResponse.from_domain(result)
+
+    @app.post(
+        "/v1/registry-changes/joins/{change_id}/finalize",
+        response_model=RegistryJoinDraftMutationResponse,
+        responses={
+            200: {"model": RegistryJoinDraftMutationResponse},
+            201: {"model": RegistryJoinDraftMutationResponse},
+        },
+    )
+    def finalize_registry_join_change(
+        body: RegistryJoinDraftFinalizationRequest,
+        response: Response,
+        request: Request,
+        change_id: str = Path(pattern=_REGISTRY_JOIN_CHANGE_ID_PATTERN),
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> RegistryJoinDraftMutationResponse:
+        _require_single_registry_change_idempotency_header(request, idempotency_key)
+        authenticated = principal(request)
+        changes = _registry_change_services(services)
+        result = changes.finalize_join_draft.execute(
+            authenticated,
+            change_id,
+            confirmed_authoring_fingerprint=body.confirmed_authoring_fingerprint,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 201
+        return RegistryJoinDraftMutationResponse.from_domain(result)
+
+    @app.post(
+        "/v1/registry-changes/joins/{change_id}/decide",
+        response_model=RegistryJoinDraftMutationResponse,
+        responses={
+            200: {"model": RegistryJoinDraftMutationResponse},
+            201: {"model": RegistryJoinDraftMutationResponse},
+        },
+    )
+    def decide_registry_join_change(
+        body: RegistryJoinDecisionRequest,
+        response: Response,
+        request: Request,
+        change_id: str = Path(pattern=_REGISTRY_JOIN_CHANGE_ID_PATTERN),
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> RegistryJoinDraftMutationResponse:
+        _require_single_registry_change_idempotency_header(request, idempotency_key)
+        authenticated = principal(request)
+        changes = _registry_change_services(services)
+        result = changes.decide_join.execute(
+            authenticated,
+            change_id,
+            action=body.action,
+            expected_revision=body.expected_revision,
+            confirmed_draft_fingerprint=body.confirmed_draft_fingerprint,
+            rationale=body.rationale,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 201
+        return RegistryJoinDraftMutationResponse.from_domain(result)
+
+    @app.post(
+        "/v1/registry-changes/joins/{change_id}/prepare-publication",
+        response_model=RegistryJoinPreparationResponse,
+        responses={
+            200: {"model": RegistryJoinPreparationResponse},
+            201: {"model": RegistryJoinPreparationResponse},
+        },
+    )
+    def prepare_registry_join_publication(
+        body: RegistryJoinPreparationRequest,
+        response: Response,
+        request: Request,
+        change_id: str = Path(pattern=_REGISTRY_JOIN_CHANGE_ID_PATTERN),
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> RegistryJoinPreparationResponse:
+        _require_single_registry_change_idempotency_header(request, idempotency_key)
+        authenticated = principal(request)
+        changes = _registry_change_services(services)
+        result = changes.prepare_join_publication.execute(
+            authenticated,
+            change_id,
+            expected_revision=body.expected_revision,
+            confirmed_draft_fingerprint=body.confirmed_draft_fingerprint,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 201
+        return RegistryJoinPreparationResponse.from_domain(result)
+
+    @app.post(
+        "/v1/registry-changes/model-profiles",
+        response_model=RegistryModelProfileMutationResponse,
+        responses={
+            200: {"model": RegistryModelProfileMutationResponse},
+            201: {"model": RegistryModelProfileMutationResponse},
+        },
+    )
+    def request_registry_model_profile(
+        body: RegistryModelProfileRequest,
+        response: Response,
+        request: Request,
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> RegistryModelProfileMutationResponse:
+        _require_single_registry_change_idempotency_header(request, idempotency_key)
+        try:
+            command = body.to_domain()
+        except ValueError as error:
+            raise _registry_change_invalid_request() from error
+        result = _registry_model_change_services(services).request_profile.execute(
+            principal(request),
+            command,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 201
+        return RegistryModelProfileMutationResponse.from_domain(result)
+
+    @app.post(
+        "/v1/registry-changes/model-profiles/{request_id}/finalize",
+        response_model=RegistryModelProfileMutationResponse,
+        responses={
+            200: {"model": RegistryModelProfileMutationResponse},
+            201: {"model": RegistryModelProfileMutationResponse},
+        },
+    )
+    def finalize_registry_model_profile(
+        body: RegistryModelProfileFinalizationRequest,
+        response: Response,
+        request: Request,
+        request_id: str = Path(pattern=_REGISTRY_MODEL_CHANGE_ID_PATTERN),
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> RegistryModelProfileMutationResponse:
+        _require_single_registry_change_idempotency_header(request, idempotency_key)
+        result = _registry_model_change_services(services).finalize_profile.execute(
+            principal(request),
+            request_id,
+            confirmed_authoring_fingerprint=body.confirmed_authoring_fingerprint,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 201
+        return RegistryModelProfileMutationResponse.from_domain(result)
+
+    @app.get(
+        "/v1/registry-changes/models",
+        response_model=RegistryModelChangeListResponse,
+    )
+    def list_registry_model_changes(
+        request: Request,
+        query: Annotated[RegistryModelChangeListQuery, Query()],
+    ) -> RegistryModelChangeListResponse:
+        values = _registry_model_change_services(services).list_changes.execute(
+            principal(request),
+            limit=query.limit,
+        )
+        return RegistryModelChangeListResponse.from_domain(values)
+
+    @app.post(
+        "/v1/registry-changes/models",
+        response_model=RegistryModelChangeMutationResponse,
+        responses={
+            200: {"model": RegistryModelChangeMutationResponse},
+            201: {"model": RegistryModelChangeMutationResponse},
+        },
+    )
+    def create_registry_model_change(
+        body: RegistryModelChangeCreateRequest,
+        response: Response,
+        request: Request,
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> RegistryModelChangeMutationResponse:
+        _require_single_registry_change_idempotency_header(request, idempotency_key)
+        try:
+            command = body.to_domain()
+        except ValueError as error:
+            raise _registry_change_invalid_request() from error
+        result = _registry_model_change_services(services).create_change.execute(
+            principal(request),
+            command,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 201
+        return RegistryModelChangeMutationResponse.from_domain(result)
+
+    @app.get(
+        "/v1/registry-changes/models/{change_id}",
+        response_model=RegistryModelChangeResponse,
+    )
+    def inspect_registry_model_change(
+        request: Request,
+        query: Annotated[RegistryModelChangeInspectionQuery, Query()],
+        change_id: str = Path(pattern=_REGISTRY_MODEL_CHANGE_ID_PATTERN),
+    ) -> RegistryModelChangeResponse:
+        result = _registry_model_change_services(services).inspect_change.execute(
+            principal(request),
+            change_id,
+            history_limit=query.history_limit,
+        )
+        return RegistryModelChangeResponse.from_domain(result)
+
+    @app.post(
+        "/v1/registry-changes/models/{change_id}/decide",
+        response_model=RegistryModelChangeMutationResponse,
+        responses={
+            200: {"model": RegistryModelChangeMutationResponse},
+            201: {"model": RegistryModelChangeMutationResponse},
+        },
+    )
+    def decide_registry_model_change(
+        body: RegistryModelDecisionRequest,
+        response: Response,
+        request: Request,
+        change_id: str = Path(pattern=_REGISTRY_MODEL_CHANGE_ID_PATTERN),
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> RegistryModelChangeMutationResponse:
+        _require_single_registry_change_idempotency_header(request, idempotency_key)
+        result = _registry_model_change_services(services).decide_change.execute(
+            principal(request),
+            change_id,
+            action=body.action,
+            expected_revision=body.expected_revision,
+            confirmed_draft_fingerprint=body.confirmed_draft_fingerprint,
+            rationale=body.rationale,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 201
+        return RegistryModelChangeMutationResponse.from_domain(result)
+
+    @app.post(
+        "/v1/registry-changes/models/{change_id}/prepare-publication",
+        response_model=RegistryModelPreparationResponse,
+        responses={
+            200: {"model": RegistryModelPreparationResponse},
+            201: {"model": RegistryModelPreparationResponse},
+        },
+    )
+    def prepare_registry_model_publication(
+        body: RegistryModelPreparationRequest,
+        response: Response,
+        request: Request,
+        change_id: str = Path(pattern=_REGISTRY_MODEL_CHANGE_ID_PATTERN),
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> RegistryModelPreparationResponse:
+        _require_single_registry_change_idempotency_header(request, idempotency_key)
+        result = _registry_model_change_services(services).prepare_publication.execute(
+            principal(request),
+            change_id,
+            expected_revision=body.expected_revision,
+            confirmed_draft_fingerprint=body.confirmed_draft_fingerprint,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 201
+        return RegistryModelPreparationResponse.from_domain(result)
+
+    @app.post(
+        "/v1/registry-publications",
+        response_model=RegistryPublicationSubmissionResponse,
+        responses={
+            200: {"model": RegistryPublicationSubmissionResponse},
+            202: {"model": RegistryPublicationSubmissionResponse},
+        },
+    )
+    def submit_registry_publication(
+        body: RegistryPublicationSubmissionRequest,
+        response: Response,
+        request: Request,
+        idempotency_key: str = Header(
+            alias="Idempotency-Key",
+            min_length=16,
+            max_length=128,
+            pattern=_IDEMPOTENCY_PATTERN,
+        ),
+    ) -> RegistryPublicationSubmissionResponse:
+        _require_single_registry_publication_idempotency_header(request, idempotency_key)
+        authenticated = principal(request)
+        publication = _registry_publication_services(services)
+        result = publication.submit.execute(
+            authenticated,
+            proposal_id=body.proposal_id,
+            confirmed_proposal_fingerprint=body.confirmed_proposal_fingerprint,
+            idempotency_key=idempotency_key,
+        )
+        response.status_code = 200 if result.replayed else 202
+        return RegistryPublicationSubmissionResponse(
+            job=RegistryPublicationJobResponse.from_domain(result.job),
+            replayed=result.replayed,
+        )
+
+    @app.get(
+        "/v1/registry-publications/{job_id}",
+        response_model=RegistryPublicationJobResponse,
+    )
+    def inspect_registry_publication(
+        request: Request,
+        job_id: str = Path(pattern=_REGISTRY_PUBLICATION_JOB_ID_PATTERN),
+    ) -> RegistryPublicationJobResponse:
+        authenticated = principal(request)
+        publication = _registry_publication_services(services)
+        result = publication.inspect.execute(authenticated, job_id)
+        return RegistryPublicationJobResponse.from_domain(result)
+
+    @app.post(
+        "/v1/registry-publications/{job_id}/authorize",
+        response_model=RegistryPublicationJobResponse,
+    )
+    def authorize_registry_publication(
+        body: RegistryPublicationAuthorizationRequest,
+        request: Request,
+        job_id: str = Path(pattern=_REGISTRY_PUBLICATION_JOB_ID_PATTERN),
+    ) -> RegistryPublicationJobResponse:
+        authenticated = principal(request)
+        publication = _registry_publication_services(services)
+        result = publication.authorize.execute(
+            authenticated,
+            job_id,
+            expected_revision=body.expected_revision,
+            confirmed_candidate_fingerprint=body.confirmed_candidate_fingerprint,
+            confirmation=body.confirmation,
+        )
+        return RegistryPublicationJobResponse.from_domain(result)
+
+    @app.post(
+        "/v1/registry-publications/{job_id}/cancel",
+        response_model=RegistryPublicationJobResponse,
+    )
+    def cancel_registry_publication(
+        body: RegistryPublicationCancellationRequest,
+        request: Request,
+        job_id: str = Path(pattern=_REGISTRY_PUBLICATION_JOB_ID_PATTERN),
+    ) -> RegistryPublicationJobResponse:
+        authenticated = principal(request)
+        publication = _registry_publication_services(services)
+        result = publication.cancel.execute(
+            authenticated,
+            job_id,
+            expected_revision=body.expected_revision,
+        )
+        return RegistryPublicationJobResponse.from_domain(result)
+
+    return app
+
+
+def _catalog_services(services: ApiHttpServices) -> CatalogHttpServices:
+    if services.catalog is None:
+        raise CatalogUseCaseError(
+            CatalogUseCaseErrorCode.SERVICE_UNAVAILABLE,
+            "catalog service is unavailable",
+        )
+    return services.catalog
+
+
+def _semantic_change_services(
+    services: ApiHttpServices,
+) -> SemanticChangeHttpServices:
+    if services.semantic_changes is None:
+        raise SemanticChangeReadError(
+            SemanticChangeReadErrorCode.SERVICE_UNAVAILABLE,
+            "semantic change service is unavailable",
+        )
+    return services.semantic_changes
+
+
+def _semantic_onboarding_services(
+    services: ApiHttpServices,
+) -> SemanticOnboardingHttpServices:
+    if services.semantic_onboarding is None:
+        raise SemanticOnboardingError(
+            SemanticOnboardingErrorCode.SERVICE_UNAVAILABLE,
+            "semantic onboarding service is unavailable",
+        )
+    return services.semantic_onboarding
+
+
+def _registry_publication_services(
+    services: ApiHttpServices,
+) -> RegistryPublicationHttpServices:
+    if services.registry_publication is None:
+        raise RegistryPublicationError(
+            RegistryPublicationErrorCode.SERVICE_UNAVAILABLE,
+            "registry publication service is unavailable",
+        )
+    return services.registry_publication
+
+
+def _registry_change_services(
+    services: ApiHttpServices,
+) -> RegistryChangeHttpServices:
+    if services.registry_changes is None:
+        raise RegistryChangeAuthoringError(
+            RegistryChangeAuthoringErrorCode.SERVICE_UNAVAILABLE,
+            "registry change service is unavailable",
+        )
+    return services.registry_changes
+
+
+def _registry_model_change_services(
+    services: ApiHttpServices,
+) -> RegistryModelChangeHttpServices:
+    if services.registry_model_changes is None:
+        raise RegistryChangeAuthoringError(
+            RegistryChangeAuthoringErrorCode.SERVICE_UNAVAILABLE,
+            "registry model change service is unavailable",
+        )
+    return services.registry_model_changes
+
+
+def _decide_semantic_onboarding(
+    services: ApiHttpServices,
+    *,
+    authenticated: AuthenticatedPrincipal,
+    request: Request,
+    body: SemanticOnboardingDecisionRequest,
+    draft_id: str,
+    target_kind: SemanticOnboardingTargetKind,
+    idempotency_key: str,
+) -> SemanticOnboardingDraftMutation:
+    _require_single_semantic_onboarding_idempotency_header(request, idempotency_key)
+    onboarding = _semantic_onboarding_services(services)
+    return onboarding.decide.execute(
+        authenticated,
+        draft_id,
+        target_kind=target_kind,
+        target_id=body.target_id,
+        action=body.action,
+        expected_revision=body.expected_revision,
+        confirmed_draft_fingerprint=body.confirmed_draft_fingerprint,
+        rationale=body.rationale,
+        evidence=body.evidence,
+        idempotency_key=idempotency_key,
+    )
+
+
+def _catalog_connection_id(value: str) -> CatalogConnectionId:
+    try:
+        return CatalogConnectionId(value)
+    except ValueError as error:
+        raise _catalog_invalid_request() from error
+
+
+def _catalog_invalid_request() -> CatalogUseCaseError:
+    return CatalogUseCaseError(
+        CatalogUseCaseErrorCode.INVALID_REQUEST,
+        "catalog request is invalid",
+    )
+
+
+def _require_single_idempotency_header(
+    request: Request,
+    parsed_value: str,
+) -> None:
+    values = request.headers.getlist("idempotency-key")
+    if len(values) != 1 or values[0] != parsed_value:
+        raise _catalog_invalid_request()
+
+
+def _require_single_semantic_onboarding_idempotency_header(
+    request: Request,
+    parsed_value: str,
+) -> None:
+    values = request.headers.getlist("idempotency-key")
+    if len(values) != 1 or values[0] != parsed_value:
+        raise _semantic_onboarding_invalid_request()
+
+
+def _require_single_registry_publication_idempotency_header(
+    request: Request,
+    parsed_value: str,
+) -> None:
+    values = request.headers.getlist("idempotency-key")
+    if len(values) != 1 or values[0] != parsed_value:
+        raise RegistryPublicationError(
+            RegistryPublicationErrorCode.INVALID_REQUEST,
+            "registry publication request is invalid",
+        )
+
+
+def _require_single_registry_change_idempotency_header(
+    request: Request,
+    parsed_value: str,
+) -> None:
+    values = request.headers.getlist("idempotency-key")
+    if len(values) != 1 or values[0] != parsed_value:
+        raise _registry_change_invalid_request()
+
+
+def _semantic_onboarding_invalid_request() -> SemanticOnboardingError:
+    return SemanticOnboardingError(
+        SemanticOnboardingErrorCode.INVALID_REQUEST,
+        "semantic onboarding request is invalid",
+    )
+
+
+def _registry_change_invalid_request() -> RegistryChangeAuthoringError:
+    return RegistryChangeAuthoringError(
+        RegistryChangeAuthoringErrorCode.INVALID_REQUEST,
+        "registry change request is invalid",
+    )
+
+
+def _problem_response(
+    request: Request,
+    *,
+    status: int,
+    code: str,
+    title: str,
+    headers: dict[str, str] | None = None,
+) -> JSONResponse:
+    problem = ProblemResponse(
+        type=f"urn:schemabridge:problem:{code}",
+        title=title,
+        status=status,
+        code=code,
+        request_id=_request_id(request),
+    )
+    return JSONResponse(
+        problem.model_dump(mode="json"),
+        status_code=status,
+        media_type="application/problem+json",
+        headers=headers,
+    )
+
+
+def _request_id(request: Request) -> str:
+    value = getattr(request.state, "request_id", "")
+    return value if isinstance(value, str) and len(value) == 32 else secrets.token_hex(16)
+
+
+async def _send_problem(
+    send: Callable[[Message], Awaitable[None]],
+    *,
+    status: int,
+    code: str,
+    title: str,
+    request_id: str,
+) -> None:
+    payload = ProblemResponse(
+        type=f"urn:schemabridge:problem:{code}",
+        title=title,
+        status=status,
+        code=code,
+        request_id=request_id,
+    )
+    body = json.dumps(
+        payload.model_dump(mode="json"),
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    await send(
+        {
+            "type": "http.response.start",
+            "status": status,
+            "headers": (
+                (b"content-type", b"application/problem+json"),
+                (b"content-length", str(len(body)).encode("ascii")),
+                (b"x-request-id", request_id.encode("ascii")),
+                *_SECURITY_HEADERS,
+            ),
+        }
+    )
+    await send({"type": "http.response.body", "body": body})

@@ -2,19 +2,29 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
 from typing import Any
 
+from schemabridge.adapters.connectors.source_identity import (
+    PostgresSourceIdentityMismatchError,
+    require_postgres_source_identity,
+)
 from schemabridge.application.ports.relationships import (
     RelationshipErrorCode,
     RelationshipWorkflowError,
 )
+from schemabridge.application.ports.semantic_profile_jobs import (
+    SemanticJoinProfileSourceCancelled,
+)
+from schemabridge.domain.catalog_inventory import CatalogConnectionId
 from schemabridge.domain.joins import (
     DeclaredRelationship,
     JoinProposal,
     NormalizedJoinKey,
     RelationshipProfile,
 )
+from schemabridge.domain.semantic_profile_jobs import SemanticJoinProfileProposal
 
 
 class PsycopgRelationshipEvidenceAdapter:
@@ -26,6 +36,7 @@ class PsycopgRelationshipEvidenceAdapter:
         allowed_proposals: tuple[JoinProposal, ...],
         *,
         expected_user: str = "schemabridge_reader",
+        expected_source_identity_fingerprint: str | None = None,
         statement_timeout_ms: int = 5_000,
     ) -> None:
         if not dsn:
@@ -35,14 +46,21 @@ class PsycopgRelationshipEvidenceAdapter:
         self._dsn = dsn
         self._allowed = {proposal.id: proposal for proposal in allowed_proposals}
         self._expected_user = expected_user
+        self._expected_source_identity_fingerprint = expected_source_identity_fingerprint
         self._statement_timeout_ms = statement_timeout_ms
 
-    def profile(self, proposal: JoinProposal) -> RelationshipProfile:
+    def profile(
+        self,
+        proposal: JoinProposal,
+        *,
+        should_continue: Callable[[], bool] | None = None,
+    ) -> RelationshipProfile:
         if self._allowed.get(proposal.id) != proposal:
             raise RelationshipWorkflowError(
                 RelationshipErrorCode.EVIDENCE_NOT_ALLOWED,
                 "relationship proposal is not in the exact aggregate-evidence allowlist",
             )
+        _require_continue(should_continue)
         try:
             import psycopg
         except ModuleNotFoundError as error:
@@ -51,6 +69,7 @@ class PsycopgRelationshipEvidenceAdapter:
                 "PostgreSQL support is not installed; install schemabridge[postgres]",
             ) from error
         try:
+            _require_continue(should_continue)
             with psycopg.connect(self._dsn) as connection, connection.cursor() as cursor:
                 cursor.execute("SET TRANSACTION READ ONLY")
                 cursor.execute(
@@ -59,7 +78,9 @@ class PsycopgRelationshipEvidenceAdapter:
                 )
                 cursor.execute(
                     "SELECT current_user, current_setting('transaction_read_only'), "
-                    "current_setting('statement_timeout')"
+                    "current_setting('statement_timeout'), "
+                    "COALESCE(inet_server_addr()::TEXT, 'local_socket'), "
+                    "COALESCE(inet_server_port(), 0), current_database()"
                 )
                 safety = cursor.fetchone()
                 if safety is None:
@@ -77,10 +98,26 @@ class PsycopgRelationshipEvidenceAdapter:
                         RelationshipErrorCode.EVIDENCE_NOT_ALLOWED,
                         "relationship evidence statement timeout was not applied",
                     )
+                if self._expected_source_identity_fingerprint is not None:
+                    require_postgres_source_identity(
+                        expected_fingerprint=self._expected_source_identity_fingerprint,
+                        server_address=safety[3] if len(safety) > 3 else None,
+                        server_port=safety[4] if len(safety) > 4 else None,
+                        database=safety[5] if len(safety) > 5 else None,
+                        user=reader_user,
+                    )
+                _require_continue(should_continue)
                 left = _profile_side(cursor, proposal.left_key)
+                _require_continue(should_continue)
                 right = _profile_side(cursor, proposal.right_key)
+                _require_continue(should_continue)
                 matching = _matching_distinct_keys(cursor, proposal.left_key, proposal.right_key)
+                _require_continue(should_continue)
                 declared = _declared_relationship(cursor, proposal.left_key, proposal.right_key)
+        except SemanticJoinProfileSourceCancelled:
+            raise
+        except PostgresSourceIdentityMismatchError:
+            raise
         except RelationshipWorkflowError:
             raise
         except Exception as error:
@@ -104,6 +141,63 @@ class PsycopgRelationshipEvidenceAdapter:
             reader_user=reader_user,
             transaction_read_only=read_only,
             statement_timeout_ms=timeout_ms,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class QueuedProposalRelationshipEvidenceAdapter:
+    """Profile only the exact canonical proposal claimed from the governed queue.
+
+    The worker cannot invent or list proposals: the reconciler is the sole queue
+    producer, and this adapter constructs a one-item allowlist for each already
+    validated claim before opening the read-only source connection.
+    """
+
+    dsn: str = field(repr=False)
+    expected_connection_id: CatalogConnectionId
+    expected_user: str = "schemabridge_reader"
+    statement_timeout_ms: int = 5_000
+
+    def __post_init__(self) -> None:
+        if not self.dsn:
+            raise ValueError("relationship evidence DSN must not be blank")
+        if not self.expected_user.strip() or len(self.expected_user) > 120:
+            raise ValueError("relationship evidence reader identity is invalid")
+        if not 100 <= self.statement_timeout_ms <= 60_000:
+            raise ValueError("relationship evidence timeout must be between 100 and 60000 ms")
+
+    def profile_bound(
+        self,
+        proposal: SemanticJoinProfileProposal,
+    ) -> RelationshipProfile:
+        checked = SemanticJoinProfileProposal.model_validate(proposal.model_dump(mode="json"))
+        if checked.connection_id != self.expected_connection_id:
+            raise RelationshipWorkflowError(
+                RelationshipErrorCode.EVIDENCE_NOT_ALLOWED,
+                "relationship proposal targets another catalog connection",
+            )
+        return PsycopgRelationshipEvidenceAdapter(
+            self.dsn,
+            (checked.proposal,),
+            expected_user=self.expected_user,
+            statement_timeout_ms=self.statement_timeout_ms,
+        ).profile(checked.proposal)
+
+
+def _require_continue(should_continue: Callable[[], bool] | None) -> None:
+    if should_continue is None:
+        return
+    try:
+        allowed = should_continue()
+    except SemanticJoinProfileSourceCancelled:
+        raise
+    except Exception:
+        raise SemanticJoinProfileSourceCancelled(
+            "semantic profile source operation was cooperatively cancelled"
+        ) from None
+    if allowed is not True:
+        raise SemanticJoinProfileSourceCancelled(
+            "semantic profile source operation was cooperatively cancelled"
         )
 
 

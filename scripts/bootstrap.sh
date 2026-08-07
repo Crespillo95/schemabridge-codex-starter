@@ -25,10 +25,6 @@ select_python() {
 
 SCHEMABRIDGE_PYTHON_BIN="$(select_python)"
 "$SCHEMABRIDGE_PYTHON_BIN" -V
-"$SCHEMABRIDGE_PYTHON_BIN" -m venv --clear .venv
-.venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install -e '.[dev,postgres,sql,ui,llm]'
-.venv/bin/schemabridge version
-.venv/bin/schemabridge doctor
+make bootstrap PYTHON="$SCHEMABRIDGE_PYTHON_BIN"
 
 printf '\nBootstrap complete. Next: run make check.\n'

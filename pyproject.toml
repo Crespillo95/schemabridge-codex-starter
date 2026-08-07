@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling>=1.27"]
+requires = ["hatchling==1.27.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -21,6 +21,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "hatch>=1.14,<2",
+  "httpx>=0.28,<1",
   "mypy>=1.14,<2",
   "pytest>=8.3,<9",
   "pytest-cov>=6,<7",
@@ -28,11 +29,20 @@ dev = [
   "types-PyYAML>=6.0,<7",
 ]
 postgres = [
-  "psycopg[binary]>=3.2,<4",
+  # The pool extra installs the separately distributed psycopg_pool runtime.
+  "psycopg[binary,pool]>=3.2,<4",
+]
+api = [
+  # Direct dependencies: do not rely on Streamlit/DataHub's transitive ASGI/auth graph.
+  "fastapi>=0.139,<1",
+  "uvicorn[standard]>=0.46,<1",
+  "PyJWT[crypto]>=2.13,<3",
 ]
 sql = ["sqlglot>=26,<30"]
 ui = [
-  "streamlit>=1.59,<2",
+  "streamlit[auth]>=1.59,<2",
+  # Security floor for Streamlit's transitive GitPython dependency.
+  "gitpython>=3.1.58,<4",
   # NumPy 2.3+ stubs use Python 3.12 syntax, while SchemaBridge type-checks at 3.11.
   "numpy>=1.26,<2.3",
 ]
@@ -41,13 +51,32 @@ datahub = [
   "mcp==1.28.1",
   "uv==0.11.30",
 ]
-llm = ["openai>=1.70,<3"]
+llm = ["openai==2.46.0"]
+
+[dependency-groups]
+build = ["hatchling==1.27.0"]
+supply-chain = ["pip-audit==2.10.1"]
 
 [project.scripts]
 schemabridge = "schemabridge.entrypoints.cli.main:app"
+schemabridge-api = "schemabridge.entrypoints.http.main:main"
+schemabridge-ai-policy = "schemabridge.entrypoints.ai_policy.main:main"
+schemabridge-backup = "schemabridge.entrypoints.backup.main:main"
+schemabridge-catalog = "schemabridge.entrypoints.catalog.main:main"
+schemabridge-connector-route = "schemabridge.entrypoints.connector_route.main:main"
+schemabridge-observer = "schemabridge.entrypoints.observer.main:main"
+schemabridge-registry-publisher = "schemabridge.entrypoints.registry_publisher.main:main"
+schemabridge-semantic-change = "schemabridge.entrypoints.semantic_change.main:main"
+schemabridge-semantic-profile-worker = "schemabridge.entrypoints.semantic_profile_worker.main:main"
+schemabridge-semantic-reconciler = "schemabridge.entrypoints.semantic_reconciler.main:main"
+schemabridge-web = "schemabridge.entrypoints.streamlit.main:main"
+schemabridge-worker = "schemabridge.entrypoints.worker.main:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/schemabridge"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"migrations/control_plane" = "schemabridge/migrations/control_plane"
 
 [tool.ruff]
 target-version = "py311"
@@ -71,9 +100,15 @@ plugins = ["pydantic.mypy"]
 addopts = "-ra --strict-markers --strict-config"
 pythonpath = ["."]
 testpaths = ["tests"]
+filterwarnings = [
+  "error::ResourceWarning",
+  "error::pytest.PytestUnraisableExceptionWarning",
+]
 markers = [
   "integration: requires local services",
   "acceptance: exercises a complete user path",
+  "scale: exercises bounded-memory and indexed high-cardinality paths",
+  "performance: measures wall-clock behavior and must run without coverage or service contention",
 ]
 
 [tool.coverage.run]
@@ -84,6 +119,9 @@ branch = true
 show_missing = true
 skip_covered = true
 fail_under = 80
+
+[tool.uv]
+required-version = "==0.11.30"
 
 [[tool.mypy.overrides]]
 module = ["psycopg", "psycopg.*", "mcp", "mcp.*", "datahub", "datahub.*"]

@@ -14,6 +14,88 @@ from pydantic import Field, field_validator, model_validator
 
 from schemabridge.domain._base import FrozenDomainModel
 
+MAX_IDENTIFIER_PAD_LENGTH = 256
+"""Maximum materialized width accepted by identifier padding contracts."""
+
+_REGEX_LITERAL_PUNCTUATION = frozenset(" _.,:/@#%=-")
+_REGEX_CLASS_PUNCTUATION = frozenset(" _.,:/@#%+=")
+
+
+def _is_ascii_alphanumeric(value: str) -> bool:
+    return value.isascii() and value.isalnum()
+
+
+def _is_safe_regex_class(value: str) -> bool:
+    if not value:
+        return False
+    index = 0
+    while index < len(value):
+        character = value[index]
+        if character == "-" and (index == 0 or index == len(value) - 1):
+            index += 1
+            continue
+        if index + 2 < len(value) and value[index + 1] == "-":
+            end = value[index + 2]
+            same_family = (
+                character.isascii()
+                and end.isascii()
+                and (
+                    (character.isdigit() and end.isdigit())
+                    or (character.isupper() and end.isupper())
+                    or (character.islower() and end.islower())
+                )
+            )
+            if not same_family or character > end:
+                return False
+            index += 3
+            continue
+        if not (_is_ascii_alphanumeric(character) or character in _REGEX_CLASS_PUNCTUATION):
+            return False
+        index += 1
+    return True
+
+
+def _is_closed_postgres_regex(value: str) -> bool:
+    """Accept a linear, anchored subset shared by Python and PostgreSQL POSIX regex."""
+
+    if not value.startswith("^") or not value.endswith("$") or len(value) < 3:
+        return False
+    body = value[1:-1]
+    index = 0
+    while index < len(body):
+        character = body[index]
+        if character == "[":
+            closing = body.find("]", index + 1)
+            if closing < 0 or not _is_safe_regex_class(body[index + 1 : closing]):
+                return False
+            index = closing + 1
+        elif _is_ascii_alphanumeric(character) or character in _REGEX_LITERAL_PUNCTUATION:
+            index += 1
+        else:
+            return False
+
+        if index >= len(body):
+            continue
+        if body[index] in "+*?":
+            index += 1
+            continue
+        if body[index] != "{":
+            continue
+        closing = body.find("}", index + 1)
+        if closing < 0:
+            return False
+        bounds = body[index + 1 : closing].split(",")
+        if len(bounds) not in (1, 2) or any(
+            not bound.isascii() or not bound.isdigit() or len(bound) > 3 for bound in bounds
+        ):
+            return False
+        minimum = int(bounds[0])
+        maximum = int(bounds[-1])
+        if maximum < minimum or maximum > MAX_IDENTIFIER_PAD_LENGTH:
+            return False
+        index = closing + 1
+    return True
+
 
 class IdentityStep(FrozenDomainModel):
     operation: Literal["identity"] = "identity"
@@ -34,6 +116,10 @@ class ValidateRegexStep(FrozenDomainModel):
     @field_validator("pattern")
     @classmethod
     def pattern_must_compile(cls, value: str) -> str:
+        if not _is_closed_postgres_regex(value):
+            raise ValueError(
+                "pattern must use the anchored PostgreSQL-safe regular-expression subset"
+            )
         try:
             re.compile(value)
         except re.error as error:
@@ -55,7 +141,7 @@ class StripLeadingZerosStep(FrozenDomainModel):
 
 class PadLeftStep(FrozenDomainModel):
     operation: Literal["pad_left"] = "pad_left"
-    length: int = Field(ge=1)
+    length: int = Field(ge=1, le=MAX_IDENTIFIER_PAD_LENGTH)
     fill_character: Literal["0"] = "0"
 
 
@@ -69,7 +155,12 @@ class CastTimestampToDateStep(FrozenDomainModel):
 
 class ParseDateStep(FrozenDomainModel):
     operation: Literal["parse_date"] = "parse_date"
-    format: str = Field(min_length=1, max_length=64)
+    format: Literal[
+        "YYYY-MM-DD",
+        "DD/MM/YYYY",
+        "MM/DD/YYYY",
+        "YYYYMMDD",
+    ]
 
 
 class NormalizeDecimalScaleStep(FrozenDomainModel):
@@ -160,7 +251,11 @@ class IdentifierNormalizationPlan(FrozenDomainModel):
     version: Literal[1] = 1
     null_policy: NullPolicy
     leading_zero_policy: LeadingZeroPolicy
-    pad_to_length: int | None = Field(default=None, ge=1)
+    pad_to_length: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_IDENTIFIER_PAD_LENGTH,
+    )
     trim_whitespace: bool = True
     empty_string_policy: EmptyStringPolicy = EmptyStringPolicy.REJECT
 

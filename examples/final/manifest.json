@@ -1,0 +1,62 @@
+{
+  "artifacts": [
+    {
+      "bytes": 583,
+      "path": "analytical-request-secondary-holders.yml",
+      "sha256": "a16986272a69880b3d5c5ebf29bca4fdc5a486b4cffe406449e37f1d2468c780"
+    },
+    {
+      "bytes": 730,
+      "path": "column-mapping-customer-key.yml",
+      "sha256": "a72f69a8cf84ee062e1d52e4a7f7e26d288af66dae271b13ee9c63c123c0e595"
+    },
+    {
+      "bytes": 20087,
+      "path": "datahub-writeback.yml",
+      "sha256": "ccc78bffdbe580262571926d7ae6f2854b29f6bb51af883e3116825f6402bf5a"
+    },
+    {
+      "bytes": 1648,
+      "path": "evaluation-summary.md",
+      "sha256": "f9e230e39703f9f09363b6c508501d134a22b75d653a0d4a17c24a95d12f658f"
+    },
+    {
+      "bytes": 1198,
+      "path": "generated-secondary-holders.sql",
+      "sha256": "a4f1e0e0f76176d8dfdd0eef9bcbd227e5bab5013cb1412c6be0320da98ab414"
+    },
+    {
+      "bytes": 1228,
+      "path": "join-contract-customer-account-holder.yml",
+      "sha256": "11a9589115905ae4403387449745b1495a989c78f4c0c6d9eafa2f9348269258"
+    },
+    {
+      "bytes": 1051,
+      "path": "logical-model-customer.yml",
+      "sha256": "82e8c7def46529c0a01fc81b3f965f4dee5f9669347c726dc691a16b7b362596"
+    },
+    {
+      "bytes": 1148,
+      "path": "query-validation-report.yml",
+      "sha256": "8e06b41e6f4a971b682639fbbc0b54d4dba08c897a1715027359213d0c41de03"
+    },
+    {
+      "bytes": 486,
+      "path": "rejected-records.csv",
+      "sha256": "ebfa8acc294b078876329f0123afc21a4a6790c241195da0425fe923e5208c0a"
+    },
+    {
+      "bytes": 10408,
+      "path": "resolved-query-plan-secondary-holders.yml",
+      "sha256": "5b9d08b5df9bc4efe3ec7ccd3c4f93711ea9cd8235b7abe69458d3b8ebdcaa00"
+    }
+  ],
+  "development_generation_command": "make submission-package-dev",
+  "generation_command": "make submission-package",
+  "notice": "Release evidence from a clean commit.",
+  "package_sha256": "5b4a2fa1a8a01920ac54ba0f5efc2155236d268f32d8cc19d4a0ff7c2bbcc0e9",
+  "release_label": "c5817af6d01b8a98cd7f1950d57e1be667614696",
+  "release_ready": true,
+  "schema_version": 1,
+  "source_revision": "c5817af6d01b8a98cd7f1950d57e1be667614696"
+}

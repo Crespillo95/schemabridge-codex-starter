@@ -2,7 +2,12 @@
 
 ## Product statement
 
-SchemaBridge is a DataHub-native governed semantic query agent. It discovers how inconsistent physical fields represent the same business concepts, proposes reusable logical models and join contracts, and uses that approved context to compile business questions into explainable, validated SQL.
+SchemaBridge is a DataHub-native governed semantic query agent. It discovers how inconsistent
+physical fields represent the same business concepts, proposes reusable logical models and join
+contracts, and uses that approved context to compile business questions into explainable,
+validated SQL. Its output-first query experience produces standalone PostgreSQL that an analyst
+can inspect, copy, and run in another PostgreSQL client connected to the governed database context;
+execution inside SchemaBridge is optional. Other SQL engines require their own compiler and guard.
 
 ## Problem
 
@@ -27,7 +32,8 @@ These normalization rules are approved.
 Customer joins AccountHolder through this contract.
 The relationship is one-to-many.
 Customer metrics require a fanout mitigation.
-This validated query recipe answers this business question.
+This validated typed request answers this business question.
+This deterministic, guarded PostgreSQL artifact can be copied without hidden driver parameters.
 ```
 
 ## North-star journey
@@ -36,13 +42,17 @@ This validated query recipe answers this business question.
 2. Propose `Customer`, `AccountHolder`, and `Account` logical models.
 3. Explain and approve physical-to-logical field mappings.
 4. Propose and approve `Customer → AccountHolder` and `AccountHolder → Account` join contracts.
-5. Accept a guided or natural-language analytical request.
-6. Show the interpreted dimensions, metrics, filters, selected datasets, join path, assumptions, confidence, and risks.
-7. Compile deterministic PostgreSQL.
-8. Validate the AST and execute a bounded read-only preview.
-9. Display results and rejected source values.
-10. Save approved definitions, decisions, and query recipes back to DataHub.
-11. Reuse that context in a later request.
+5. Accept a simple or advanced guided/natural-language analytical request.
+6. Search the complete current governed registry and build a bounded approved context closure.
+7. Show the interpreted dimensions, metrics, filters, grouping, windows, selected datasets, join
+   path, assumptions, confidence, risks, and unsupported requirements.
+8. Require exact confirmation, then compile and independently validate deterministic PostgreSQL.
+9. Render and independently validate a standalone copy/download artifact with
+   `executed=false`.
+10. Optionally execute the separate bounded read-only preview and display results/rejected source
+    values.
+11. Save approved definitions, decisions, and SQL-free query recipes back to DataHub.
+12. Reuse that context in a later request.
 
 ## Users
 
@@ -60,13 +70,20 @@ Operates DataHub, evaluates safety, and integrates additional sources later.
 
 ## Positioning
 
-SchemaBridge is not a replacement for DataHub and not a generic chat interface. It extends DataHub by improving the context graph before asking it to support analytics.
+SchemaBridge is not a replacement for DataHub, a generic chat interface, or an unrestricted SQL
+generator. It extends DataHub by improving the context graph before asking it to support
+analytics.
 
 ```text
 DataHub provides metadata context and governance primitives.
 SchemaBridge proposes and operationalizes semantic decisions.
 The governed context makes subsequent agent-generated queries safer.
 ```
+
+The product promise is bounded exactness, not infallibility. SchemaBridge generates SQL only when
+the complete requested meaning fits its typed language and current approved context. Ambiguity,
+unapproved physical fields, unsupported SQL families, or stale semantic evidence remain visible
+and produce no query rather than a plausible approximation.
 
 ## Success definition
 

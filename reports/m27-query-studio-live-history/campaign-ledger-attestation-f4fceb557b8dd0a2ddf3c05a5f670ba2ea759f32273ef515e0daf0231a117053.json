@@ -1,0 +1,56 @@
+{
+  "attestation": {
+    "campaign": {
+      "evaluation_outcome": "selected",
+      "logical_report_sha256": "e13a63fd2add281e567e3b4e4086ba3bb8510ec6e554608533a4c532215c0b7f",
+      "ordered_execution_witness_digest_sha256": "30128ad06cef91b12e1912eb9bbb25a3588447b5ee3cdaec4cc82dec882102fc",
+      "plan_version": "m27-cheapest-first-campaign-v11",
+      "provider_free_preflight_pipeline_sha256": "42e017992067ab4f666017dbc1e65f4e695ed8f044052cbfa0d2b6a63cf81ffb",
+      "selected_model": "gpt-5-nano-2025-08-07",
+      "whole_file_sha256": "beef3391aef2ea2cedfdfbc6e065ce259f7143861ccc0470197c6edcb88ba30a"
+    },
+    "disabled_policy": {
+      "configuration_fingerprint": "f5fb0b20d85edca1a9780d76161342760f7d25ee4dc829fb686ec737f05cb0e7",
+      "external_ai_enabled": false,
+      "provider_governance_accepted": true,
+      "provider_governance_fingerprint": "4f1e6df707017309916e17e9d2360d58de2fe4c276bf72994fd977ec5bd2b85a",
+      "version": 84
+    },
+    "ledger": {
+      "audit_count": 16,
+      "disabled_policy_attempt_count": 0,
+      "evaluator_adapter_duration_ms": 30016,
+      "expansion_count": 0,
+      "input_tokens": 15715,
+      "interpretation_succeeded_count": 16,
+      "ledger_digest_sha256": "4fe55a8906b04a202a057bc4f6621b83a0b957191a2693c01dbbc9c5ec336e99",
+      "mismatch_count": 0,
+      "missing_audit_count": 0,
+      "open_attempt_count": 0,
+      "ordinal_binding_count": 16,
+      "ordinal_binding_digest_sha256": "740ac92954ae9831524464fcc532e5ced6039a7523f8ef3a7d519815b4c43fdd",
+      "orphan_audit_count": 0,
+      "output_reasoning_tokens": 1204,
+      "provider_boundary_duration_ms": 29961,
+      "reservation_count": 16,
+      "reserved_count": 0,
+      "settled_count": 16,
+      "stale_reserved_count": 0,
+      "succeeded_count": 16,
+      "unique_compatible_matching_count": 1
+    },
+    "qualification_policy": {
+      "configuration_fingerprint": "f5fb0b20d85edca1a9780d76161342760f7d25ee4dc829fb686ec737f05cb0e7",
+      "external_ai_enabled": true,
+      "provider_governance_accepted": true,
+      "provider_governance_fingerprint": "4f1e6df707017309916e17e9d2360d58de2fe4c276bf72994fd977ec5bd2b85a",
+      "version": 83
+    },
+    "schema_version": 2
+  },
+  "attestation_sha256": "badceb063169318ab19c1755c3d804aa04f151b2e6fe003f90160d7d1983676f",
+  "schema_version": 2,
+  "signature": "f15667715b3d72650e57373e93673f3b17724a9025d3d3afaa157216ef5b04d3",
+  "signature_domain": "schemabridge:m27:query-studio:campaign-ledger-attestation:v2",
+  "signature_key_version": "v1"
+}

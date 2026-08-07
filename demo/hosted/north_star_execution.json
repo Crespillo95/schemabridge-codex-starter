@@ -1,0 +1,41 @@
+{
+  "schema_version": 2,
+  "source": "recorded:synthetic-postgres-m17",
+  "query_fingerprint": "b81cc0de555200592339e36ffcfd78a237cda32ccf32a7ec58e3327735b84066",
+  "alias_insensitive_query_fingerprint": "7034ed3f7d79847f00b487850d33f344543d1684bbc28c9419d349fe72c2a81a",
+  "rejection_checks_fingerprint": "50462cc4398039e1e459256fd752e28d656da1e03db0b58b73dff3b5782abbd5",
+  "statement_timeout_ms": 5000,
+  "database_user": "schemabridge_reader (recorded observation)",
+  "transaction_read_only": true,
+  "preview": {
+    "columns": ["registration_date", "secondary_holder_customers"],
+    "rows": [["2026-01-01", 2], ["2026-01-02", 1], ["2026-01-03", 1]],
+    "database_user": "schemabridge_reader (recorded observation)",
+    "transaction_read_only": true,
+    "statement_timeout_ms": 5000,
+    "truncated": false
+  },
+  "rejections": [
+    {
+      "logical_field": "Customer.customer_key",
+      "physical_field": "bank.account_holders.gf_customer_id",
+      "source_value": "127.5",
+      "code": "non_integral_identifier",
+      "reason": "127.5 is fractional and was rejected without truncation."
+    },
+    {
+      "logical_field": "Customer.customer_key",
+      "physical_field": "bank.account_holders.gf_customer_id",
+      "source_value": "NaN",
+      "code": "non_finite_identifier",
+      "reason": "NaN is non-finite and cannot be a governed identifier."
+    },
+    {
+      "logical_field": "Customer.customer_key",
+      "physical_field": "bank.account_holders.gf_customer_id",
+      "source_value": null,
+      "code": "null_join_key",
+      "reason": "NULL was preserved, reported separately, and excluded from the join."
+    }
+  ]
+}

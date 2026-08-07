@@ -60,6 +60,31 @@ Publish the approved descriptions/properties, decision document, join contract, 
 
 Start a new request/session and show that SchemaBridge retrieves the approved model and skips rediscovery.
 
+## M21 extended proof
+
+The three-minute narrative may remain centered on the understandable north-star request, but the
+current application should first make clear that planning is no longer backed by a
+Customer-specific registry:
+
+1. On Overview, show `synthetic_enterprise` version 1, all 64 characters of registry fingerprint
+   `0710148874049078f751ac96f0a18131cf01daa41f27dc034ca52a8b212dd966`, seven logical models,
+   31 approved mappings, and five governed joins.
+2. In Semantic Models, show both Customer/AccountHolder and
+   Product/SalesOrder/SaleLine/Shipment mappings, transformations, versions, and decisions.
+3. In Relationships, show the five contracts without a fixed Customer-only diagram. Point out that
+   the registry can contain five contracts while one query remains limited to two joins and three
+   physical tables.
+4. Complete the unchanged north-star workflow and verify `2, 1, 1`, exact fanout mitigation, three
+   rejected identifiers, `schemabridge_reader`, read-only mode, and the 5000 ms timeout.
+5. Cite the deterministic evaluation for the Product no-join, SalesOrder/Shipment, and three-table
+   commerce scenarios. The 465-row, eleven-table, eight-schema corpus has global fingerprint
+   `487388495115265d5fac5a17675e05c236fd4eb4c430613ef02050a5f6010654`.
+
+Do not demonstrate the commerce cases by entering an invented free-form request into the current
+Query Studio. M21 exercises those scenarios through typed requests; registry-wide matching from a
+short request or field description is M27. Likewise, the recorded registry is not complete live
+DataHub reconstruction (M22) or a published/activated registry revision (M23).
+
 ## Visual priorities
 
 - Avoid long terminal sequences.

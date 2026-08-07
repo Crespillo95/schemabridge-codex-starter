@@ -13,7 +13,13 @@ from pydantic import ConfigDict, Field, RootModel, field_validator, model_valida
 from schemabridge.domain._base import FrozenDomainModel
 from schemabridge.domain.decisions import ApprovalStatus
 from schemabridge.domain.fields import PhysicalDatasetRef, PhysicalFieldRef
-from schemabridge.domain.joins import Cardinality, FanoutPolicy, JoinContract
+from schemabridge.domain.joins import (
+    Cardinality,
+    FanoutPolicy,
+    JoinContract,
+    JoinType,
+    NormalizedJoinKey,
+)
 from schemabridge.domain.requests import (
     DateGrain,
     FilterOperator,
@@ -23,6 +29,9 @@ from schemabridge.domain.requests import (
 from schemabridge.domain.transformations import TransformationPlan
 
 _INERT_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_DUPLICATION_INVARIANT_OPERATIONS = frozenset(
+    {MetricOperation.COUNT_DISTINCT, MetricOperation.MIN, MetricOperation.MAX}
+)
 
 
 class RelationAlias(RootModel[str]):
@@ -130,7 +139,7 @@ class FilterPredicate(FrozenDomainModel):
 
     expression: QueryValueExpression
     operator: FilterOperator
-    values: tuple[ParameterValue, ...] = ()
+    values: tuple[ParameterValue, ...] = Field(default=(), max_length=64)
 
     @model_validator(mode="after")
     def value_count_must_match_operator(self) -> FilterPredicate:
@@ -140,8 +149,12 @@ class FilterPredicate(FrozenDomainModel):
         elif self.operator is FilterOperator.IN:
             if not self.values:
                 raise ValueError("IN predicate requires at least one parameter value")
+            if any(value.value is None for value in self.values):
+                raise ValueError("IN predicate cannot contain NULL")
         elif len(self.values) != 1:
             raise ValueError("comparison predicate requires exactly one parameter value")
+        elif self.values[0].value is None:
+            raise ValueError("comparison predicate cannot compare with NULL")
         return self
 
 
@@ -191,6 +204,11 @@ class QueryPolicy(FrozenDomainModel):
     """Explicit independent guard and preview limits."""
 
     assets: tuple[AllowedAsset, ...] = Field(min_length=1)
+    approved_join_contracts: tuple[JoinContract, ...] = Field(
+        default=(),
+        max_length=2,
+        exclude=True,
+    )
     max_tables: int = Field(default=3, ge=1, le=3)
     max_preview_rows: int = Field(default=500, ge=1, le=10_000)
     statement_timeout_ms: int = Field(default=5_000, ge=10, le=60_000)
@@ -200,6 +218,14 @@ class QueryPolicy(FrozenDomainModel):
         datasets = [asset.dataset.root for asset in self.assets]
         if len(datasets) != len(set(datasets)):
             raise ValueError("allowlisted assets must be unique")
+        join_ids = [contract.id for contract in self.approved_join_contracts]
+        if len(join_ids) != len(set(join_ids)):
+            raise ValueError("allowlisted join contracts must be unique")
+        if any(
+            contract.status is not ApprovalStatus.APPROVED
+            for contract in self.approved_join_contracts
+        ):
+            raise ValueError("allowlisted join contracts must be approved")
         return self
 
 
@@ -294,31 +320,99 @@ class QueryPlan(FrozenDomainModel):
             for item in self.projections
             if isinstance(item.expression, AggregateExpression)
         )
-        fanout_joins = tuple(
-            join
-            for join in self.joins
-            if join.contract.cardinality in {Cardinality.ONE_TO_MANY, Cardinality.MANY_TO_MANY}
-        )
         dataset_by_alias = {self.root_scan.alias.root: self.root_scan.dataset.root}
         dataset_by_alias.update(
             {join.right_scan.alias.root: join.right_scan.dataset.root for join in self.joins}
         )
-        for join in fanout_joins:
+        available_datasets = {self.root_scan.dataset.root}
+        available_relations = {self.root_scan.alias.root: self.root_scan.dataset.root}
+        upstream_fanout_contract: str | None = None
+        for join in self.joins:
             contract = join.contract
-            if contract.fanout_policy is not FanoutPolicy.REQUIRE_DISTINCT_FOR_LEFT_ENTITY_METRICS:
-                raise ValueError(
-                    "fanout policy requires a query-plan mitigation not implemented in M03"
-                )
             left_dataset = contract.left_key.physical_field.root.rsplit(".", 1)[0]
-            if any(
-                aggregate.operation is not MetricOperation.COUNT_DISTINCT
-                and any(
-                    dataset_by_alias[column.relation.root] == left_dataset
-                    for column in _columns_in(aggregate.source)
-                )
+            right_dataset = contract.right_key.physical_field.root.rsplit(".", 1)[0]
+            joined_dataset = join.right_scan.dataset.root
+            if joined_dataset == right_dataset and left_dataset in available_datasets:
+                cardinality = contract.cardinality
+                from_dataset = left_dataset
+                from_key = contract.left_key
+                to_key = contract.right_key
+            elif joined_dataset == left_dataset and right_dataset in available_datasets:
+                cardinality = _reverse_cardinality(contract.cardinality)
+                if contract.default_join_type is JoinType.LEFT:
+                    raise ValueError("reversing an approved LEFT JOIN contract is unsupported")
+                from_dataset = right_dataset
+                from_key = contract.right_key
+                to_key = contract.left_key
+            else:
+                raise ValueError("query join scans do not match the approved contract endpoints")
+            from_aliases = tuple(
+                alias for alias, dataset in available_relations.items() if dataset == from_dataset
+            )
+            if len(from_aliases) != 1 or not _join_key_matches(
+                join.on.left,
+                from_key,
+                RelationAlias(from_aliases[0]),
+            ):
+                raise ValueError("query join left predicate does not match the approved join key")
+            if not _join_key_matches(join.on.right, to_key, join.right_scan.alias):
+                raise ValueError("query join right predicate does not match the approved join key")
+            if upstream_fanout_contract is not None and any(
+                aggregate.operation not in _DUPLICATION_INVARIANT_OPERATIONS
+                and dataset_by_alias[column.relation.root] == joined_dataset
                 for aggregate in aggregates
+                for column in _columns_in(aggregate.source)
             ):
                 raise ValueError(
-                    "fanout policy requires COUNT DISTINCT for left-entity aggregate plans"
+                    "downstream aggregate crosses an earlier fanout without approved mitigation"
                 )
+            affected = tuple(
+                aggregate
+                for aggregate in aggregates
+                if any(
+                    dataset_by_alias[column.relation.root] in available_datasets
+                    for column in _columns_in(aggregate.source)
+                )
+            )
+            if cardinality is Cardinality.MANY_TO_MANY and affected:
+                raise ValueError("many-to-many aggregate plans are unsupported")
+            if cardinality is Cardinality.ONE_TO_MANY and affected:
+                if (
+                    contract.fanout_policy
+                    is not FanoutPolicy.REQUIRE_DISTINCT_FOR_LEFT_ENTITY_METRICS
+                ):
+                    raise ValueError("oriented fanout has no approved query-plan mitigation")
+                if any(
+                    aggregate.operation not in _DUPLICATION_INVARIANT_OPERATIONS
+                    for aggregate in affected
+                ):
+                    raise ValueError(
+                        "fanout policy requires COUNT DISTINCT, MIN, or MAX for an "
+                        "existing-entity aggregate"
+                    )
+            if cardinality is Cardinality.ONE_TO_MANY:
+                upstream_fanout_contract = contract.id
+            available_datasets.add(joined_dataset)
+            available_relations[join.right_scan.alias.root] = joined_dataset
         return self
+
+
+def _reverse_cardinality(cardinality: Cardinality) -> Cardinality:
+    if cardinality is Cardinality.ONE_TO_MANY:
+        return Cardinality.MANY_TO_ONE
+    if cardinality is Cardinality.MANY_TO_ONE:
+        return Cardinality.ONE_TO_MANY
+    return cardinality
+
+
+def _join_key_matches(
+    expression: QueryValueExpression,
+    key: NormalizedJoinKey,
+    relation: RelationAlias,
+) -> bool:
+    return (
+        isinstance(expression, MappedExpression)
+        and expression.source.relation == relation
+        and expression.source.field == key.physical_field
+        and expression.transformation_plan == key.transformation_plan
+    )

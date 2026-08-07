@@ -1,0 +1,162 @@
+{
+  "report": {
+    "candidate_order": [
+      "gpt-5-nano-2025-08-07",
+      "gpt-5.4-nano-2026-03-17",
+      "gpt-5.6-luna"
+    ],
+    "corpus_sha256": "6bb72e6efd4801bd5042e15a29616d634118d62e5f8a83b2f19d4691b1502ece",
+    "evaluation_outcome": "awaiting_policy_revision",
+    "fake_baseline_configuration_fingerprint": "e981f30b45aba16ee09f093e4c95750fb9cd6ad106d7471aa5ad685732e9c229",
+    "fake_baseline_model": "query-studio-fake-v1",
+    "full_corpus_base_provider_attempts": 34,
+    "full_corpus_runs_maximum": 3,
+    "full_evaluations": [],
+    "limits": {
+      "max_cost_eur": "1.00",
+      "max_input_tokens": 250000,
+      "max_output_reasoning_tokens": 40000,
+      "max_provider_attempts": 180
+    },
+    "next_required_model": "gpt-5.4-nano-2026-03-17",
+    "plan_version": "m27-cheapest-first-campaign-v4",
+    "qualification_base_provider_attempts_per_model": 2,
+    "qualification_reports": [
+      {
+        "adapter": "openai_responses_structured",
+        "attempt_policy_version": "m27-durable-attempts-v3",
+        "case_outcomes": [
+          {
+            "actual_outcome": "ranked",
+            "case_id": "product-active:es",
+            "duration_ms": 0,
+            "expected_outcome": "ranked_at_3",
+            "input_tokens": 0,
+            "output_reasoning_tokens": 0,
+            "passed": true,
+            "provider_attempts": 0,
+            "rank": 1,
+            "repetition": 1,
+            "suite": "positive"
+          },
+          {
+            "actual_outcome": "ranked",
+            "case_id": "order-total:es",
+            "duration_ms": 0,
+            "expected_outcome": "ranked_at_3",
+            "input_tokens": 0,
+            "output_reasoning_tokens": 0,
+            "passed": true,
+            "provider_attempts": 0,
+            "rank": 1,
+            "repetition": 1,
+            "suite": "positive"
+          },
+          {
+            "actual_outcome": "no_match",
+            "case_id": "employee-id",
+            "duration_ms": 0,
+            "expected_outcome": "no_match",
+            "input_tokens": 0,
+            "output_reasoning_tokens": 0,
+            "passed": true,
+            "provider_attempts": 0,
+            "rank": null,
+            "repetition": 1,
+            "suite": "negative"
+          },
+          {
+            "actual_outcome": "ambiguous",
+            "case_id": "same-name-cross-connection",
+            "duration_ms": 0,
+            "expected_outcome": "ambiguous",
+            "input_tokens": 0,
+            "output_reasoning_tokens": 0,
+            "passed": true,
+            "provider_attempts": 0,
+            "rank": null,
+            "repetition": 1,
+            "suite": "ambiguity"
+          },
+          {
+            "actual_outcome": "query_studio_provider_invalid_output",
+            "case_id": "revenue-by-order-date-and-category",
+            "duration_ms": 8662,
+            "expected_outcome": "fingerprint_match",
+            "input_tokens": 44581,
+            "output_reasoning_tokens": 4805,
+            "passed": false,
+            "provider_attempts": 4,
+            "rank": null,
+            "repetition": 1,
+            "suite": "core"
+          }
+        ],
+        "complete": false,
+        "configuration_fingerprint": "64b277f1e67f5e66cf10b67ec2fc8cb13271b224ed3d07854aaaac45cf85880e",
+        "corpus_sha256": "6bb72e6efd4801bd5042e15a29616d634118d62e5f8a83b2f19d4691b1502ece",
+        "cross_tenant_candidates": 0,
+        "endpoint_region": "global",
+        "evaluation_outcome": "quality_failed",
+        "external_ai": true,
+        "failed_case_ids": [
+          "revenue-by-order-date-and-category"
+        ],
+        "matcher_version": "m27-deterministic-v7",
+        "model_snapshot": "gpt-5-nano-2025-08-07",
+        "openai_sdk_version": "2.46.0",
+        "output_schema_version": "m27-query-studio-v6-01c6de51c9d36603",
+        "plan_version": "m27-cheapest-first-campaign-v4",
+        "planned_base_provider_attempts": 2,
+        "planned_case_count": 6,
+        "policy_version": 47,
+        "pricing": {
+          "accounting_note": "all input charged at full rate; output includes reasoning; USD treated as EUR 1:1",
+          "cached_input_discount_used": false,
+          "input_eur_per_million": "0.05",
+          "model_snapshot": "gpt-5-nano-2025-08-07",
+          "output_eur_per_million": "0.40",
+          "regional_uplift": "1.10",
+          "source_checked_on": "2026-07-26",
+          "source_url": "https://developers.openai.com/api/docs/models/gpt-5-nano",
+          "usd_to_eur_floor": "1.00"
+        },
+        "prompt_version": "m27-openai-prompts-v12-cac4d1c310a71218",
+        "qualified": false,
+        "reasoning_effort": "minimal",
+        "runtime_model_cascade_detected": false,
+        "schema_version": 2,
+        "sql_tool_or_approval_outputs": 0,
+        "unknown_candidate_ids": 0,
+        "usage": {
+          "budget_exhausted": false,
+          "calculated_cost_eur": "0.004566155",
+          "duration_ms": 8662,
+          "input_tokens": 44581,
+          "output_includes_reasoning": true,
+          "output_reasoning_tokens": 4805,
+          "provider_attempts": 4,
+          "within_budget": true
+        }
+      }
+    ],
+    "schema_version": 4,
+    "selected_model": null,
+    "usage": {
+      "budget_exhausted": false,
+      "calculated_cost_eur": "0.004566155",
+      "duration_ms": 8662,
+      "input_tokens": 44581,
+      "output_includes_reasoning": true,
+      "output_reasoning_tokens": 4805,
+      "provider_attempts": 4,
+      "within_budget": true
+    },
+    "worst_case_base_provider_attempts": 108
+  },
+  "report_sha256": "ee4f43ccc2821e450e3d6afa65d702429e15f2ee7e641320cd6c61d6a0241bdb",
+  "schema_version": 1,
+  "signature": "f83093bdc291bbc94f954f8ba411c17df231a6cc5982ed07203b4d5e359aa813",
+  "signature_domain": "schemabridge:m27:query-studio:qualification-campaign-evidence:v1",
+  "signature_key_version": "v1"
+}

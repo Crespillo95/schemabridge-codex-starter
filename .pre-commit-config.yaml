@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.9.10
+    rev: 41d2daf392fbf43341a77f24a9c6481a4b66af98  # v0.9.10
     hooks:
       - id: ruff
         args: [--fix]

@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCHEMABRIDGE_RELEASE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCHEMABRIDGE_RELEASE_DATABASE_URL="postgresql://schemabridge_reader:schemabridge_reader@127.0.0.1:55433/schemabridge"
+SCHEMABRIDGE_RELEASE_REGISTRY_CONFIRMATION="publish-approved-registry-version"
 cd "$SCHEMABRIDGE_RELEASE_ROOT"
 
 SCHEMABRIDGE_ALLOW_UNCOMMITTED=0
@@ -30,36 +31,72 @@ else
   printf '%s\n' 'WARNING: development audit mode; results are not release-commit evidence.'
 fi
 
-printf '%s\n' '[1/8] Clean Python environment and complete dependency install'
+if [[ "${SCHEMABRIDGE_RELEASE_DATAHUB_CONFIRMATION:-}" != "$SCHEMABRIDGE_RELEASE_REGISTRY_CONFIRMATION" ]]; then
+  printf '%s\n' \
+    'Set SCHEMABRIDGE_RELEASE_DATAHUB_CONFIRMATION=publish-approved-registry-version to approve the synthetic DataHub reset and audited registry publication.' >&2
+  exit 2
+fi
+
+printf '%s\n' '[1/9] Clean Python environment and complete dependency install'
 bash scripts/bootstrap.sh
-make install
 .venv/bin/python -m pip check
 
-printf '%s\n' '[2/8] Clean synthetic PostgreSQL reset and health'
+printf '%s\n' '[2/9] Service-free quality gate'
+make check
+
+printf '%s\n' '[3/9] Clean synthetic PostgreSQL reset and health'
 make demo-reset
 make demo-health
 
-printf '%s\n' '[3/8] Clean DataHub reset, ingest, identities, and read checks'
+printf '%s\n' '[4/9] Clean DataHub reset, ingest, identities, approved registry, and read checks'
 make datahub-reset
 make datahub-health
 make datahub-init-admin
 make datahub-ingest
 make datahub-provision-mcp
 make datahub-provision-writer
+SCHEMABRIDGE_RELEASE_REGISTRY_PREPARE="$(.venv/bin/schemabridge registry-prepare --json)"
+SCHEMABRIDGE_RELEASE_REGISTRY_FINGERPRINT="$(
+  printf '%s\n' "$SCHEMABRIDGE_RELEASE_REGISTRY_PREPARE" |
+    .venv/bin/python -c '
+import json
+import re
+import sys
+
+payload = json.load(sys.stdin)
+fingerprint = payload.get("fingerprint")
+valid = (
+    payload.get("ok") is True
+    and payload.get("writes_performed") is False
+    and isinstance(fingerprint, str)
+    and re.fullmatch(r"[0-9a-f]{64}", fingerprint) is not None
+)
+if not valid:
+    raise SystemExit("registry-prepare did not return one validated no-write fingerprint")
+print(fingerprint)
+'
+)"
+unset SCHEMABRIDGE_RELEASE_REGISTRY_PREPARE
+.venv/bin/schemabridge registry-publish \
+  --fingerprint "$SCHEMABRIDGE_RELEASE_REGISTRY_FINGERPRINT" \
+  --confirm "$SCHEMABRIDGE_RELEASE_DATAHUB_CONFIRMATION" \
+  --json
+unset SCHEMABRIDGE_RELEASE_REGISTRY_FINGERPRINT
 make datahub-catalog-check
+make datahub-registry-check
 make datahub-mcp-check
 
-printf '%s\n' '[4/8] Quality, integration, and acceptance suites'
-make check
+printf '%s\n' '[5/9] Integration, acceptance, and service-loaded coverage suites'
 make test-integration
 make test-acceptance
+make coverage
 
-printf '%s\n' '[5/8] Deterministic evaluation without rewriting checked-in evidence'
+printf '%s\n' '[6/9] Deterministic evaluation without rewriting checked-in evidence'
 DATABASE_URL="$SCHEMABRIDGE_RELEASE_DATABASE_URL" .venv/bin/python -m schemabridge.entrypoints.cli.main evaluate \
   --output reports/evaluation.json \
   --markdown reports/evaluation-release.md
 
-printf '%s\n' '[6/8] Headless Streamlit health smoke'
+printf '%s\n' '[7/9] Headless Streamlit health smoke'
 SCHEMABRIDGE_UI_LOG="${TMPDIR:-/tmp}/schemabridge-m16-streamlit.log"
 DATABASE_URL="$SCHEMABRIDGE_RELEASE_DATABASE_URL" .venv/bin/streamlit run \
   src/schemabridge/entrypoints/streamlit/app.py \
@@ -89,7 +126,7 @@ fi
 cleanup_ui
 trap - EXIT
 
-printf '%s\n' '[7/8] DataHub persistence after service restart'
+printf '%s\n' '[8/9] DataHub persistence after service restart'
 make datahub-restart
 make datahub-health
 make datahub-catalog-check
@@ -100,7 +137,7 @@ SCHEMABRIDGE_TEST_DATABASE_URL="$SCHEMABRIDGE_RELEASE_DATABASE_URL" .venv/bin/py
   tests/integration/test_datahub_query_recipes.py
 .venv/bin/schemabridge join-published --json
 
-printf '%s\n' '[8/8] Release identity, architecture, secret, license, and link scans'
+printf '%s\n' '[9/9] Release identity, architecture, secret, license, and link scans'
 SCHEMABRIDGE_AUDIT_ARGS=(--check-external)
 if [[ "$SCHEMABRIDGE_ALLOW_UNCOMMITTED" -eq 0 ]]; then
   SCHEMABRIDGE_AUDIT_ARGS+=(--require-release)

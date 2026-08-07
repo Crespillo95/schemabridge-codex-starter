@@ -1,0 +1,3868 @@
+name: Release evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing annotated canonical SemVer tag to promote
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: schemabridge-global-release-publication
+  queue: max
+  cancel-in-progress: false
+
+env:
+  DOCKER_BUILDKIT: "1"
+  GH_API_VERSION: "2026-03-10"
+  NO_COLOR: "1"
+  RELEASE_TAG: ${{ inputs.release_tag }}
+  REPOSITORY_URL: https://github.com/${{ github.repository }}
+  SOURCE_REF: ${{ github.ref }}
+  SOURCE_REVISION: ${{ github.sha }}
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: production-release
+    permissions:
+      attestations: read
+      contents: read
+      packages: read
+    outputs:
+      published-noop: ${{ steps.preflight.outputs.published-noop }}
+    steps:
+      - name: Verify authoritative clean external state before any build
+        id: preflight
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_APPROVAL_SENTINEL: ${{ secrets.SCHEMABRIDGE_RELEASE_APPROVAL_SENTINEL }}
+          RELEASE_AUDIT_TOKEN: ${{ secrets.SCHEMABRIDGE_RELEASE_AUDIT_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          test "$SOURCE_REF" = "refs/tags/$RELEASE_TAG"
+          [[ "$RELEASE_AUDIT_TOKEN" =~ ^[^[:space:]]{40,255}$ ]]
+          [[ "$RELEASE_APPROVAL_SENTINEL" =~ ^[A-Za-z0-9._-]{32,128}$ ]]
+          audit_get() {
+            GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+              gh api --method GET \
+                --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                "$@"
+          }
+          repository="$(audit_get "repos/$GITHUB_REPOSITORY")"
+          test "$(jq -r '.default_branch' <<<"$repository")" = "main"
+          test "$(jq -r '.permissions.push == true' <<<"$repository")" = "true"
+          tag_ref="$(
+            audit_get "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG"
+          )"
+          test "$(jq -r '.ref' <<<"$tag_ref")" = "refs/tags/$RELEASE_TAG"
+          test "$(jq -r '.object.type' <<<"$tag_ref")" = "tag"
+          tag_object="$(
+            jq -er '.object.sha | select(test("^[0-9a-f]{40}$"))' <<<"$tag_ref"
+          )"
+          tag_payload="$(
+            audit_get "repos/$GITHUB_REPOSITORY/git/tags/$tag_object"
+          )"
+          test "$(jq -r '.object.type' <<<"$tag_payload")" = "commit"
+          test "$(jq -r '.object.sha' <<<"$tag_payload")" = "$SOURCE_REVISION"
+          all_releases="$(
+            GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+              gh api --method GET --paginate --slurp \
+                --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+              jq -cer '[.[][]]'
+          )"
+          releases="$(
+            jq -cer --arg tag "$RELEASE_TAG" \
+              '[.[] | select(.tag_name == $tag)]' <<<"$all_releases"
+          )"
+          image_name="ghcr.io/${GITHUB_REPOSITORY,,}"
+          registry_path="${image_name#ghcr.io/}"
+          registry_token="$(
+            curl --fail --silent --show-error \
+              --user "$GITHUB_ACTOR:$GH_TOKEN" \
+              --get \
+              --data-urlencode "service=ghcr.io" \
+              --data-urlencode "scope=repository:$registry_path:pull" \
+              https://ghcr.io/token |
+              jq -er '.token | select(type == "string" and length > 0)'
+          )"
+          inspect_manifest() {
+            local reference="$1"
+            local body
+            local code
+            local config_digest
+            local digest
+            local header_digest
+            local headers
+            body="$(mktemp)"
+            headers="$(mktemp)"
+            code="$(
+              curl --silent --show-error \
+                --max-filesize 4194304 \
+                --output "$body" \
+                --dump-header "$headers" \
+                --write-out '%{http_code}' \
+                --header "Authorization: Bearer $registry_token" \
+                --header "Accept: application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json" \
+                "https://ghcr.io/v2/$registry_path/manifests/$reference"
+            )"
+            test "$(stat --format='%s' "$body")" -le 4194304
+            if [[ "$code" = "404" ]]; then
+              jq -e '.errors | length > 0 and all(
+                .code == "MANIFEST_UNKNOWN" or .code == "NAME_UNKNOWN"
+              )' "$body" >/dev/null
+              return 4
+            fi
+            test "$code" = "200"
+            digest="sha256:$(sha256sum "$body" | cut -d' ' -f1)"
+            header_digest="$(
+              awk 'tolower($1) == "docker-content-digest:" {print $2}' "$headers" |
+                tr -d '\r' |
+                tail -1
+            )"
+            test "$header_digest" = "$digest"
+            config_digest="$(
+              jq -er '.config.digest | select(test("^sha256:[0-9a-f]{64}$"))' "$body"
+            )"
+            printf '%s|%s\n' "$digest" "$config_digest"
+          }
+          verify_exact_published_release() {
+            local asset_count
+            local asset_digest
+            local asset_directory
+            local asset_id
+            local asset_size
+            local assets
+            local body_digest
+            local filename
+            local image_state
+            local metadata
+            local release
+            local release_id
+            release="$(jq -cer 'if length == 1 then .[0] else error("release count") end' \
+              <<<"$releases")"
+            release_id="$(jq -er '.id | select(type == "number" and . > 0)' <<<"$release")"
+            release="$(audit_get "repos/$GITHUB_REPOSITORY/releases/$release_id")"
+            test "$(jq -r '.id' <<<"$release")" = "$release_id"
+            test "$(jq -r '.tag_name' <<<"$release")" = "$RELEASE_TAG"
+            test "$(jq -r '.name' <<<"$release")" = "$RELEASE_TAG"
+            test "$(jq -r '.target_commitish' <<<"$release")" = "$SOURCE_REVISION"
+            test "$(jq -r '.draft' <<<"$release")" = "false"
+            test "$(jq -r '.prerelease' <<<"$release")" = "false"
+            test "$(jq -r '.immutable' <<<"$release")" = "true"
+            jq -e '.published_at
+              | type == "string"
+                and test(
+                  "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+                )' <<<"$release" >/dev/null
+            assets="$(
+              GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+                gh api --method GET --paginate --slurp \
+                  --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                  "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?per_page=100" |
+                jq -cer '[.[][]]'
+            )"
+            test "$(
+              jq '([.[].name] | sort) == ([
+                    "direct-licenses.json",
+                    "pip-audit.json",
+                    "provenance.intoto.json",
+                    "release-assets.sha256",
+                    "release-body.md",
+                    "release-metadata.json",
+                    "runtime-image.cdx.json",
+                    "schemabridge-0.1.0-py3-none-any.whl",
+                    "trivy-image.json",
+                    "wheel.cdx.json"
+                  ] | sort)
+                  and ([.[].name] | length) == 10
+                  and ([.[].name] | unique | length) == 10
+                ' <<<"$assets"
+            )" = "true"
+            asset_directory="$(mktemp -d)"
+            for filename in \
+              direct-licenses.json \
+              pip-audit.json \
+              provenance.intoto.json \
+              release-assets.sha256 \
+              release-body.md \
+              release-metadata.json \
+              runtime-image.cdx.json \
+              schemabridge-0.1.0-py3-none-any.whl \
+              trivy-image.json \
+              wheel.cdx.json
+            do
+              asset_count="$(
+                jq --arg name "$filename" '[.[] | select(.name == $name)] | length' \
+                  <<<"$assets"
+              )"
+              test "$asset_count" = "1"
+              asset_id="$(
+                jq -er --arg name "$filename" '
+                  .[] | select(.name == $name) | .id
+                  | select(type == "number" and . > 0)
+                ' <<<"$assets"
+              )"
+              asset_digest="$(
+                jq -er --arg name "$filename" '
+                  .[] | select(.name == $name) | .digest
+                  | select(test("^sha256:[0-9a-f]{64}$"))
+                ' <<<"$assets"
+              )"
+              asset_size="$(
+                jq -er --arg name "$filename" '
+                  .[] | select(.name == $name) | .size
+                  | select(type == "number" and . > 0 and . <= 1073741824)
+                ' <<<"$assets"
+              )"
+              case "$filename" in
+                release-assets.sha256)
+                  maximum_size=4096
+                  ;;
+                release-body.md | release-metadata.json)
+                  maximum_size=65536
+                  ;;
+                provenance.intoto.json)
+                  maximum_size=1048576
+                  ;;
+                schemabridge-0.1.0-py3-none-any.whl)
+                  maximum_size=67108864
+                  ;;
+                direct-licenses.json | pip-audit.json | runtime-image.cdx.json | \
+                  trivy-image.json | wheel.cdx.json)
+                  maximum_size=104857600
+                  ;;
+                *)
+                  exit 1
+                  ;;
+              esac
+              test "$asset_size" -le "$maximum_size"
+              test "$(
+                jq -r --arg name "$filename" \
+                  '.[] | select(.name == $name) | .state' <<<"$assets"
+              )" = "uploaded"
+              GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+                gh api --method GET \
+                  --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                  --header "Accept: application/octet-stream" \
+                  "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" \
+                  > "$asset_directory/$filename"
+              test "$(stat --format='%s' "$asset_directory/$filename")" = "$asset_size"
+              test "sha256:$(
+                sha256sum "$asset_directory/$filename" | cut -d' ' -f1
+              )" = "$asset_digest"
+            done
+            for filename in \
+              direct-licenses.json \
+              pip-audit.json \
+              provenance.intoto.json \
+              release-assets.sha256 \
+              release-body.md \
+              release-metadata.json \
+              runtime-image.cdx.json \
+              schemabridge-0.1.0-py3-none-any.whl \
+              trivy-image.json \
+              wheel.cdx.json
+            do
+              gh attestation verify "$asset_directory/$filename" \
+                --repo "$GITHUB_REPOSITORY" \
+                --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-evidence.yml" \
+                --source-digest "$SOURCE_REVISION" \
+                --source-ref "$SOURCE_REF" \
+                --deny-self-hosted-runners
+            done
+            checksum_file="$asset_directory/release-assets.sha256"
+            test "$(wc -l < "$checksum_file" | tr -d ' ')" = "9"
+            declare -A checksum_names=()
+            while IFS= read -r checksum_line; do
+              [[ "$checksum_line" =~ ^([0-9a-f]{64})\ \ ([A-Za-z0-9][A-Za-z0-9._-]*)$ ]]
+              checksum_name="${BASH_REMATCH[2]}"
+              case "$checksum_name" in
+                direct-licenses.json | pip-audit.json | provenance.intoto.json | \
+                  release-body.md | release-metadata.json | runtime-image.cdx.json | \
+                  schemabridge-0.1.0-py3-none-any.whl | trivy-image.json | wheel.cdx.json)
+                  ;;
+                *)
+                  exit 1
+                  ;;
+              esac
+              test -z "${checksum_names[$checksum_name]+present}"
+              checksum_names["$checksum_name"]=1
+            done < "$checksum_file"
+            test "${#checksum_names[@]}" = "9"
+            (
+              cd "$asset_directory"
+              sha256sum --strict --check release-assets.sha256
+            )
+            metadata="$asset_directory/release-metadata.json"
+            test "$(jq -r '.format_version' "$metadata")" = "2"
+            test "$(jq -r '.repository' "$metadata")" = "$GITHUB_REPOSITORY"
+            test "$(jq -r '.release_tag' "$metadata")" = "$RELEASE_TAG"
+            test "$(jq -r '.source_ref' "$metadata")" = "$SOURCE_REF"
+            test "$(jq -r '.source_revision' "$metadata")" = "$SOURCE_REVISION"
+            test "$(jq -r '.image_name' "$metadata")" = "$image_name"
+            test "$(
+              jq -r '
+                .scanner_evidence.pip_audit.tool == "pip-audit"
+                and .scanner_evidence.pip_audit.tool_version == "2.10.1"
+                and .scanner_evidence.pip_audit.service == "pypi"
+                and .scanner_evidence.pip_audit.source == "https://pypi.org/pypi"
+                and (
+                  .scanner_evidence.pip_audit.observed_at
+                  | type == "string"
+                    and test(
+                      "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+                    )
+                )
+                and .scanner_evidence.trivy.action == "aquasecurity/trivy-action"
+                and .scanner_evidence.trivy.action_revision
+                  == "ed142fd0673e97e23eac54620cfb913e5ce36c25"
+                and .scanner_evidence.trivy.tool == "trivy"
+                and .scanner_evidence.trivy.tool_version == "0.69.3"
+                and (
+                  .scanner_evidence.trivy.observed_at
+                  | type == "string"
+                    and test(
+                      "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+                    )
+                )
+                and (
+                  .scanner_evidence.trivy.vulnerability_database.schema_version
+                  | type == "number" and . > 0
+                )
+                and (
+                  .scanner_evidence.trivy.vulnerability_database.byte_size
+                  | type == "number" and . > 0 and . <= 1073741824
+                )
+                and (
+                  .scanner_evidence.trivy.vulnerability_database.sha256
+                  | test("^[0-9a-f]{64}$")
+                )
+                and (
+                  .scanner_evidence.trivy.vulnerability_database.metadata_sha256
+                  | test("^[0-9a-f]{64}$")
+                )
+              ' "$metadata"
+            )" = "true"
+            body_digest="$(
+              sha256sum "$asset_directory/release-body.md" | cut -d' ' -f1
+            )"
+            test "$(jq -r '.release_body_sha256' "$metadata")" = "$body_digest"
+            test "$(
+              jq -jr '.body' <<<"$release" | sha256sum | cut -d' ' -f1
+            )" = "$body_digest"
+            expected_image_digest="$(
+              jq -er '.image_digest | select(test("^sha256:[0-9a-f]{64}$"))' "$metadata"
+            )"
+            expected_config_digest="$(
+              jq -er '.image_config_digest
+                | select(test("^sha256:[0-9a-f]{64}$"))' "$metadata"
+            )"
+            gh attestation verify "oci://$image_name@$expected_image_digest" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-evidence.yml" \
+              --source-digest "$SOURCE_REVISION" \
+              --source-ref "$SOURCE_REF" \
+              --deny-self-hosted-runners \
+              --bundle-from-oci
+            image_state="$(inspect_manifest "$RELEASE_TAG")"
+            test "${image_state%%|*}" = "$expected_image_digest"
+            test "${image_state##*|}" = "$expected_config_digest"
+          }
+          release_count="$(jq -er 'length' <<<"$releases")"
+          test "$release_count" = "0" || test "$release_count" = "1"
+          if [[ "$release_count" = "1" ]]; then
+            verify_exact_published_release
+            printf 'published-noop=true\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          canonical_stable_semver() {
+            [[ "$1" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          }
+          semver_greater() {
+            local left="${1#v}"
+            local right="${2#v}"
+            local index
+            local -a left_parts=()
+            local -a right_parts=()
+            IFS='.' read -r -a left_parts <<< "$left"
+            IFS='.' read -r -a right_parts <<< "$right"
+            for index in 0 1 2; do
+              if ((${#left_parts[$index]} > ${#right_parts[$index]})); then
+                return 0
+              fi
+              if ((${#left_parts[$index]} < ${#right_parts[$index]})); then
+                return 1
+              fi
+              if [[ "${left_parts[$index]}" > "${right_parts[$index]}" ]]; then
+                return 0
+              fi
+              if [[ "${left_parts[$index]}" < "${right_parts[$index]}" ]]; then
+                return 1
+              fi
+            done
+            return 1
+          }
+          test "$(
+            jq -r '[.[] | select(.draft == true)] | length == 0' <<<"$all_releases"
+          )" = "true"
+          while IFS= read -r published_tag; do
+            test -n "$published_tag"
+            canonical_stable_semver "$published_tag"
+            if semver_greater "$published_tag" "$RELEASE_TAG"; then
+              printf '%s\n' "a newer stable release already exists" >&2
+              exit 1
+            fi
+          done < <(
+            jq -r '.[] | select(
+              .draft == false
+              and .prerelease == false
+              and (.tag_name | startswith("v"))
+            ) | .tag_name' <<<"$all_releases"
+          )
+          registry_tags_file="$(mktemp)"
+          registry_tags_url="https://ghcr.io/v2/$registry_path/tags/list?n=100"
+          registry_page=0
+          declare -A registry_pages=()
+          while [[ -n "$registry_tags_url" ]]; do
+            test -z "${registry_pages[$registry_tags_url]+present}"
+            registry_pages["$registry_tags_url"]=1
+            registry_page=$((registry_page + 1))
+            test "$registry_page" -le 1000
+            registry_tags_body="$(mktemp)"
+            registry_tags_headers="$(mktemp)"
+            registry_tags_code="$(
+              curl --silent --show-error \
+                --max-filesize 4194304 \
+                --output "$registry_tags_body" \
+                --dump-header "$registry_tags_headers" \
+                --write-out '%{http_code}' \
+                --header "Authorization: Bearer $registry_token" \
+                --header "Accept: application/json" \
+                "$registry_tags_url"
+            )"
+            test "$(stat --format='%s' "$registry_tags_body")" -le 4194304
+            test "$(stat --format='%s' "$registry_tags_headers")" -le 65536
+            if [[ "$registry_tags_code" = "404" ]]; then
+              test "$registry_page" = "1"
+              jq -e '.errors | length > 0 and all(.code == "NAME_UNKNOWN")' \
+                "$registry_tags_body" >/dev/null
+              break
+            fi
+            test "$registry_tags_code" = "200"
+            test "$(
+              jq -r --arg name "$registry_path" '
+                .name == $name
+                and (
+                  .tags == null
+                  or (
+                    .tags
+                    | type == "array"
+                      and length <= 100
+                      and all(
+                        type == "string"
+                        and length > 0
+                        and length <= 256
+                      )
+                  )
+                )
+              ' "$registry_tags_body"
+            )" = "true"
+            jq -r '.tags[]?' "$registry_tags_body" >> "$registry_tags_file"
+            test "$(wc -l < "$registry_tags_file" | tr -d ' ')" -le 100000
+            registry_tags_url="$(
+              python3 - "$registry_tags_headers" "$registry_path" <<'PY'
+          import re
+          import sys
+          from urllib.parse import parse_qs, urljoin, urlsplit
+
+          headers_path, registry_path = sys.argv[1:]
+          with open(headers_path, encoding="utf-8") as stream:
+              links = [
+                  line.split(":", 1)[1].strip()
+                  for line in stream
+                  if line.lower().startswith("link:")
+              ]
+          if not links:
+              raise SystemExit(0)
+          if len(links) != 1:
+              raise SystemExit("ambiguous registry pagination")
+          match = re.fullmatch(r'<([^<>]+)>;\s*rel="next"', links[0])
+          if match is None:
+              raise SystemExit("invalid registry next link")
+          url = urljoin("https://ghcr.io", match.group(1))
+          parsed = urlsplit(url)
+          expected_path = f"/v2/{registry_path}/tags/list"
+          query = parse_qs(parsed.query, keep_blank_values=True, strict_parsing=True)
+          if (
+              parsed.scheme != "https"
+              or parsed.netloc != "ghcr.io"
+              or parsed.path != expected_path
+              or parsed.fragment
+              or set(query) != {"last", "n"}
+              or query["n"] != ["100"]
+              or len(query["last"]) != 1
+              or not 0 < len(query["last"][0]) <= 256
+          ):
+              raise SystemExit("unsafe registry next link")
+          print(url)
+          PY
+            )"
+          done
+          test "$(
+            sort "$registry_tags_file" | uniq -d | wc -l | tr -d ' '
+          )" = "0"
+          while IFS= read -r registry_tag; do
+            if canonical_stable_semver "$registry_tag" &&
+                semver_greater "$registry_tag" "$RELEASE_TAG"; then
+              printf '%s\n' "a newer stable registry tag already exists" >&2
+              exit 1
+            fi
+          done < "$registry_tags_file"
+          default_ref="$(
+            audit_get "repos/$GITHUB_REPOSITORY/git/ref/heads/main"
+          )"
+          test "$(jq -r '.object.type' <<<"$default_ref")" = "commit"
+          test "$(jq -r '.object.sha' <<<"$default_ref")" = "$SOURCE_REVISION"
+          branch_payload="$(audit_get "repos/$GITHUB_REPOSITORY/branches/main")"
+          test "$(jq -r '.name' <<<"$branch_payload")" = "main"
+          test "$(jq -r '.protected' <<<"$branch_payload")" = "true"
+          test "$(jq -r '.commit.sha' <<<"$branch_payload")" = "$SOURCE_REVISION"
+          ruleset_ids="$(
+            GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+              gh api --method GET --paginate --slurp \
+                --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                "repos/$GITHUB_REPOSITORY/rulesets?includes_parents=true&targets=tag&per_page=100" |
+              jq -cer '[.[][] | select(.enforcement == "active") | .id]
+                | select(
+                    length == 1
+                    and .[0] != null
+                    and (.[0] | type == "number" and . > 0)
+                  )'
+          )"
+          ruleset_id="$(jq -er '.[0]' <<<"$ruleset_ids")"
+          ruleset="$(
+            audit_get \
+              "repos/$GITHUB_REPOSITORY/rulesets/$ruleset_id?includes_parents=true"
+          )"
+          test "$(
+            jq -r '
+              .target == "tag"
+              and .enforcement == "active"
+              and has("bypass_actors")
+              and (.bypass_actors | type == "array" and length == 0)
+              and .conditions.ref_name.include == ["refs/tags/v*"]
+              and .conditions.ref_name.exclude == []
+              and ([.rules[].type] | sort)
+                == ["deletion", "non_fast_forward", "update"]
+            ' <<<"$ruleset"
+          )" = "true"
+          immutable_releases="$(audit_get "repos/$GITHUB_REPOSITORY/immutable-releases")"
+          test "$(jq -r '.enabled == true' <<<"$immutable_releases")" = "true"
+          for reference in "candidate-$SOURCE_REVISION" "$RELEASE_TAG"; do
+            if inspect_manifest "$reference" >/dev/null; then
+              printf '%s\n' "registry reference already exists before this dispatch" >&2
+              exit 1
+            else
+              test "$?" = "4"
+            fi
+          done
+          printf 'published-noop=false\n' >> "$GITHUB_OUTPUT"
+
+  prepare:
+    needs: audit
+    if: needs.audit.outputs.published-noop != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+    outputs:
+      artifact-digest: ${{ steps.upload_prepared.outputs.artifact-digest }}
+      artifact-id: ${{ steps.upload_prepared.outputs.artifact-id }}
+      artifact-name: prepared-release-${{ github.run_id }}-${{ github.run_attempt }}
+    env:
+      LOCAL_IMAGE_NAME: schemabridge-runtime:${{ github.sha }}
+      PREPARATION_DIRECTORY: .local/prepublication
+      PREPARED_DIRECTORY: .local/prepared-release
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Verify canonical release source and protected policies
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+          canonical_semver() {
+            local version="$1"
+            local prerelease
+            local identifier
+            local -a identifiers=()
+            if [[ ${#version} -gt 128 \
+              || ! "$version" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+              return 1
+            fi
+            if [[ "$version" != *-* ]]; then
+              return 0
+            fi
+            prerelease="${version#*-}"
+            IFS='.' read -r -a identifiers <<< "$prerelease"
+            for identifier in "${identifiers[@]}"; do
+              if [[ "$identifier" =~ ^[0-9]+$ && "$identifier" != "0" && "$identifier" == 0* ]]; then
+                return 1
+              fi
+            done
+          }
+          remote_tag_commit() {
+            local ref_payload
+            local tag_object
+            local tag_payload
+            ref_payload="$(gh api --method GET "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG")"
+            test "$(jq -r '.ref' <<<"$ref_payload")" = "refs/tags/$RELEASE_TAG"
+            test "$(jq -r '.object.type' <<<"$ref_payload")" = "tag"
+            tag_object="$(jq -er '.object.sha | select(test("^[0-9a-f]{40}$"))' <<<"$ref_payload")"
+            tag_payload="$(gh api --method GET "repos/$GITHUB_REPOSITORY/git/tags/$tag_object")"
+            test "$(jq -r '.object.type' <<<"$tag_payload")" = "commit"
+            jq -er '.object.sha | select(test("^[0-9a-f]{40}$"))' <<<"$tag_payload"
+          }
+          verify_tag_ruleset_metadata() {
+            local active_rulesets=0
+            local ruleset_ids
+            local ruleset
+            local ruleset_id
+            ruleset_ids="$(
+              gh api --method GET --paginate --slurp \
+                --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                "repos/$GITHUB_REPOSITORY/rulesets?includes_parents=true&targets=tag&per_page=100" |
+                jq -cer '[.[][] | .id] as $ids
+                  | select(
+                      length == ($ids | unique | length)
+                      and all(type == "number" and . > 0)
+                    )
+                  | sort'
+            )"
+            while IFS= read -r ruleset_id; do
+              test -n "$ruleset_id"
+              ruleset="$(
+                gh api --method GET \
+                  --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                  "repos/$GITHUB_REPOSITORY/rulesets/$ruleset_id?includes_parents=true"
+              )"
+              if [[ "$(jq -r '.enforcement' <<<"$ruleset")" = "active" ]]; then
+                active_rulesets=$((active_rulesets + 1))
+                test "$(jq -r '.target' <<<"$ruleset")" = "tag"
+                test "$(
+                  jq -r '.conditions.ref_name.include == ["refs/tags/v*"]
+                    and .conditions.ref_name.exclude == []' <<<"$ruleset"
+                )" = "true"
+                test "$(
+                  jq -r '([.rules[].type] | sort)
+                    == ["deletion", "non_fast_forward", "update"]' <<<"$ruleset"
+                )" = "true"
+              fi
+            done < <(jq -r '.[]' <<<"$ruleset_ids")
+            test "$active_rulesets" = "1"
+          }
+          verify_default_head() {
+            local branch_payload
+            local default_ref
+            local repository
+            repository="$(gh api --method GET "repos/$GITHUB_REPOSITORY")"
+            test "$(jq -r '.default_branch' <<<"$repository")" = "main"
+            default_ref="$(gh api --method GET "repos/$GITHUB_REPOSITORY/git/ref/heads/main")"
+            test "$(jq -r '.object.type' <<<"$default_ref")" = "commit"
+            test "$(jq -r '.object.sha' <<<"$default_ref")" = "$SOURCE_REVISION"
+            branch_payload="$(
+              gh api --method GET \
+                --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                "repos/$GITHUB_REPOSITORY/branches/main"
+            )"
+            test "$(jq -r '.name' <<<"$branch_payload")" = "main"
+            test "$(jq -r '.protected' <<<"$branch_payload")" = "true"
+            test "$(jq -r '.commit.sha' <<<"$branch_payload")" = "$SOURCE_REVISION"
+          }
+          verify_public_external_state_metadata() {
+            local body
+            local code
+            local image_name
+            local reference
+            local registry_path
+            local registry_token
+            test "$(
+              gh api --paginate --slurp \
+                "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+                jq -c --arg tag "$RELEASE_TAG" '[.[][] | select(.tag_name == $tag)] | length'
+            )" = "0"
+            image_name="ghcr.io/${GITHUB_REPOSITORY,,}"
+            registry_path="${image_name#ghcr.io/}"
+            registry_token="$(
+              curl --fail --silent --show-error \
+                --user "$GITHUB_ACTOR:$GH_TOKEN" \
+                --get \
+                --data-urlencode "service=ghcr.io" \
+                --data-urlencode "scope=repository:$registry_path:pull" \
+                https://ghcr.io/token |
+                jq -er '.token | select(type == "string" and length > 0)'
+            )"
+            for reference in "candidate-$SOURCE_REVISION" "$RELEASE_TAG"; do
+              body="$(mktemp)"
+              code="$(
+                curl --silent --show-error \
+                  --max-filesize 4194304 \
+                  --output "$body" \
+                  --write-out '%{http_code}' \
+                  --header "Authorization: Bearer $registry_token" \
+                  --header "Accept: application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json" \
+                  "https://ghcr.io/v2/$registry_path/manifests/$reference"
+              )"
+              test "$(stat --format='%s' "$body")" -le 4194304
+              test "$code" = "404"
+              jq -e '.errors | length > 0 and all(
+                .code == "MANIFEST_UNKNOWN" or .code == "NAME_UNKNOWN"
+              )' "$body" >/dev/null
+            done
+          }
+          test "$REF_TYPE" = "tag"
+          [[ "$SOURCE_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          canonical_semver "$RELEASE_TAG"
+          [[ "$RELEASE_TAG" != *-* ]]
+          test "$SOURCE_REF" = "refs/tags/$RELEASE_TAG"
+          test "$(remote_tag_commit)" = "$SOURCE_REVISION"
+          git fetch --force origin main
+          test "$(git rev-parse HEAD)" = "$SOURCE_REVISION"
+          test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = "tag"
+          test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$SOURCE_REVISION"
+          test "$(git rev-parse origin/main)" = "$SOURCE_REVISION"
+          project_version="$(
+            python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])'
+          )"
+          test "$RELEASE_TAG" = "v$project_version"
+          verify_default_head
+          verify_tag_ruleset_metadata
+          verify_public_external_state_metadata
+          branch_payload="$(gh api --method GET "repos/$GITHUB_REPOSITORY/branches/main")"
+          test "$(jq -r 'select(.name == "main" and .protected == true) | .protected' <<<"$branch_payload")" = "true"
+          test "$(jq -r '.commit.sha' <<<"$branch_payload")" = "$SOURCE_REVISION"
+          branch_rules="$(
+            gh api --paginate --slurp \
+              "repos/$GITHUB_REPOSITORY/rules/branches/main?per_page=100" |
+              jq -c '[.[][]]'
+          )"
+          required_contexts="$(
+            {
+              jq -r '.protection.required_status_checks.contexts[]?,
+                .protection.required_status_checks.checks[]?.context' <<<"$branch_payload"
+              jq -r '.[] | select(.type == "required_status_checks")
+                | .parameters.required_status_checks[]?.context' <<<"$branch_rules"
+            } | sort -u
+          )"
+          for required_context in quality postgres-integration supply-chain; do
+            grep -Fxq "$required_context" <<<"$required_contexts"
+          done
+          ci_runs="$(
+            gh run list \
+              --workflow ci.yml \
+              --branch main \
+              --commit "$SOURCE_REVISION" \
+              --event push \
+              --limit 100 \
+              --json attempt,conclusion,createdAt,databaseId,event,headBranch,headSha,status
+          )"
+          ci_run_id="$(
+            jq -er --arg revision "$SOURCE_REVISION" '
+              map(select(
+                .headSha == $revision
+                and .headBranch == "main"
+                and .event == "push"
+              ))
+              | sort_by(.createdAt, .attempt)
+              | last
+              | select(.status == "completed" and .conclusion == "success")
+              | .databaseId
+              | select(type == "number" and . > 0)
+            ' <<<"$ci_runs"
+          )"
+          required_jobs="$(
+            gh run view "$ci_run_id" \
+              --json jobs \
+              --jq '[.jobs[] | select(
+                .name == "quality"
+                or .name == "postgres-integration"
+                or .name == "supply-chain"
+              )] | "\(. | length):\([.[].name] | unique | length):\([
+                .[] | select(.status == "completed" and .conclusion == "success")
+              ] | length)"'
+          )"
+          test "$required_jobs" = "3:3:3"
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@eb1897b8dc4b5d5bfe39a428a8f2304605e0983c # v7.0.0
+        with:
+          version: "0.11.30"
+          enable-cache: true
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - name: Install and verify frozen inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          make bootstrap
+          make supply-chain-static
+          .venv/bin/python scripts/release_audit.py --require-release
+      - name: Build the wheel once
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$PREPARATION_DIRECTORY/dist"
+          .venv/bin/uv build --wheel --no-build-isolation --no-create-gitignore \
+            --out-dir "$PREPARATION_DIRECTORY/dist"
+      - name: Build the unpublished runtime image once
+        id: local_build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: "false"
+          SOURCE_DATE_EPOCH: "1730470033"
+        with:
+          context: .
+          file: Dockerfile.runtime
+          build-args: |
+            SCHEMABRIDGE_RELEASE_REF=${{ github.sha }}
+          platforms: linux/amd64
+          pull: true
+          load: true
+          push: false
+          provenance: false
+          sbom: false
+          tags: ${{ env.LOCAL_IMAGE_NAME }}
+      - name: Record the unpublished local config digest
+        id: local_image
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_id="$(docker image inspect --format '{{.Id}}' "$LOCAL_IMAGE_NAME")"
+          [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
+          test "$(
+            docker image inspect \
+              --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' \
+              "$LOCAL_IMAGE_NAME"
+          )" = "$SOURCE_REVISION"
+          printf 'id=%s\n' "$image_id" >> "$GITHUB_OUTPUT"
+      - name: Generate the unpublished runtime-image CycloneDX SBOM
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.LOCAL_IMAGE_NAME }}
+          cache-dir: .local/trivy-cache
+          format: cyclonedx
+          output: .local/prepublication/runtime-image.cdx.json
+          version: v0.69.3
+      - name: Scan the unpublished runtime image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.LOCAL_IMAGE_NAME }}
+          cache-dir: .local/trivy-cache
+          scanners: vuln
+          format: json
+          output: .local/prepublication/trivy-image.json
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          list-all-pkgs: true
+          exit-code: "0"
+          version: v0.69.3
+      - name: Audit exact Python runtime dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          pip_audit_version="$(
+            .venv/bin/pip-audit --version |
+              sed -nE 's/^pip-audit ([0-9]+\.[0-9]+\.[0-9]+)$/\1/p'
+          )"
+          test "$pip_audit_version" = "2.10.1"
+          pip_audit_observed_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          if .venv/bin/pip-audit --disable-pip --require-hashes --format json \
+              --vulnerability-service pypi \
+              --output "$PREPARATION_DIRECTORY/pip-audit.json" \
+              --requirement requirements/runtime.txt \
+              --requirement requirements/build.txt \
+              --requirement requirements/watchdog-build.txt
+          then
+            audit_status=0
+          else
+            audit_status=$?
+          fi
+          if [[ "$audit_status" -gt 1 ]]; then
+            exit "$audit_status"
+          fi
+          jq -nS \
+            --arg observed_at "$pip_audit_observed_at" \
+            --arg source "https://pypi.org/pypi" \
+            --arg tool_version "$pip_audit_version" \
+            '{
+              observed_at: $observed_at,
+              service: "pypi",
+              source: $source,
+              tool: "pip-audit",
+              tool_version: $tool_version
+            }' > "$PREPARATION_DIRECTORY/pip-audit-observation.json"
+      - name: Normalize deterministic prepublication reports
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -S 'del(.serialNumber, .metadata.timestamp)' \
+            "$PREPARATION_DIRECTORY/runtime-image.cdx.json" \
+            > "$PREPARATION_DIRECTORY/runtime-image.normalized.json"
+          mv "$PREPARATION_DIRECTORY/runtime-image.normalized.json" \
+            "$PREPARATION_DIRECTORY/runtime-image.cdx.json"
+          jq -S 'del(.CreatedAt) | del(.Metadata.RepoTags)' \
+            "$PREPARATION_DIRECTORY/trivy-image.json" \
+            > "$PREPARATION_DIRECTORY/trivy-image.normalized.json"
+          mv "$PREPARATION_DIRECTORY/trivy-image.normalized.json" \
+            "$PREPARATION_DIRECTORY/trivy-image.json"
+          jq -S . "$PREPARATION_DIRECTORY/pip-audit.json" \
+            > "$PREPARATION_DIRECTORY/pip-audit.normalized.json"
+          mv "$PREPARATION_DIRECTORY/pip-audit.normalized.json" \
+            "$PREPARATION_DIRECTORY/pip-audit.json"
+      - name: Block publication unless the local candidate passes every evidence gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel_path="$(find "$PREPARATION_DIRECTORY/dist" -maxdepth 1 -type f -name '*.whl')"
+          test -n "$wheel_path"
+          test "$(printf '%s\n' "$wheel_path" | wc -l | tr -d ' ')" = "1"
+          .venv/bin/python scripts/verify_supply_chain.py generate-evidence \
+            --repository "$REPOSITORY_URL" \
+            --revision "$SOURCE_REVISION" \
+            --wheel "$wheel_path" \
+            --image-name "$LOCAL_IMAGE_NAME" \
+            --image-digest "${{ steps.local_image.outputs.id }}" \
+            --output-directory "$PREPARATION_DIRECTORY" \
+            --workflow ".github/workflows/release-evidence.yml"
+          .venv/bin/python scripts/verify_supply_chain.py vulnerabilities \
+            --report "$PREPARATION_DIRECTORY/pip-audit.json" \
+            --report "$PREPARATION_DIRECTORY/trivy-image.json" \
+            --image-name "$LOCAL_IMAGE_NAME" \
+            --image-digest "${{ steps.local_image.outputs.id }}"
+          .venv/bin/python scripts/verify_supply_chain.py verify-evidence \
+            --repository "$REPOSITORY_URL" \
+            --revision "$SOURCE_REVISION" \
+            --wheel "$wheel_path" \
+            --image-name "$LOCAL_IMAGE_NAME" \
+            --image-digest "${{ steps.local_image.outputs.id }}" \
+            --output-directory "$PREPARATION_DIRECTORY" \
+            --workflow ".github/workflows/release-evidence.yml"
+      - name: Seal the semantic prepared release payload
+        shell: bash
+        env:
+          IMAGE_ID: ${{ steps.local_image.outputs.id }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$PREPARED_DIRECTORY"
+          wheel_path="$(find "$PREPARATION_DIRECTORY/dist" -maxdepth 1 -type f -name '*.whl')"
+          test "$(basename "$wheel_path")" = "schemabridge-0.1.0-py3-none-any.whl"
+          cp "$wheel_path" "$PREPARED_DIRECTORY/schemabridge-0.1.0-py3-none-any.whl"
+          for evidence_name in \
+            direct-licenses.json \
+            pip-audit.json \
+            provenance.intoto.json \
+            runtime-image.cdx.json \
+            trivy-image.json \
+            wheel.cdx.json
+          do
+            cp "$PREPARATION_DIRECTORY/$evidence_name" "$PREPARED_DIRECTORY/$evidence_name"
+          done
+          docker image save --output "$PREPARED_DIRECTORY/runtime-image.tar" "$LOCAL_IMAGE_NAME"
+          project_version="$(
+            python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])'
+          )"
+          jq -nS \
+            --arg format_version "2" \
+            --arg image_id "$IMAGE_ID" \
+            --arg local_image_name "$LOCAL_IMAGE_NAME" \
+            --arg project_version "$project_version" \
+            --arg release_tag "$RELEASE_TAG" \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg source_ref "$SOURCE_REF" \
+            --arg source_revision "$SOURCE_REVISION" \
+            --arg uv_lock_sha256 "$(sha256sum uv.lock | cut -d' ' -f1)" \
+            --argjson pip_audit_evidence "$(
+              jq -ce '
+                select(
+                  .tool == "pip-audit"
+                  and .tool_version == "2.10.1"
+                  and .service == "pypi"
+                  and .source == "https://pypi.org/pypi"
+                  and (
+                    .observed_at
+                    | type == "string"
+                      and test(
+                        "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+                      )
+                  )
+                )
+              ' "$PREPARATION_DIRECTORY/pip-audit-observation.json"
+            )" \
+            '{
+              format_version: $format_version,
+              image_id: $image_id,
+              local_image_name: $local_image_name,
+              project_version: $project_version,
+              release_tag: $release_tag,
+              repository: $repository,
+              scanner_evidence: {
+                pip_audit: $pip_audit_evidence
+              },
+              source_ref: $source_ref,
+              source_revision: $source_revision,
+              uv_lock_sha256: $uv_lock_sha256
+            }' > "$PREPARED_DIRECTORY/prepared-manifest.json"
+          (
+            cd "$PREPARED_DIRECTORY"
+            sha256sum \
+              direct-licenses.json \
+              pip-audit.json \
+              prepared-manifest.json \
+              provenance.intoto.json \
+              runtime-image.cdx.json \
+              runtime-image.tar \
+              schemabridge-0.1.0-py3-none-any.whl \
+              trivy-image.json \
+              wheel.cdx.json > SHA256SUMS
+          )
+          expected_entries="$(
+            printf '%s\n' \
+              SHA256SUMS \
+              direct-licenses.json \
+              pip-audit.json \
+              prepared-manifest.json \
+              provenance.intoto.json \
+              runtime-image.cdx.json \
+              runtime-image.tar \
+              schemabridge-0.1.0-py3-none-any.whl \
+              trivy-image.json \
+              wheel.cdx.json | sort
+          )"
+          actual_entries="$(
+            find "$PREPARED_DIRECTORY" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort
+          )"
+          test "$actual_entries" = "$expected_entries"
+      - name: Upload the immutable prepared release artifact
+        id: upload_prepared
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: prepared-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .local/prepared-release/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 35
+          compression-level: 0
+
+  candidate:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: production-release
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    outputs:
+      candidate-tag: ${{ steps.candidate.outputs.tag }}
+      image-digest: ${{ steps.candidate.outputs.digest }}
+      image-id: ${{ steps.prepared.outputs.image-id }}
+      image-name: ${{ steps.image_name.outputs.name }}
+    env:
+      ARTIFACT_DIGEST: ${{ needs.prepare.outputs.artifact-digest }}
+      ARTIFACT_ID: ${{ needs.prepare.outputs.artifact-id }}
+      ARTIFACT_NAME: ${{ needs.prepare.outputs.artifact-name }}
+      CANDIDATE_TAG: candidate-${{ github.sha }}
+      PREPARED_DIRECTORY: .local/prepared-release
+    steps:
+      - name: Verify prepared artifact and release boundary before first package mutation
+        id: prepared
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_AUDIT_TOKEN: ${{ secrets.SCHEMABRIDGE_RELEASE_AUDIT_TOKEN }}
+        run: |
+          set -euo pipefail
+          canonical_semver() {
+            local version="$1"
+            local prerelease
+            local identifier
+            local -a identifiers=()
+            if [[ ${#version} -gt 128 \
+              || ! "$version" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+              return 1
+            fi
+            if [[ "$version" != *-* ]]; then
+              return 0
+            fi
+            prerelease="${version#*-}"
+            IFS='.' read -r -a identifiers <<< "$prerelease"
+            for identifier in "${identifiers[@]}"; do
+              if [[ "$identifier" =~ ^[0-9]+$ && "$identifier" != "0" && "$identifier" == 0* ]]; then
+                return 1
+              fi
+            done
+          }
+          remote_tag_commit() {
+            local ref_payload
+            local tag_object
+            local tag_payload
+            ref_payload="$(gh api --method GET "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG")"
+            test "$(jq -r '.ref' <<<"$ref_payload")" = "refs/tags/$RELEASE_TAG"
+            test "$(jq -r '.object.type' <<<"$ref_payload")" = "tag"
+            tag_object="$(jq -er '.object.sha | select(test("^[0-9a-f]{40}$"))' <<<"$ref_payload")"
+            tag_payload="$(gh api --method GET "repos/$GITHUB_REPOSITORY/git/tags/$tag_object")"
+            test "$(jq -r '.object.type' <<<"$tag_payload")" = "commit"
+            jq -er '.object.sha | select(test("^[0-9a-f]{40}$"))' <<<"$tag_payload"
+          }
+          verify_authoritative_release_controls() {
+            local active_rulesets=0
+            local immutable_releases
+            local ruleset_ids
+            local ruleset
+            local ruleset_id
+            [[ "$RELEASE_AUDIT_TOKEN" =~ ^[^[:space:]]{40,255}$ ]]
+            local audit_repository
+            audit_repository="$(
+              GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+                gh api --method GET \
+                  --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                  "repos/$GITHUB_REPOSITORY"
+            )"
+            test "$(jq -r '.permissions.push == true' <<<"$audit_repository")" = "true"
+            ruleset_ids="$(
+              GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+                gh api --method GET --paginate --slurp \
+                  --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                  "repos/$GITHUB_REPOSITORY/rulesets?includes_parents=true&targets=tag&per_page=100" |
+                jq -cer '[.[][] | .id] as $ids
+                  | select(
+                      length == ($ids | unique | length)
+                      and all(type == "number" and . > 0)
+                    )
+                  | sort'
+            )"
+            while IFS= read -r ruleset_id; do
+              test -n "$ruleset_id"
+              ruleset="$(
+                GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+                  gh api --method GET \
+                    --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                    "repos/$GITHUB_REPOSITORY/rulesets/$ruleset_id?includes_parents=true"
+              )"
+              if [[ "$(jq -r '.enforcement' <<<"$ruleset")" = "active" ]]; then
+                active_rulesets=$((active_rulesets + 1))
+                test "$(
+                  jq -r '
+                    .target == "tag"
+                    and .enforcement == "active"
+                    and has("bypass_actors")
+                    and (.bypass_actors | type == "array" and length == 0)
+                    and .conditions.ref_name.include == ["refs/tags/v*"]
+                    and .conditions.ref_name.exclude == []
+                    and ([.rules[].type] | sort)
+                      == ["deletion", "non_fast_forward", "update"]
+                  ' <<<"$ruleset"
+                )" = "true"
+              fi
+            done < <(jq -r '.[]' <<<"$ruleset_ids")
+            test "$active_rulesets" = "1"
+            immutable_releases="$(
+              GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+                gh api --method GET \
+                  --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                  "repos/$GITHUB_REPOSITORY/immutable-releases"
+            )"
+            test "$(jq -r '.enabled == true' <<<"$immutable_releases")" = "true"
+          }
+          verify_default_head() {
+            local branch_payload
+            local default_ref
+            local repository
+            repository="$(gh api --method GET "repos/$GITHUB_REPOSITORY")"
+            test "$(jq -r '.default_branch' <<<"$repository")" = "main"
+            default_ref="$(gh api --method GET "repos/$GITHUB_REPOSITORY/git/ref/heads/main")"
+            test "$(jq -r '.object.type' <<<"$default_ref")" = "commit"
+            test "$(jq -r '.object.sha' <<<"$default_ref")" = "$SOURCE_REVISION"
+            branch_payload="$(
+              gh api --method GET \
+                --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                "repos/$GITHUB_REPOSITORY/branches/main"
+            )"
+            test "$(jq -r '.name' <<<"$branch_payload")" = "main"
+            test "$(jq -r '.protected' <<<"$branch_payload")" = "true"
+            test "$(jq -r '.commit.sha' <<<"$branch_payload")" = "$SOURCE_REVISION"
+          }
+          [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$ARTIFACT_DIGEST" =~ ^[0-9a-f]{64}$ ]]
+          test -n "$ARTIFACT_NAME"
+          artifact_payload="$(
+            gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+          )"
+          test "$(jq -r '.id | tostring' <<<"$artifact_payload")" = "$ARTIFACT_ID"
+          test "$(jq -r '.name' <<<"$artifact_payload")" = "$ARTIFACT_NAME"
+          test "$(jq -r '.expired' <<<"$artifact_payload")" = "false"
+          test "$(jq -r '.digest' <<<"$artifact_payload")" = "sha256:$ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id | tostring' <<<"$artifact_payload")" = "$GITHUB_RUN_ID"
+          test "$(jq -r '.workflow_run.head_sha' <<<"$artifact_payload")" = "$SOURCE_REVISION"
+          artifact_size="$(
+            jq -er '.size_in_bytes | select(type == "number" and . > 0 and . <= 1073741824)' \
+              <<<"$artifact_payload"
+          )"
+          archive_path="$RUNNER_TEMP/prepared-release.zip"
+          gh api --method GET \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" > "$archive_path"
+          test "$(stat -c '%s' "$archive_path")" = "$artifact_size"
+          test "$(sha256sum "$archive_path" | cut -d' ' -f1)" = "$ARTIFACT_DIGEST"
+          python3 - "$archive_path" \
+            SHA256SUMS \
+            direct-licenses.json \
+            pip-audit.json \
+            prepared-manifest.json \
+            provenance.intoto.json \
+            runtime-image.cdx.json \
+            runtime-image.tar \
+            schemabridge-0.1.0-py3-none-any.whl \
+            trivy-image.json \
+            wheel.cdx.json <<'PY'
+          import stat
+          import sys
+          import zipfile
+          from pathlib import PurePosixPath
+
+          archive, *expected = sys.argv[1:]
+          expected_set = set(expected)
+          if len(expected) != 10 or len(expected_set) != len(expected):
+              raise SystemExit("invalid trusted ZIP allowlist")
+          with zipfile.ZipFile(archive) as payload:
+              entries = payload.infolist()
+              names = [entry.filename for entry in entries]
+              if len(entries) != len(expected) or len(set(names)) != len(names):
+                  raise SystemExit("ZIP entry count or uniqueness mismatch")
+              if set(names) != expected_set:
+                  raise SystemExit("ZIP allowlist mismatch")
+              total_size = 0
+              for entry in entries:
+                  name = entry.filename
+                  path = PurePosixPath(name)
+                  mode = (entry.external_attr >> 16) & 0xFFFF
+                  file_type = stat.S_IFMT(mode)
+                  if (
+                      not name
+                      or "\x00" in name
+                      or "\\" in name
+                      or path.is_absolute()
+                      or len(path.parts) != 1
+                      or any(part in {"", ".", ".."} for part in path.parts)
+                      or entry.is_dir()
+                      or entry.flag_bits & 0x1
+                      or file_type not in {0, stat.S_IFREG}
+                      or entry.file_size <= 0
+                      or entry.file_size > 1073741824
+                      or entry.compress_size <= 0
+                      or entry.file_size / entry.compress_size > 100
+                  ):
+                      raise SystemExit(f"unsafe ZIP entry: {name!r}")
+                  total_size += entry.file_size
+              if total_size > 2147483648:
+                  raise SystemExit("ZIP uncompressed-size limit exceeded")
+              corrupt = payload.testzip()
+              if corrupt is not None:
+                  raise SystemExit(f"ZIP CRC mismatch: {corrupt!r}")
+          PY
+          test ! -e "$PREPARED_DIRECTORY"
+          mkdir -p "$PREPARED_DIRECTORY"
+          unzip -q "$archive_path" -d "$PREPARED_DIRECTORY"
+          test -z "$(
+            find "$PREPARED_DIRECTORY" -mindepth 1 -maxdepth 1 ! -type f -print -quit
+          )"
+          expected_entries="$(
+            printf '%s\n' \
+              SHA256SUMS \
+              direct-licenses.json \
+              pip-audit.json \
+              prepared-manifest.json \
+              provenance.intoto.json \
+              runtime-image.cdx.json \
+              runtime-image.tar \
+              schemabridge-0.1.0-py3-none-any.whl \
+              trivy-image.json \
+              wheel.cdx.json | sort
+          )"
+          actual_entries="$(
+            find "$PREPARED_DIRECTORY" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort
+          )"
+          test "$actual_entries" = "$expected_entries"
+          verify_checksum_manifest_exact() {
+            local checksum_file="$1"
+            local checksum_line
+            local checksum_name
+            local expected_name
+            local -A expected_names=()
+            local -A observed_names=()
+            shift
+            test "$#" -gt 0
+            test "$(stat --format='%s' "$checksum_file")" -le 4096
+            for expected_name in "$@"; do
+              [[ "$expected_name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
+              test -z "${expected_names[$expected_name]+present}"
+              expected_names["$expected_name"]=1
+            done
+            test "$(wc -l < "$checksum_file" | tr -d ' ')" = "${#expected_names[@]}"
+            while IFS= read -r checksum_line; do
+              [[ "$checksum_line" =~ ^([0-9a-f]{64})\ \ ([A-Za-z0-9][A-Za-z0-9._-]*)$ ]]
+              checksum_name="${BASH_REMATCH[2]}"
+              test -n "${expected_names[$checksum_name]+present}"
+              test -z "${observed_names[$checksum_name]+present}"
+              observed_names["$checksum_name"]=1
+            done < "$checksum_file"
+            test "${#observed_names[@]}" = "${#expected_names[@]}"
+          }
+          verify_checksum_manifest_exact "$PREPARED_DIRECTORY/SHA256SUMS" \
+            direct-licenses.json \
+            pip-audit.json \
+            prepared-manifest.json \
+            provenance.intoto.json \
+            runtime-image.cdx.json \
+            runtime-image.tar \
+            schemabridge-0.1.0-py3-none-any.whl \
+            trivy-image.json \
+            wheel.cdx.json
+          (
+            cd "$PREPARED_DIRECTORY"
+            sha256sum --strict --check SHA256SUMS
+          )
+          manifest="$PREPARED_DIRECTORY/prepared-manifest.json"
+          test "$(jq -r '.format_version' "$manifest")" = "2"
+          test "$(jq -r '.repository' "$manifest")" = "$GITHUB_REPOSITORY"
+          test "$(jq -r '.release_tag' "$manifest")" = "$RELEASE_TAG"
+          test "$(jq -r '.source_ref' "$manifest")" = "$SOURCE_REF"
+          test "$(jq -r '.source_revision' "$manifest")" = "$SOURCE_REVISION"
+          test "$(jq -r '.local_image_name' "$manifest")" = "schemabridge-runtime:$SOURCE_REVISION"
+          canonical_semver "$RELEASE_TAG"
+          [[ "$RELEASE_TAG" != *-* ]]
+          test "$RELEASE_TAG" = "v$(jq -r '.project_version' "$manifest")"
+          image_id="$(jq -er '.image_id | select(test("^sha256:[0-9a-f]{64}$"))' "$manifest")"
+          docker image load --input "$PREPARED_DIRECTORY/runtime-image.tar"
+          test "$(docker image inspect --format '{{.Id}}' "schemabridge-runtime:$SOURCE_REVISION")" = "$image_id"
+          test "$(
+            docker image inspect \
+              --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' \
+              "schemabridge-runtime:$SOURCE_REVISION"
+          )" = "$SOURCE_REVISION"
+          test "$(
+            GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+              gh api --method GET --paginate --slurp \
+                --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+                jq -c --arg tag "$RELEASE_TAG" \
+                  '[.[][] | select(.tag_name == $tag)] | length'
+          )" = "0"
+          test "$(remote_tag_commit)" = "$SOURCE_REVISION"
+          verify_default_head
+          verify_authoritative_release_controls
+          printf 'image-id=%s\n' "$image_id" >> "$GITHUB_OUTPUT"
+      - name: Validate protected environment sentinel before first mutation
+        shell: bash
+        env:
+          RELEASE_APPROVAL_SENTINEL: ${{ secrets.SCHEMABRIDGE_RELEASE_APPROVAL_SENTINEL }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_APPROVAL_SENTINEL" =~ ^[A-Za-z0-9._-]{32,128}$ ]]
+      - name: Resolve the canonical GHCR image name
+        id: image_name
+        shell: bash
+        env:
+          REPOSITORY_SLUG: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$REPOSITORY_SLUG" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]
+          printf 'name=ghcr.io/%s\n' "${REPOSITORY_SLUG,,}" >> "$GITHUB_OUTPUT"
+      - name: Publish the new stable semantic candidate
+        id: candidate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_NAME: ${{ steps.image_name.outputs.name }}
+          LOCAL_IMAGE_ID: ${{ steps.prepared.outputs.image-id }}
+          REGISTRY_ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          registry_path="${IMAGE_NAME#ghcr.io/}"
+          registry_token="$(
+            curl --fail --silent --show-error \
+              --user "$REGISTRY_ACTOR:$GH_TOKEN" \
+              --get \
+              --data-urlencode "service=ghcr.io" \
+              --data-urlencode "scope=repository:$registry_path:pull,push" \
+              https://ghcr.io/token |
+              jq -er '.token | select(type == "string" and length > 0)'
+          )"
+          printf '%s' "$registry_token" |
+            docker login ghcr.io --username "$REGISTRY_ACTOR" --password-stdin
+          inspect_manifest() {
+            local reference="$1"
+            local body
+            local code
+            local config_digest
+            local digest
+            local header_digest
+            local headers
+            body="$(mktemp)"
+            headers="$(mktemp)"
+            code="$(
+              curl --silent --show-error \
+                --max-filesize 4194304 \
+                --output "$body" \
+                --dump-header "$headers" \
+                --write-out '%{http_code}' \
+                --header "Authorization: Bearer $registry_token" \
+                --header "Accept: application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json" \
+                "https://ghcr.io/v2/$registry_path/manifests/$reference"
+            )"
+            test "$(stat --format='%s' "$body")" -le 4194304
+            if [[ "$code" = "404" ]]; then
+              jq -e '.errors | length > 0 and all(
+                .code == "MANIFEST_UNKNOWN" or .code == "NAME_UNKNOWN"
+              )' "$body" >/dev/null
+              return 4
+            fi
+            test "$code" = "200"
+            digest="sha256:$(sha256sum "$body" | cut -d' ' -f1)"
+            header_digest="$(
+              awk 'tolower($1) == "docker-content-digest:" {print $2}' "$headers" |
+                tr -d '\r' |
+                tail -1
+            )"
+            test "$header_digest" = "$digest"
+            config_digest="$(jq -er '.config.digest | select(test("^sha256:[0-9a-f]{64}$"))' "$body")"
+            printf '%s|%s\n' "$digest" "$config_digest"
+          }
+          candidate_reference="$IMAGE_NAME:$CANDIDATE_TAG"
+          if inspect_manifest "$RELEASE_TAG" >/dev/null; then
+            printf '%s\n' "stable tag already exists; dispatch is not clean" >&2
+            exit 1
+          else
+            test "$?" = "4"
+          fi
+          if candidate_state="$(inspect_manifest "$CANDIDATE_TAG")"; then
+            candidate_digest="${candidate_state%%|*}"
+            test "${candidate_state##*|}" = "$LOCAL_IMAGE_ID"
+            printf '%s\n' "adopting the exact candidate created by this run after a retry"
+            printf 'digest=%s\n' "$candidate_digest" >> "$GITHUB_OUTPUT"
+            printf 'tag=%s\n' "$CANDIDATE_TAG" >> "$GITHUB_OUTPUT"
+            exit 0
+          else
+            test "$?" = "4"
+          fi
+          docker image tag "schemabridge-runtime:$SOURCE_REVISION" "$candidate_reference"
+          push_output="$(docker image push "$candidate_reference" 2>&1)"
+          printf '%s\n' "$push_output"
+          pushed_digest="$(
+            sed -nE 's/^.*digest: (sha256:[0-9a-f]{64}).*$/\1/p' <<<"$push_output" | tail -1
+          )"
+          [[ "$pushed_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          candidate_state="$(inspect_manifest "$CANDIDATE_TAG")"
+          candidate_digest="${candidate_state%%|*}"
+          test "$candidate_digest" = "$pushed_digest"
+          test "${candidate_state##*|}" = "$LOCAL_IMAGE_ID"
+          printf 'digest=%s\n' "$candidate_digest" >> "$GITHUB_OUTPUT"
+          printf 'tag=%s\n' "$CANDIDATE_TAG" >> "$GITHUB_OUTPUT"
+
+  scan:
+    needs:
+      - prepare
+      - candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+    outputs:
+      artifact-digest: ${{ steps.upload_release.outputs.artifact-digest }}
+      artifact-id: ${{ steps.upload_release.outputs.artifact-id }}
+      artifact-name: release-payload-${{ github.run_id }}-${{ github.run_attempt }}
+      candidate-tag: ${{ needs.candidate.outputs.candidate-tag }}
+      image-digest: ${{ needs.candidate.outputs.image-digest }}
+      image-id: ${{ needs.candidate.outputs.image-id }}
+      image-name: ${{ needs.candidate.outputs.image-name }}
+    env:
+      ARTIFACT_DIGEST: ${{ needs.prepare.outputs.artifact-digest }}
+      ARTIFACT_ID: ${{ needs.prepare.outputs.artifact-id }}
+      ARTIFACT_NAME: ${{ needs.prepare.outputs.artifact-name }}
+      CANDIDATE_TAG: ${{ needs.candidate.outputs.candidate-tag }}
+      DOCKER_CONFIG: .local/trivy-docker-config
+      IMAGE_DIGEST: ${{ needs.candidate.outputs.image-digest }}
+      IMAGE_ID: ${{ needs.candidate.outputs.image-id }}
+      IMAGE_NAME: ${{ needs.candidate.outputs.image-name }}
+      PREPARED_DIRECTORY: .local/prepared-release
+      RAW_EVIDENCE_DIRECTORY: .local/raw-evidence
+      RELEASE_ASSETS_DIRECTORY: .local/release-assets
+      RELEASE_PAYLOAD_DIRECTORY: .local/release-payload
+    steps:
+      - name: Verify exact prepared payload and candidate before read-only evidence generation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REGISTRY_ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$ARTIFACT_DIGEST" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$IMAGE_ID" =~ ^sha256:[0-9a-f]{64}$ ]]
+          test -n "$ARTIFACT_NAME"
+          artifact_payload="$(
+            gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+          )"
+          test "$(jq -r '.id | tostring' <<<"$artifact_payload")" = "$ARTIFACT_ID"
+          test "$(jq -r '.name' <<<"$artifact_payload")" = "$ARTIFACT_NAME"
+          test "$(jq -r '.expired' <<<"$artifact_payload")" = "false"
+          test "$(jq -r '.digest' <<<"$artifact_payload")" = "sha256:$ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id | tostring' <<<"$artifact_payload")" = "$GITHUB_RUN_ID"
+          test "$(jq -r '.workflow_run.head_sha' <<<"$artifact_payload")" = "$SOURCE_REVISION"
+          artifact_size="$(
+            jq -er '.size_in_bytes | select(type == "number" and . > 0 and . <= 1073741824)' \
+              <<<"$artifact_payload"
+          )"
+          archive_path="$RUNNER_TEMP/prepared-release.zip"
+          gh api --method GET \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" > "$archive_path"
+          test "$(stat -c '%s' "$archive_path")" = "$artifact_size"
+          test "$(sha256sum "$archive_path" | cut -d' ' -f1)" = "$ARTIFACT_DIGEST"
+          python3 - "$archive_path" \
+            SHA256SUMS \
+            direct-licenses.json \
+            pip-audit.json \
+            prepared-manifest.json \
+            provenance.intoto.json \
+            runtime-image.cdx.json \
+            runtime-image.tar \
+            schemabridge-0.1.0-py3-none-any.whl \
+            trivy-image.json \
+            wheel.cdx.json <<'PY'
+          import stat
+          import sys
+          import zipfile
+          from pathlib import PurePosixPath
+
+          archive, *expected = sys.argv[1:]
+          expected_set = set(expected)
+          if len(expected) != 10 or len(expected_set) != len(expected):
+              raise SystemExit("invalid trusted ZIP allowlist")
+          with zipfile.ZipFile(archive) as payload:
+              entries = payload.infolist()
+              names = [entry.filename for entry in entries]
+              if len(entries) != len(expected) or len(set(names)) != len(names):
+                  raise SystemExit("ZIP entry count or uniqueness mismatch")
+              if set(names) != expected_set:
+                  raise SystemExit("ZIP allowlist mismatch")
+              total_size = 0
+              for entry in entries:
+                  name = entry.filename
+                  path = PurePosixPath(name)
+                  mode = (entry.external_attr >> 16) & 0xFFFF
+                  file_type = stat.S_IFMT(mode)
+                  if (
+                      not name
+                      or "\x00" in name
+                      or "\\" in name
+                      or path.is_absolute()
+                      or len(path.parts) != 1
+                      or any(part in {"", ".", ".."} for part in path.parts)
+                      or entry.is_dir()
+                      or entry.flag_bits & 0x1
+                      or file_type not in {0, stat.S_IFREG}
+                      or entry.file_size <= 0
+                      or entry.file_size > 1073741824
+                      or entry.compress_size <= 0
+                      or entry.file_size / entry.compress_size > 100
+                  ):
+                      raise SystemExit(f"unsafe ZIP entry: {name!r}")
+                  total_size += entry.file_size
+              if total_size > 2147483648:
+                  raise SystemExit("ZIP uncompressed-size limit exceeded")
+              corrupt = payload.testzip()
+              if corrupt is not None:
+                  raise SystemExit(f"ZIP CRC mismatch: {corrupt!r}")
+          PY
+          test ! -e "$PREPARED_DIRECTORY"
+          mkdir -p "$PREPARED_DIRECTORY" "$RAW_EVIDENCE_DIRECTORY"
+          unzip -q "$archive_path" -d "$PREPARED_DIRECTORY"
+          test -z "$(
+            find "$PREPARED_DIRECTORY" -mindepth 1 -maxdepth 1 ! -type f -print -quit
+          )"
+          expected_entries="$(
+            printf '%s\n' \
+              SHA256SUMS \
+              direct-licenses.json \
+              pip-audit.json \
+              prepared-manifest.json \
+              provenance.intoto.json \
+              runtime-image.cdx.json \
+              runtime-image.tar \
+              schemabridge-0.1.0-py3-none-any.whl \
+              trivy-image.json \
+              wheel.cdx.json | sort
+          )"
+          actual_entries="$(
+            find "$PREPARED_DIRECTORY" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort
+          )"
+          test "$actual_entries" = "$expected_entries"
+          verify_checksum_manifest_exact() {
+            local checksum_file="$1"
+            local checksum_line
+            local checksum_name
+            local expected_name
+            local -A expected_names=()
+            local -A observed_names=()
+            shift
+            test "$#" -gt 0
+            test "$(stat --format='%s' "$checksum_file")" -le 4096
+            for expected_name in "$@"; do
+              [[ "$expected_name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
+              test -z "${expected_names[$expected_name]+present}"
+              expected_names["$expected_name"]=1
+            done
+            test "$(wc -l < "$checksum_file" | tr -d ' ')" = "${#expected_names[@]}"
+            while IFS= read -r checksum_line; do
+              [[ "$checksum_line" =~ ^([0-9a-f]{64})\ \ ([A-Za-z0-9][A-Za-z0-9._-]*)$ ]]
+              checksum_name="${BASH_REMATCH[2]}"
+              test -n "${expected_names[$checksum_name]+present}"
+              test -z "${observed_names[$checksum_name]+present}"
+              observed_names["$checksum_name"]=1
+            done < "$checksum_file"
+            test "${#observed_names[@]}" = "${#expected_names[@]}"
+          }
+          verify_checksum_manifest_exact "$PREPARED_DIRECTORY/SHA256SUMS" \
+            direct-licenses.json \
+            pip-audit.json \
+            prepared-manifest.json \
+            provenance.intoto.json \
+            runtime-image.cdx.json \
+            runtime-image.tar \
+            schemabridge-0.1.0-py3-none-any.whl \
+            trivy-image.json \
+            wheel.cdx.json
+          (
+            cd "$PREPARED_DIRECTORY"
+            sha256sum --strict --check SHA256SUMS
+          )
+          manifest="$PREPARED_DIRECTORY/prepared-manifest.json"
+          test "$(jq -r '.format_version' "$manifest")" = "2"
+          test "$(jq -r '.repository' "$manifest")" = "$GITHUB_REPOSITORY"
+          test "$(jq -r '.release_tag' "$manifest")" = "$RELEASE_TAG"
+          test "$(jq -r '.source_ref' "$manifest")" = "$SOURCE_REF"
+          test "$(jq -r '.source_revision' "$manifest")" = "$SOURCE_REVISION"
+          test "$(jq -r '.image_id' "$manifest")" = "$IMAGE_ID"
+          registry_path="${IMAGE_NAME#ghcr.io/}"
+          registry_token="$(
+            curl --fail --silent --show-error \
+              --user "$REGISTRY_ACTOR:$GH_TOKEN" \
+              --get \
+              --data-urlencode "service=ghcr.io" \
+              --data-urlencode "scope=repository:$registry_path:pull" \
+              https://ghcr.io/token |
+              jq -er '.token | select(type == "string" and length > 0)'
+          )"
+          candidate_manifest="$RUNNER_TEMP/candidate-manifest.json"
+          candidate_headers="$RUNNER_TEMP/candidate-manifest.headers"
+          response_code="$(
+            curl --silent --show-error \
+              --max-filesize 4194304 \
+              --output "$candidate_manifest" \
+              --dump-header "$candidate_headers" \
+              --write-out '%{http_code}' \
+              --header "Authorization: Bearer $registry_token" \
+              --header "Accept: application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json" \
+              "https://ghcr.io/v2/$registry_path/manifests/$CANDIDATE_TAG"
+          )"
+          test "$(stat --format='%s' "$candidate_manifest")" -le 4194304
+          test "$response_code" = "200"
+          test "sha256:$(sha256sum "$candidate_manifest" | cut -d' ' -f1)" = "$IMAGE_DIGEST"
+          test "$(jq -r '.config.digest' "$candidate_manifest")" = "$IMAGE_ID"
+          test "$(
+            awk 'tolower($1) == "docker-content-digest:" {print $2}' \
+              "$candidate_headers" |
+              tr -d '\r' |
+              tail -1
+          )" = "$IMAGE_DIGEST"
+      - name: Authenticate the read-only registry pull used by Trivy
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REGISTRY_ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$DOCKER_CONFIG"
+          printf '%s' "$GH_TOKEN" |
+            docker login ghcr.io --username "$REGISTRY_ACTOR" --password-stdin
+          test -s "$DOCKER_CONFIG/config.json"
+          test "$(
+            jq -r '.auths["ghcr.io"] | type == "object"' "$DOCKER_CONFIG/config.json"
+          )" = "true"
+      - name: Generate the registry-image CycloneDX SBOM
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.IMAGE_NAME }}@${{ env.IMAGE_DIGEST }}
+          cache-dir: .local/trivy-cache
+          format: cyclonedx
+          output: .local/raw-evidence/runtime-image.cdx.json
+          version: v0.69.3
+      - name: Block vulnerable registry image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ env.IMAGE_NAME }}@${{ env.IMAGE_DIGEST }}
+          cache-dir: .local/trivy-cache
+          scanners: vuln
+          format: json
+          output: .local/raw-evidence/trivy-image.json
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          list-all-pkgs: true
+          exit-code: "1"
+          version: v0.69.3
+      - name: Capture the exact temporal scanner and vulnerability database identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          trivy_version="$(
+            trivy --version |
+              sed -nE 's/^Version: ([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' |
+              head -1
+          )"
+          test "$trivy_version" = "0.69.3"
+          database_metadata=".local/trivy-cache/db/metadata.json"
+          database_file=".local/trivy-cache/db/trivy.db"
+          test -s "$database_metadata"
+          test -s "$database_file"
+          database_size="$(stat --format='%s' "$database_file")"
+          [[ "$database_size" =~ ^[1-9][0-9]*$ ]]
+          test "$database_size" -le 1073741824
+          database_sha256="$(sha256sum "$database_file" | cut -d' ' -f1)"
+          metadata_sha256="$(sha256sum "$database_metadata" | cut -d' ' -f1)"
+          [[ "$database_sha256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$metadata_sha256" =~ ^[0-9a-f]{64}$ ]]
+          schema_version="$(
+            jq -er '.Version | select(type == "number" and . > 0)' "$database_metadata"
+          )"
+          updated_at="$(
+            jq -er '.UpdatedAt | select(
+              type == "string"
+              and test(
+                "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+              )
+            )' "$database_metadata"
+          )"
+          next_update="$(
+            jq -er '.NextUpdate | select(
+              type == "string"
+              and test(
+                "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+              )
+            )' "$database_metadata"
+          )"
+          downloaded_at="$(
+            jq -er '.DownloadedAt | select(
+              type == "string"
+              and test(
+                "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+              )
+            )' "$database_metadata"
+          )"
+          observed_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          jq -nS \
+            --arg action_revision "ed142fd0673e97e23eac54620cfb913e5ce36c25" \
+            --arg database_sha256 "$database_sha256" \
+            --arg downloaded_at "$downloaded_at" \
+            --arg metadata_sha256 "$metadata_sha256" \
+            --arg next_update "$next_update" \
+            --arg observed_at "$observed_at" \
+            --arg tool_version "$trivy_version" \
+            --arg updated_at "$updated_at" \
+            --argjson database_size "$database_size" \
+            --argjson schema_version "$schema_version" \
+            '{
+              action: "aquasecurity/trivy-action",
+              action_revision: $action_revision,
+              observed_at: $observed_at,
+              tool: "trivy",
+              tool_version: $tool_version,
+              vulnerability_database: {
+                byte_size: $database_size,
+                downloaded_at: $downloaded_at,
+                metadata_sha256: $metadata_sha256,
+                next_update: $next_update,
+                schema_version: $schema_version,
+                sha256: $database_sha256,
+                updated_at: $updated_at
+              }
+            }' > "$RAW_EVIDENCE_DIRECTORY/scanner-evidence.json"
+      - name: Remove the read-only registry credential after scanning
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          cleanup_status=0
+          if [[ -s "$DOCKER_CONFIG/config.json" ]]; then
+            if jq -e '.auths["ghcr.io"] | type == "object"' \
+                "$DOCKER_CONFIG/config.json" >/dev/null; then
+              if docker logout ghcr.io; then
+                :
+              else
+                cleanup_status=1
+              fi
+            else
+              cleanup_status=1
+            fi
+          fi
+          if [[ -e "$DOCKER_CONFIG/config.json" ]]; then
+            if jq -e '(.auths["ghcr.io"] // null) == null' \
+                "$DOCKER_CONFIG/config.json" >/dev/null; then
+              :
+            else
+              cleanup_status=1
+            fi
+          fi
+          if rm -f "$DOCKER_CONFIG/config.json"; then
+            :
+          else
+            cleanup_status=1
+          fi
+          if [[ -d "$DOCKER_CONFIG" ]]; then
+            if rmdir "$DOCKER_CONFIG"; then
+              :
+            else
+              cleanup_status=1
+            fi
+          fi
+          exit "$cleanup_status"
+      - name: Derive canonical public evidence using runner tools
+        shell: bash
+        env:
+          LOCAL_IMAGE_ID: ${{ needs.candidate.outputs.image-id }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RELEASE_ASSETS_DIRECTORY" "$RELEASE_PAYLOAD_DIRECTORY"
+          manifest="$PREPARED_DIRECTORY/prepared-manifest.json"
+          lock_digest="$(jq -er '.uv_lock_sha256 | select(test("^[0-9a-f]{64}$"))' "$manifest")"
+          normalized_digest="${IMAGE_DIGEST#sha256:}"
+          test "$(jq -r '.bomFormat' "$RAW_EVIDENCE_DIRECTORY/runtime-image.cdx.json")" = "CycloneDX"
+          test "$(
+            jq '[.components[]?] | length > 0' "$RAW_EVIDENCE_DIRECTORY/runtime-image.cdx.json"
+          )" = "true"
+          prepared_components="$(
+            jq -cS '[
+              .components[]?
+              | {
+                  name,
+                  purl,
+                  type,
+                  version
+                }
+            ] | sort_by(.purl, .name, .version, .type)' \
+              "$PREPARED_DIRECTORY/runtime-image.cdx.json"
+          )"
+          registry_components="$(
+            jq -cS '[
+              .components[]?
+              | {
+                  name,
+                  purl,
+                  type,
+                  version
+                }
+            ] | sort_by(.purl, .name, .version, .type)' \
+              "$RAW_EVIDENCE_DIRECTORY/runtime-image.cdx.json"
+          )"
+          test "$registry_components" = "$prepared_components"
+          jq -S \
+            --arg digest "$normalized_digest" \
+            --arg image "$IMAGE_NAME@$IMAGE_DIGEST" \
+            --arg lock "$lock_digest" \
+            --arg revision "$SOURCE_REVISION" '
+              del(.serialNumber, .metadata.timestamp)
+              | .metadata.component.name = $image
+              | .metadata.component.hashes = [{"alg": "SHA-256", "content": $digest}]
+              | .metadata.component.properties = (
+                  [
+                    (.metadata.component.properties // [])[]
+                    | select(
+                        .name != "schemabridge:source-revision"
+                        and .name != "schemabridge:uv-lock-sha256"
+                      )
+                  ]
+                  + [
+                    {"name": "schemabridge:source-revision", "value": $revision},
+                    {"name": "schemabridge:uv-lock-sha256", "value": $lock}
+                  ]
+                )
+            ' "$PREPARED_DIRECTORY/runtime-image.cdx.json" \
+            > "$RELEASE_ASSETS_DIRECTORY/runtime-image.cdx.json"
+          jq -S \
+            --arg image "$IMAGE_NAME@$IMAGE_DIGEST" '
+              del(.CreatedAt)
+              | .ArtifactName = $image
+              | del(.Metadata.RepoTags)
+              | .Metadata.RepoDigests = [$image]
+            ' "$RAW_EVIDENCE_DIRECTORY/trivy-image.json" \
+            > "$RELEASE_ASSETS_DIRECTORY/trivy-image.json"
+          test "$(
+            jq '[.Results[]?.Vulnerabilities[]?] | length' \
+              "$RELEASE_ASSETS_DIRECTORY/trivy-image.json"
+          )" = "0"
+          test "$(
+            jq --arg config "$LOCAL_IMAGE_ID" --arg reference "$IMAGE_NAME@$IMAGE_DIGEST" '
+              .SchemaVersion == 2
+              and .ArtifactName == $reference
+              and .ArtifactType == "container_image"
+              and (.Metadata | type == "object")
+              and .Metadata.ImageID == $config
+              and (.Metadata.RepoDigests | type == "array" and index($reference) != null)
+              and (
+                .Metadata.DiffIDs
+                | type == "array"
+                  and length > 0
+                  and all(test("^sha256:[0-9a-f]{64}$"))
+              )
+              and (
+                .Results
+                | type == "array"
+                  and length > 0
+                  and any(.Packages | type == "array" and length > 0)
+                  and all(
+                    (.Target | type == "string" and length > 0)
+                    and (.Class | type == "string" and length > 0)
+                    and (.Type | type == "string" and length > 0)
+                    and (
+                      (.Packages == null)
+                      or (.Packages | type == "array")
+                    )
+                    and (
+                      (.Vulnerabilities == null)
+                      or (
+                        .Vulnerabilities
+                        | type == "array"
+                          and all(
+                            (.VulnerabilityID | type == "string" and length > 0)
+                            and (.PkgName | type == "string" and length > 0)
+                            and (
+                              (.Severity | ascii_upcase) == "HIGH"
+                              or (.Severity | ascii_upcase) == "CRITICAL"
+                            )
+                          )
+                      )
+                    )
+                  )
+              )
+            ' "$RELEASE_ASSETS_DIRECTORY/trivy-image.json"
+          )" = "true"
+          test "$(
+            jq -r '.Metadata.ImageID
+              | select(test("^sha256:[0-9a-f]{64}$"))' \
+              "$RELEASE_ASSETS_DIRECTORY/trivy-image.json"
+          )" = "$LOCAL_IMAGE_ID"
+          cp "$PREPARED_DIRECTORY/direct-licenses.json" "$RELEASE_ASSETS_DIRECTORY/"
+          cp "$PREPARED_DIRECTORY/pip-audit.json" "$RELEASE_ASSETS_DIRECTORY/"
+          cp "$PREPARED_DIRECTORY/wheel.cdx.json" "$RELEASE_ASSETS_DIRECTORY/"
+          cp "$PREPARED_DIRECTORY/schemabridge-0.1.0-py3-none-any.whl" \
+            "$RELEASE_ASSETS_DIRECTORY/"
+          wheel_digest="$(
+            sha256sum "$RELEASE_ASSETS_DIRECTORY/schemabridge-0.1.0-py3-none-any.whl" |
+              cut -d' ' -f1
+          )"
+          wheel_sbom_digest="$(
+            sha256sum "$RELEASE_ASSETS_DIRECTORY/wheel.cdx.json" | cut -d' ' -f1
+          )"
+          image_sbom_digest="$(
+            sha256sum "$RELEASE_ASSETS_DIRECTORY/runtime-image.cdx.json" | cut -d' ' -f1
+          )"
+          jq -nS \
+            --arg image_digest "$normalized_digest" \
+            --arg image_name "$IMAGE_NAME" \
+            --arg image_sbom_digest "$image_sbom_digest" \
+            --arg repository "$REPOSITORY_URL" \
+            --arg revision "$SOURCE_REVISION" \
+            --arg uv_lock_digest "$lock_digest" \
+            --arg wheel_digest "$wheel_digest" \
+            --arg wheel_sbom_digest "$wheel_sbom_digest" \
+            '{
+              "_type": "https://in-toto.io/Statement/v1",
+              "predicateType": "https://slsa.dev/provenance/v1",
+              "subject": [
+                {
+                  "name": "schemabridge-0.1.0-py3-none-any.whl",
+                  "digest": {"sha256": $wheel_digest}
+                },
+                {
+                  "name": $image_name,
+                  "digest": {"sha256": $image_digest}
+                }
+              ],
+              "predicate": {
+                "buildDefinition": {
+                  "buildType": "https://github.com/SchemaBridge/buildtypes/github-actions-frozen-uv/v1",
+                  "externalParameters": {
+                    "repository": $repository,
+                    "revision": $revision,
+                    "workflow": ".github/workflows/release-evidence.yml"
+                  },
+                  "internalParameters": {
+                    "runtimeExtras": ["api", "postgres", "sql", "ui"],
+                    "uvVersion": "0.11.30"
+                  },
+                  "resolvedDependencies": [
+                    {
+                      "uri": ("git+" + $repository + "@" + $revision),
+                      "digest": {"gitCommit": $revision}
+                    },
+                    {"uri": "uv.lock", "digest": {"sha256": $uv_lock_digest}},
+                    {
+                      "uri": "wheel.cdx.json",
+                      "digest": {"sha256": $wheel_sbom_digest}
+                    },
+                    {
+                      "uri": "runtime-image.cdx.json",
+                      "digest": {"sha256": $image_sbom_digest}
+                    }
+                  ]
+                },
+                "runDetails": {
+                  "builder": {
+                    "id": "https://github.com/actions/runner"
+                  },
+                  "metadata": {
+                    "invocationId": (
+                      $repository
+                      + "/actions/workflows/.github/workflows/release-evidence.yml@"
+                      + $revision
+                    )
+                  }
+                }
+              }
+            }' > "$RELEASE_ASSETS_DIRECTORY/provenance.intoto.json"
+          printf '%s\n\n%s\n%s\n%s\n' \
+            "# SchemaBridge $RELEASE_TAG" \
+            "- Source: \`$SOURCE_REVISION\`" \
+            "- Image: \`$IMAGE_NAME@$IMAGE_DIGEST\`" \
+            "- Checksums: \`release-assets.sha256\`" \
+            > "$RELEASE_ASSETS_DIRECTORY/release-body.md"
+          release_body_digest="$(
+            sha256sum "$RELEASE_ASSETS_DIRECTORY/release-body.md" | cut -d' ' -f1
+          )"
+          pip_audit_evidence="$(
+            jq -ce '
+              .scanner_evidence.pip_audit
+              | select(
+                  .tool == "pip-audit"
+                  and .tool_version == "2.10.1"
+                  and .service == "pypi"
+                  and .source == "https://pypi.org/pypi"
+                  and (
+                    .observed_at
+                    | type == "string"
+                      and test(
+                        "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+                      )
+                  )
+                )
+            ' "$manifest"
+          )"
+          trivy_evidence="$(
+            jq -ce '
+              select(
+                .action == "aquasecurity/trivy-action"
+                and .action_revision == "ed142fd0673e97e23eac54620cfb913e5ce36c25"
+                and .tool == "trivy"
+                and .tool_version == "0.69.3"
+                and (
+                  .observed_at
+                  | type == "string"
+                    and test(
+                      "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+                    )
+                )
+                and (
+                  .vulnerability_database.schema_version
+                  | type == "number" and . > 0
+                )
+                and (
+                  .vulnerability_database.byte_size
+                  | type == "number" and . > 0 and . <= 1073741824
+                )
+                and (
+                  .vulnerability_database.sha256
+                  | test("^[0-9a-f]{64}$")
+                )
+                and (
+                  .vulnerability_database.metadata_sha256
+                  | test("^[0-9a-f]{64}$")
+                )
+                and all(
+                  .vulnerability_database.updated_at,
+                  .vulnerability_database.next_update,
+                  .vulnerability_database.downloaded_at;
+                  type == "string"
+                  and test(
+                    "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+                  )
+                )
+              )
+            ' "$RAW_EVIDENCE_DIRECTORY/scanner-evidence.json"
+          )"
+          jq -nS \
+            --arg format_version "2" \
+            --arg image_config_digest "$LOCAL_IMAGE_ID" \
+            --arg image_digest "$IMAGE_DIGEST" \
+            --arg image_name "$IMAGE_NAME" \
+            --arg release_body_sha256 "$release_body_digest" \
+            --arg release_tag "$RELEASE_TAG" \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg source_ref "$SOURCE_REF" \
+            --arg source_revision "$SOURCE_REVISION" \
+            --argjson pip_audit_evidence "$pip_audit_evidence" \
+            --argjson trivy_evidence "$trivy_evidence" \
+            '{
+              format_version: $format_version,
+              image_config_digest: $image_config_digest,
+              image_digest: $image_digest,
+              image_name: $image_name,
+              release_body_sha256: $release_body_sha256,
+              release_tag: $release_tag,
+              repository: $repository,
+              scanner_evidence: {
+                pip_audit: $pip_audit_evidence,
+                trivy: $trivy_evidence
+              },
+              source_ref: $source_ref,
+              source_revision: $source_revision
+            }' > "$RELEASE_ASSETS_DIRECTORY/release-metadata.json"
+          (
+            cd "$RELEASE_ASSETS_DIRECTORY"
+            sha256sum \
+              direct-licenses.json \
+              pip-audit.json \
+              provenance.intoto.json \
+              release-body.md \
+              release-metadata.json \
+              runtime-image.cdx.json \
+              schemabridge-0.1.0-py3-none-any.whl \
+              trivy-image.json \
+              wheel.cdx.json > release-assets.sha256
+          )
+          cp "$RELEASE_ASSETS_DIRECTORY/"* "$RELEASE_PAYLOAD_DIRECTORY/"
+          jq -nS \
+            --arg body_sha256 "$(
+              sha256sum "$RELEASE_PAYLOAD_DIRECTORY/release-body.md" | cut -d' ' -f1
+            )" \
+            --arg candidate_tag "$CANDIDATE_TAG" \
+            --arg format_version "2" \
+            --arg image_config_digest "$LOCAL_IMAGE_ID" \
+            --arg image_digest "$IMAGE_DIGEST" \
+            --arg image_name "$IMAGE_NAME" \
+            --arg release_tag "$RELEASE_TAG" \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg source_ref "$SOURCE_REF" \
+            --arg source_revision "$SOURCE_REVISION" \
+            '{
+              body_sha256: $body_sha256,
+              candidate_tag: $candidate_tag,
+              format_version: $format_version,
+              image_config_digest: $image_config_digest,
+              image_digest: $image_digest,
+              image_name: $image_name,
+              release_tag: $release_tag,
+              repository: $repository,
+              source_ref: $source_ref,
+              source_revision: $source_revision
+            }' > "$RELEASE_PAYLOAD_DIRECTORY/release-payload.json"
+          (
+            cd "$RELEASE_PAYLOAD_DIRECTORY"
+            sha256sum \
+              direct-licenses.json \
+              pip-audit.json \
+              provenance.intoto.json \
+              release-assets.sha256 \
+              release-body.md \
+              release-metadata.json \
+              release-payload.json \
+              runtime-image.cdx.json \
+              schemabridge-0.1.0-py3-none-any.whl \
+              trivy-image.json \
+              wheel.cdx.json > SHA256SUMS
+          )
+          expected_entries="$(
+            printf '%s\n' \
+              SHA256SUMS \
+              direct-licenses.json \
+              pip-audit.json \
+              provenance.intoto.json \
+              release-assets.sha256 \
+              release-body.md \
+              release-metadata.json \
+              release-payload.json \
+              runtime-image.cdx.json \
+              schemabridge-0.1.0-py3-none-any.whl \
+              trivy-image.json \
+              wheel.cdx.json | sort
+          )"
+          actual_entries="$(
+            find "$RELEASE_PAYLOAD_DIRECTORY" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort
+          )"
+          test "$actual_entries" = "$expected_entries"
+      - name: Upload the immutable canonical release payload
+        id: upload_release
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: release-payload-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .local/release-payload/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 35
+          compression-level: 0
+
+  attest:
+    needs: scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: production-release
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
+    env:
+      ARTIFACT_DIGEST: ${{ needs.scan.outputs.artifact-digest }}
+      ARTIFACT_ID: ${{ needs.scan.outputs.artifact-id }}
+      ARTIFACT_NAME: ${{ needs.scan.outputs.artifact-name }}
+      CANDIDATE_TAG: ${{ needs.scan.outputs.candidate-tag }}
+      IMAGE_DIGEST: ${{ needs.scan.outputs.image-digest }}
+      IMAGE_ID: ${{ needs.scan.outputs.image-id }}
+      IMAGE_NAME: ${{ needs.scan.outputs.image-name }}
+      RELEASE_PAYLOAD_DIRECTORY: .local/release-payload
+    steps:
+      - name: Verify canonical payload and release boundary before first attestation mutation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_AUDIT_TOKEN: ${{ secrets.SCHEMABRIDGE_RELEASE_AUDIT_TOKEN }}
+        run: |
+          set -euo pipefail
+          remote_tag_commit() {
+            local ref_payload
+            local tag_object
+            local tag_payload
+            ref_payload="$(gh api --method GET "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG")"
+            test "$(jq -r '.ref' <<<"$ref_payload")" = "refs/tags/$RELEASE_TAG"
+            test "$(jq -r '.object.type' <<<"$ref_payload")" = "tag"
+            tag_object="$(jq -er '.object.sha | select(test("^[0-9a-f]{40}$"))' <<<"$ref_payload")"
+            tag_payload="$(gh api --method GET "repos/$GITHUB_REPOSITORY/git/tags/$tag_object")"
+            test "$(jq -r '.object.type' <<<"$tag_payload")" = "commit"
+            jq -er '.object.sha | select(test("^[0-9a-f]{40}$"))' <<<"$tag_payload"
+          }
+          verify_authoritative_release_controls() {
+            local active_rulesets=0
+            local immutable_releases
+            local ruleset_ids
+            local ruleset
+            local ruleset_id
+            [[ "$RELEASE_AUDIT_TOKEN" =~ ^[^[:space:]]{40,255}$ ]]
+            local audit_repository
+            audit_repository="$(
+              GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+                gh api --method GET \
+                  --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                  "repos/$GITHUB_REPOSITORY"
+            )"
+            test "$(jq -r '.permissions.push == true' <<<"$audit_repository")" = "true"
+            ruleset_ids="$(
+              GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+                gh api --method GET --paginate --slurp \
+                  --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                  "repos/$GITHUB_REPOSITORY/rulesets?includes_parents=true&targets=tag&per_page=100" |
+                jq -cer '[.[][] | .id] as $ids
+                  | select(
+                      length == ($ids | unique | length)
+                      and all(type == "number" and . > 0)
+                    )
+                  | sort'
+            )"
+            while IFS= read -r ruleset_id; do
+              test -n "$ruleset_id"
+              ruleset="$(
+                GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+                  gh api --method GET \
+                    --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                    "repos/$GITHUB_REPOSITORY/rulesets/$ruleset_id?includes_parents=true"
+              )"
+              if [[ "$(jq -r '.enforcement' <<<"$ruleset")" = "active" ]]; then
+                active_rulesets=$((active_rulesets + 1))
+                test "$(
+                  jq -r '
+                    .target == "tag"
+                    and .enforcement == "active"
+                    and has("bypass_actors")
+                    and (.bypass_actors | type == "array" and length == 0)
+                    and .conditions.ref_name.include == ["refs/tags/v*"]
+                    and .conditions.ref_name.exclude == []
+                    and ([.rules[].type] | sort)
+                      == ["deletion", "non_fast_forward", "update"]
+                  ' <<<"$ruleset"
+                )" = "true"
+              fi
+            done < <(jq -r '.[]' <<<"$ruleset_ids")
+            test "$active_rulesets" = "1"
+            immutable_releases="$(
+              GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+                gh api --method GET \
+                  --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                  "repos/$GITHUB_REPOSITORY/immutable-releases"
+            )"
+            test "$(jq -r '.enabled == true' <<<"$immutable_releases")" = "true"
+          }
+          verify_default_head() {
+            local branch_payload
+            local default_ref
+            local repository
+            repository="$(gh api --method GET "repos/$GITHUB_REPOSITORY")"
+            test "$(jq -r '.default_branch' <<<"$repository")" = "main"
+            default_ref="$(gh api --method GET "repos/$GITHUB_REPOSITORY/git/ref/heads/main")"
+            test "$(jq -r '.object.type' <<<"$default_ref")" = "commit"
+            test "$(jq -r '.object.sha' <<<"$default_ref")" = "$SOURCE_REVISION"
+            branch_payload="$(
+              gh api --method GET \
+                --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                "repos/$GITHUB_REPOSITORY/branches/main"
+            )"
+            test "$(jq -r '.name' <<<"$branch_payload")" = "main"
+            test "$(jq -r '.protected' <<<"$branch_payload")" = "true"
+            test "$(jq -r '.commit.sha' <<<"$branch_payload")" = "$SOURCE_REVISION"
+          }
+          [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$ARTIFACT_DIGEST" =~ ^[0-9a-f]{64}$ ]]
+          test -n "$ARTIFACT_NAME"
+          artifact_payload="$(
+            gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+          )"
+          test "$(jq -r '.id | tostring' <<<"$artifact_payload")" = "$ARTIFACT_ID"
+          test "$(jq -r '.name' <<<"$artifact_payload")" = "$ARTIFACT_NAME"
+          test "$(jq -r '.expired' <<<"$artifact_payload")" = "false"
+          test "$(jq -r '.digest' <<<"$artifact_payload")" = "sha256:$ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id | tostring' <<<"$artifact_payload")" = "$GITHUB_RUN_ID"
+          test "$(jq -r '.workflow_run.head_sha' <<<"$artifact_payload")" = "$SOURCE_REVISION"
+          artifact_size="$(
+            jq -er '.size_in_bytes | select(type == "number" and . > 0 and . <= 1073741824)' \
+              <<<"$artifact_payload"
+          )"
+          archive_path="$RUNNER_TEMP/release-payload-attest.zip"
+          gh api --method GET \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" > "$archive_path"
+          test "$(stat -c '%s' "$archive_path")" = "$artifact_size"
+          test "$(sha256sum "$archive_path" | cut -d' ' -f1)" = "$ARTIFACT_DIGEST"
+          python3 - "$archive_path" \
+            SHA256SUMS \
+            direct-licenses.json \
+            pip-audit.json \
+            provenance.intoto.json \
+            release-assets.sha256 \
+            release-body.md \
+            release-metadata.json \
+            release-payload.json \
+            runtime-image.cdx.json \
+            schemabridge-0.1.0-py3-none-any.whl \
+            trivy-image.json \
+            wheel.cdx.json <<'PY'
+          import stat
+          import sys
+          import zipfile
+          from pathlib import PurePosixPath
+
+          archive, *expected = sys.argv[1:]
+          expected_set = set(expected)
+          if len(expected) != 12 or len(expected_set) != len(expected):
+              raise SystemExit("invalid trusted ZIP allowlist")
+          with zipfile.ZipFile(archive) as payload:
+              entries = payload.infolist()
+              names = [entry.filename for entry in entries]
+              if len(entries) != len(expected) or len(set(names)) != len(names):
+                  raise SystemExit("ZIP entry count or uniqueness mismatch")
+              if set(names) != expected_set:
+                  raise SystemExit("ZIP allowlist mismatch")
+              total_size = 0
+              for entry in entries:
+                  name = entry.filename
+                  path = PurePosixPath(name)
+                  mode = (entry.external_attr >> 16) & 0xFFFF
+                  file_type = stat.S_IFMT(mode)
+                  if (
+                      not name
+                      or "\x00" in name
+                      or "\\" in name
+                      or path.is_absolute()
+                      or len(path.parts) != 1
+                      or any(part in {"", ".", ".."} for part in path.parts)
+                      or entry.is_dir()
+                      or entry.flag_bits & 0x1
+                      or file_type not in {0, stat.S_IFREG}
+                      or entry.file_size <= 0
+                      or entry.file_size > 1073741824
+                      or entry.compress_size <= 0
+                      or entry.file_size / entry.compress_size > 100
+                  ):
+                      raise SystemExit(f"unsafe ZIP entry: {name!r}")
+                  total_size += entry.file_size
+              if total_size > 2147483648:
+                  raise SystemExit("ZIP uncompressed-size limit exceeded")
+              corrupt = payload.testzip()
+              if corrupt is not None:
+                  raise SystemExit(f"ZIP CRC mismatch: {corrupt!r}")
+          PY
+          test ! -e "$RELEASE_PAYLOAD_DIRECTORY"
+          mkdir -p "$RELEASE_PAYLOAD_DIRECTORY"
+          unzip -q "$archive_path" -d "$RELEASE_PAYLOAD_DIRECTORY"
+          test -z "$(
+            find "$RELEASE_PAYLOAD_DIRECTORY" -mindepth 1 -maxdepth 1 ! -type f -print -quit
+          )"
+          expected_entries="$(
+            printf '%s\n' \
+              SHA256SUMS \
+              direct-licenses.json \
+              pip-audit.json \
+              provenance.intoto.json \
+              release-assets.sha256 \
+              release-body.md \
+              release-metadata.json \
+              release-payload.json \
+              runtime-image.cdx.json \
+              schemabridge-0.1.0-py3-none-any.whl \
+              trivy-image.json \
+              wheel.cdx.json | sort
+          )"
+          actual_entries="$(
+            find "$RELEASE_PAYLOAD_DIRECTORY" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort
+          )"
+          test "$actual_entries" = "$expected_entries"
+          verify_checksum_manifest_exact() {
+            local checksum_file="$1"
+            local checksum_line
+            local checksum_name
+            local expected_name
+            local -A expected_names=()
+            local -A observed_names=()
+            shift
+            test "$#" -gt 0
+            test "$(stat --format='%s' "$checksum_file")" -le 4096
+            for expected_name in "$@"; do
+              [[ "$expected_name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
+              test -z "${expected_names[$expected_name]+present}"
+              expected_names["$expected_name"]=1
+            done
+            test "$(wc -l < "$checksum_file" | tr -d ' ')" = "${#expected_names[@]}"
+            while IFS= read -r checksum_line; do
+              [[ "$checksum_line" =~ ^([0-9a-f]{64})\ \ ([A-Za-z0-9][A-Za-z0-9._-]*)$ ]]
+              checksum_name="${BASH_REMATCH[2]}"
+              test -n "${expected_names[$checksum_name]+present}"
+              test -z "${observed_names[$checksum_name]+present}"
+              observed_names["$checksum_name"]=1
+            done < "$checksum_file"
+            test "${#observed_names[@]}" = "${#expected_names[@]}"
+          }
+          verify_checksum_manifest_exact "$RELEASE_PAYLOAD_DIRECTORY/SHA256SUMS" \
+            direct-licenses.json \
+            pip-audit.json \
+            provenance.intoto.json \
+            release-assets.sha256 \
+            release-body.md \
+            release-metadata.json \
+            release-payload.json \
+            runtime-image.cdx.json \
+            schemabridge-0.1.0-py3-none-any.whl \
+            trivy-image.json \
+            wheel.cdx.json
+          verify_checksum_manifest_exact "$RELEASE_PAYLOAD_DIRECTORY/release-assets.sha256" \
+            direct-licenses.json \
+            pip-audit.json \
+            provenance.intoto.json \
+            release-body.md \
+            release-metadata.json \
+            runtime-image.cdx.json \
+            schemabridge-0.1.0-py3-none-any.whl \
+            trivy-image.json \
+            wheel.cdx.json
+          (
+            cd "$RELEASE_PAYLOAD_DIRECTORY"
+            sha256sum --strict --check SHA256SUMS
+            sha256sum --strict --check release-assets.sha256
+          )
+          manifest="$RELEASE_PAYLOAD_DIRECTORY/release-payload.json"
+          test "$(jq -r '.format_version' "$manifest")" = "2"
+          test "$(jq -r '.repository' "$manifest")" = "$GITHUB_REPOSITORY"
+          test "$(jq -r '.release_tag' "$manifest")" = "$RELEASE_TAG"
+          test "$(jq -r '.source_ref' "$manifest")" = "$SOURCE_REF"
+          test "$(jq -r '.source_revision' "$manifest")" = "$SOURCE_REVISION"
+          test "$(jq -r '.candidate_tag' "$manifest")" = "$CANDIDATE_TAG"
+          test "$(jq -r '.image_digest' "$manifest")" = "$IMAGE_DIGEST"
+          test "$(jq -r '.image_config_digest' "$manifest")" = "$IMAGE_ID"
+          test "$(jq -r '.image_name' "$manifest")" = "$IMAGE_NAME"
+          test "$(jq -r '.body_sha256' "$manifest")" = "$(
+            sha256sum "$RELEASE_PAYLOAD_DIRECTORY/release-body.md" | cut -d' ' -f1
+          )"
+          expected_body="$(
+            printf '%s\n\n%s\n%s\n%s\n' \
+              "# SchemaBridge $RELEASE_TAG" \
+              "- Source: \`$SOURCE_REVISION\`" \
+              "- Image: \`$IMAGE_NAME@$IMAGE_DIGEST\`" \
+              "- Checksums: \`release-assets.sha256\`"
+          )"
+          test "$(cat "$RELEASE_PAYLOAD_DIRECTORY/release-body.md")" = "$expected_body"
+          test "$(remote_tag_commit)" = "$SOURCE_REVISION"
+          verify_default_head
+          verify_authoritative_release_controls
+      - name: Validate protected environment sentinel before first mutation
+        shell: bash
+        env:
+          RELEASE_APPROVAL_SENTINEL: ${{ secrets.SCHEMABRIDGE_RELEASE_APPROVAL_SENTINEL }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_APPROVAL_SENTINEL" =~ ^[A-Za-z0-9._-]{32,128}$ ]]
+      - name: Create the GitHub-hosted wheel attestation
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: .local/release-payload/schemabridge-0.1.0-py3-none-any.whl
+      - name: Create GitHub-hosted evidence attestations
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: |
+            .local/release-payload/direct-licenses.json
+            .local/release-payload/pip-audit.json
+            .local/release-payload/provenance.intoto.json
+            .local/release-payload/release-assets.sha256
+            .local/release-payload/release-body.md
+            .local/release-payload/release-metadata.json
+            .local/release-payload/runtime-image.cdx.json
+            .local/release-payload/trivy-image.json
+            .local/release-payload/wheel.cdx.json
+      - name: Publish the runtime-image provenance attestation to GHCR
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-name: ${{ needs.scan.outputs.image-name }}
+          subject-digest: ${{ needs.scan.outputs.image-digest }}
+          push-to-registry: true
+      - name: Verify exact hosted attestations and unchanged source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          remote_tag_commit() {
+            local ref_payload
+            local tag_object
+            local tag_payload
+            ref_payload="$(gh api --method GET "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG")"
+            test "$(jq -r '.ref' <<<"$ref_payload")" = "refs/tags/$RELEASE_TAG"
+            test "$(jq -r '.object.type' <<<"$ref_payload")" = "tag"
+            tag_object="$(jq -er '.object.sha | select(test("^[0-9a-f]{40}$"))' <<<"$ref_payload")"
+            tag_payload="$(gh api --method GET "repos/$GITHUB_REPOSITORY/git/tags/$tag_object")"
+            test "$(jq -r '.object.type' <<<"$tag_payload")" = "commit"
+            jq -er '.object.sha | select(test("^[0-9a-f]{40}$"))' <<<"$tag_payload"
+          }
+          test "$(remote_tag_commit)" = "$SOURCE_REVISION"
+          for subject in \
+            direct-licenses.json \
+            pip-audit.json \
+            provenance.intoto.json \
+            release-assets.sha256 \
+            release-body.md \
+            release-metadata.json \
+            runtime-image.cdx.json \
+            schemabridge-0.1.0-py3-none-any.whl \
+            trivy-image.json \
+            wheel.cdx.json
+          do
+            gh attestation verify "$RELEASE_PAYLOAD_DIRECTORY/$subject" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-evidence.yml" \
+              --source-digest "$SOURCE_REVISION" \
+              --source-ref "$SOURCE_REF" \
+              --deny-self-hosted-runners
+          done
+          gh attestation verify "oci://$IMAGE_NAME@$IMAGE_DIGEST" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-evidence.yml" \
+            --source-digest "$SOURCE_REVISION" \
+            --source-ref "$SOURCE_REF" \
+            --deny-self-hosted-runners \
+            --bundle-from-oci
+
+  promote:
+    needs:
+      - scan
+      - attest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: production-release
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    env:
+      ARTIFACT_DIGEST: ${{ needs.scan.outputs.artifact-digest }}
+      ARTIFACT_ID: ${{ needs.scan.outputs.artifact-id }}
+      ARTIFACT_NAME: ${{ needs.scan.outputs.artifact-name }}
+      CANDIDATE_TAG: ${{ needs.scan.outputs.candidate-tag }}
+      IMAGE_DIGEST: ${{ needs.scan.outputs.image-digest }}
+      IMAGE_ID: ${{ needs.scan.outputs.image-id }}
+      IMAGE_NAME: ${{ needs.scan.outputs.image-name }}
+      RELEASE_PAYLOAD_DIRECTORY: .local/release-payload
+    steps:
+      - name: Verify canonical payload and release boundary before first promotion mutation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_AUDIT_TOKEN: ${{ secrets.SCHEMABRIDGE_RELEASE_AUDIT_TOKEN }}
+        run: |
+          set -euo pipefail
+          remote_tag_commit() {
+            local ref_payload
+            local tag_object
+            local tag_payload
+            ref_payload="$(gh api --method GET "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG")"
+            test "$(jq -r '.ref' <<<"$ref_payload")" = "refs/tags/$RELEASE_TAG"
+            test "$(jq -r '.object.type' <<<"$ref_payload")" = "tag"
+            tag_object="$(jq -er '.object.sha | select(test("^[0-9a-f]{40}$"))' <<<"$ref_payload")"
+            tag_payload="$(gh api --method GET "repos/$GITHUB_REPOSITORY/git/tags/$tag_object")"
+            test "$(jq -r '.object.type' <<<"$tag_payload")" = "commit"
+            jq -er '.object.sha | select(test("^[0-9a-f]{40}$"))' <<<"$tag_payload"
+          }
+          verify_authoritative_release_controls() {
+            local active_rulesets=0
+            local immutable_releases
+            local ruleset_ids
+            local ruleset
+            local ruleset_id
+            [[ "$RELEASE_AUDIT_TOKEN" =~ ^[^[:space:]]{40,255}$ ]]
+            local audit_repository
+            audit_repository="$(
+              GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+                gh api --method GET \
+                  --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                  "repos/$GITHUB_REPOSITORY"
+            )"
+            test "$(jq -r '.permissions.push == true' <<<"$audit_repository")" = "true"
+            ruleset_ids="$(
+              GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+                gh api --method GET --paginate --slurp \
+                  --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                  "repos/$GITHUB_REPOSITORY/rulesets?includes_parents=true&targets=tag&per_page=100" |
+                jq -cer '[.[][] | .id] as $ids
+                  | select(
+                      length == ($ids | unique | length)
+                      and all(type == "number" and . > 0)
+                    )
+                  | sort'
+            )"
+            while IFS= read -r ruleset_id; do
+              test -n "$ruleset_id"
+              ruleset="$(
+                GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+                  gh api --method GET \
+                    --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                    "repos/$GITHUB_REPOSITORY/rulesets/$ruleset_id?includes_parents=true"
+              )"
+              if [[ "$(jq -r '.enforcement' <<<"$ruleset")" = "active" ]]; then
+                active_rulesets=$((active_rulesets + 1))
+                test "$(
+                  jq -r '
+                    .target == "tag"
+                    and .enforcement == "active"
+                    and has("bypass_actors")
+                    and (.bypass_actors | type == "array" and length == 0)
+                    and .conditions.ref_name.include == ["refs/tags/v*"]
+                    and .conditions.ref_name.exclude == []
+                    and ([.rules[].type] | sort)
+                      == ["deletion", "non_fast_forward", "update"]
+                  ' <<<"$ruleset"
+                )" = "true"
+              fi
+            done < <(jq -r '.[]' <<<"$ruleset_ids")
+            test "$active_rulesets" = "1"
+            immutable_releases="$(
+              GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+                gh api --method GET \
+                  --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                  "repos/$GITHUB_REPOSITORY/immutable-releases"
+            )"
+            test "$(jq -r '.enabled == true' <<<"$immutable_releases")" = "true"
+          }
+          verify_default_head() {
+            local branch_payload
+            local default_ref
+            local repository
+            repository="$(gh api --method GET "repos/$GITHUB_REPOSITORY")"
+            test "$(jq -r '.default_branch' <<<"$repository")" = "main"
+            default_ref="$(gh api --method GET "repos/$GITHUB_REPOSITORY/git/ref/heads/main")"
+            test "$(jq -r '.object.type' <<<"$default_ref")" = "commit"
+            test "$(jq -r '.object.sha' <<<"$default_ref")" = "$SOURCE_REVISION"
+            branch_payload="$(
+              gh api --method GET \
+                --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                "repos/$GITHUB_REPOSITORY/branches/main"
+            )"
+            test "$(jq -r '.name' <<<"$branch_payload")" = "main"
+            test "$(jq -r '.protected' <<<"$branch_payload")" = "true"
+            test "$(jq -r '.commit.sha' <<<"$branch_payload")" = "$SOURCE_REVISION"
+          }
+          [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$ARTIFACT_DIGEST" =~ ^[0-9a-f]{64}$ ]]
+          artifact_payload="$(
+            gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+          )"
+          test "$(jq -r '.id | tostring' <<<"$artifact_payload")" = "$ARTIFACT_ID"
+          test "$(jq -r '.name' <<<"$artifact_payload")" = "$ARTIFACT_NAME"
+          test "$(jq -r '.expired' <<<"$artifact_payload")" = "false"
+          test "$(jq -r '.digest' <<<"$artifact_payload")" = "sha256:$ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id | tostring' <<<"$artifact_payload")" = "$GITHUB_RUN_ID"
+          test "$(jq -r '.workflow_run.head_sha' <<<"$artifact_payload")" = "$SOURCE_REVISION"
+          artifact_size="$(
+            jq -er '.size_in_bytes | select(type == "number" and . > 0 and . <= 1073741824)' \
+              <<<"$artifact_payload"
+          )"
+          archive_path="$RUNNER_TEMP/release-payload-promote.zip"
+          gh api --method GET \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" > "$archive_path"
+          test "$(stat -c '%s' "$archive_path")" = "$artifact_size"
+          test "$(sha256sum "$archive_path" | cut -d' ' -f1)" = "$ARTIFACT_DIGEST"
+          python3 - "$archive_path" \
+            SHA256SUMS \
+            direct-licenses.json \
+            pip-audit.json \
+            provenance.intoto.json \
+            release-assets.sha256 \
+            release-body.md \
+            release-metadata.json \
+            release-payload.json \
+            runtime-image.cdx.json \
+            schemabridge-0.1.0-py3-none-any.whl \
+            trivy-image.json \
+            wheel.cdx.json <<'PY'
+          import stat
+          import sys
+          import zipfile
+          from pathlib import PurePosixPath
+
+          archive, *expected = sys.argv[1:]
+          expected_set = set(expected)
+          if len(expected) != 12 or len(expected_set) != len(expected):
+              raise SystemExit("invalid trusted ZIP allowlist")
+          with zipfile.ZipFile(archive) as payload:
+              entries = payload.infolist()
+              names = [entry.filename for entry in entries]
+              if len(entries) != len(expected) or len(set(names)) != len(names):
+                  raise SystemExit("ZIP entry count or uniqueness mismatch")
+              if set(names) != expected_set:
+                  raise SystemExit("ZIP allowlist mismatch")
+              total_size = 0
+              for entry in entries:
+                  name = entry.filename
+                  path = PurePosixPath(name)
+                  mode = (entry.external_attr >> 16) & 0xFFFF
+                  file_type = stat.S_IFMT(mode)
+                  if (
+                      not name
+                      or "\x00" in name
+                      or "\\" in name
+                      or path.is_absolute()
+                      or len(path.parts) != 1
+                      or any(part in {"", ".", ".."} for part in path.parts)
+                      or entry.is_dir()
+                      or entry.flag_bits & 0x1
+                      or file_type not in {0, stat.S_IFREG}
+                      or entry.file_size <= 0
+                      or entry.file_size > 1073741824
+                      or entry.compress_size <= 0
+                      or entry.file_size / entry.compress_size > 100
+                  ):
+                      raise SystemExit(f"unsafe ZIP entry: {name!r}")
+                  total_size += entry.file_size
+              if total_size > 2147483648:
+                  raise SystemExit("ZIP uncompressed-size limit exceeded")
+              corrupt = payload.testzip()
+              if corrupt is not None:
+                  raise SystemExit(f"ZIP CRC mismatch: {corrupt!r}")
+          PY
+          test ! -e "$RELEASE_PAYLOAD_DIRECTORY"
+          mkdir -p "$RELEASE_PAYLOAD_DIRECTORY"
+          unzip -q "$archive_path" -d "$RELEASE_PAYLOAD_DIRECTORY"
+          test -z "$(
+            find "$RELEASE_PAYLOAD_DIRECTORY" -mindepth 1 -maxdepth 1 ! -type f -print -quit
+          )"
+          expected_entries="$(
+            printf '%s\n' \
+              SHA256SUMS \
+              direct-licenses.json \
+              pip-audit.json \
+              provenance.intoto.json \
+              release-assets.sha256 \
+              release-body.md \
+              release-metadata.json \
+              release-payload.json \
+              runtime-image.cdx.json \
+              schemabridge-0.1.0-py3-none-any.whl \
+              trivy-image.json \
+              wheel.cdx.json | sort
+          )"
+          actual_entries="$(
+            find "$RELEASE_PAYLOAD_DIRECTORY" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort
+          )"
+          test "$actual_entries" = "$expected_entries"
+          verify_checksum_manifest_exact() {
+            local checksum_file="$1"
+            local checksum_line
+            local checksum_name
+            local expected_name
+            local -A expected_names=()
+            local -A observed_names=()
+            shift
+            test "$#" -gt 0
+            test "$(stat --format='%s' "$checksum_file")" -le 4096
+            for expected_name in "$@"; do
+              [[ "$expected_name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
+              test -z "${expected_names[$expected_name]+present}"
+              expected_names["$expected_name"]=1
+            done
+            test "$(wc -l < "$checksum_file" | tr -d ' ')" = "${#expected_names[@]}"
+            while IFS= read -r checksum_line; do
+              [[ "$checksum_line" =~ ^([0-9a-f]{64})\ \ ([A-Za-z0-9][A-Za-z0-9._-]*)$ ]]
+              checksum_name="${BASH_REMATCH[2]}"
+              test -n "${expected_names[$checksum_name]+present}"
+              test -z "${observed_names[$checksum_name]+present}"
+              observed_names["$checksum_name"]=1
+            done < "$checksum_file"
+            test "${#observed_names[@]}" = "${#expected_names[@]}"
+          }
+          verify_checksum_manifest_exact "$RELEASE_PAYLOAD_DIRECTORY/SHA256SUMS" \
+            direct-licenses.json \
+            pip-audit.json \
+            provenance.intoto.json \
+            release-assets.sha256 \
+            release-body.md \
+            release-metadata.json \
+            release-payload.json \
+            runtime-image.cdx.json \
+            schemabridge-0.1.0-py3-none-any.whl \
+            trivy-image.json \
+            wheel.cdx.json
+          verify_checksum_manifest_exact "$RELEASE_PAYLOAD_DIRECTORY/release-assets.sha256" \
+            direct-licenses.json \
+            pip-audit.json \
+            provenance.intoto.json \
+            release-body.md \
+            release-metadata.json \
+            runtime-image.cdx.json \
+            schemabridge-0.1.0-py3-none-any.whl \
+            trivy-image.json \
+            wheel.cdx.json
+          (
+            cd "$RELEASE_PAYLOAD_DIRECTORY"
+            sha256sum --strict --check SHA256SUMS
+            sha256sum --strict --check release-assets.sha256
+          )
+          manifest="$RELEASE_PAYLOAD_DIRECTORY/release-payload.json"
+          test "$(jq -r '.format_version' "$manifest")" = "2"
+          test "$(jq -r '.repository' "$manifest")" = "$GITHUB_REPOSITORY"
+          test "$(jq -r '.release_tag' "$manifest")" = "$RELEASE_TAG"
+          test "$(jq -r '.source_ref' "$manifest")" = "$SOURCE_REF"
+          test "$(jq -r '.source_revision' "$manifest")" = "$SOURCE_REVISION"
+          test "$(jq -r '.candidate_tag' "$manifest")" = "$CANDIDATE_TAG"
+          test "$(jq -r '.image_digest' "$manifest")" = "$IMAGE_DIGEST"
+          test "$(jq -r '.image_config_digest' "$manifest")" = "$IMAGE_ID"
+          test "$(jq -r '.image_name' "$manifest")" = "$IMAGE_NAME"
+          test "$(jq -r '.body_sha256' "$manifest")" = "$(
+            sha256sum "$RELEASE_PAYLOAD_DIRECTORY/release-body.md" | cut -d' ' -f1
+          )"
+          expected_body="$(
+            printf '%s\n\n%s\n%s\n%s\n' \
+              "# SchemaBridge $RELEASE_TAG" \
+              "- Source: \`$SOURCE_REVISION\`" \
+              "- Image: \`$IMAGE_NAME@$IMAGE_DIGEST\`" \
+              "- Checksums: \`release-assets.sha256\`"
+          )"
+          test "$(cat "$RELEASE_PAYLOAD_DIRECTORY/release-body.md")" = "$expected_body"
+          test "$(remote_tag_commit)" = "$SOURCE_REVISION"
+          verify_default_head
+          verify_authoritative_release_controls
+      - name: Validate protected environment sentinel before first mutation
+        shell: bash
+        env:
+          RELEASE_APPROVAL_SENTINEL: ${{ secrets.SCHEMABRIDGE_RELEASE_APPROVAL_SENTINEL }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_APPROVAL_SENTINEL" =~ ^[A-Za-z0-9._-]{32,128}$ ]]
+      - name: Promote or verify the exact candidate manifest
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REGISTRY_ACTOR: ${{ github.actor }}
+          RELEASE_AUDIT_TOKEN: ${{ secrets.SCHEMABRIDGE_RELEASE_AUDIT_TOKEN }}
+        run: |
+          set -euo pipefail
+          remote_tag_commit() {
+            local ref_payload
+            local tag_object
+            local tag_payload
+            ref_payload="$(gh api --method GET "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG")"
+            test "$(jq -r '.ref' <<<"$ref_payload")" = "refs/tags/$RELEASE_TAG"
+            test "$(jq -r '.object.type' <<<"$ref_payload")" = "tag"
+            tag_object="$(jq -er '.object.sha | select(test("^[0-9a-f]{40}$"))' <<<"$ref_payload")"
+            tag_payload="$(gh api --method GET "repos/$GITHUB_REPOSITORY/git/tags/$tag_object")"
+            test "$(jq -r '.object.type' <<<"$tag_payload")" = "commit"
+            jq -er '.object.sha | select(test("^[0-9a-f]{40}$"))' <<<"$tag_payload"
+          }
+          verify_authoritative_release_controls() {
+            local immutable_releases
+            local ruleset
+            local ruleset_id
+            [[ "$RELEASE_AUDIT_TOKEN" =~ ^[^[:space:]]{40,255}$ ]]
+            local audit_repository
+            audit_repository="$(
+              GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+                gh api --method GET \
+                  --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                  "repos/$GITHUB_REPOSITORY"
+            )"
+            test "$(jq -r '.permissions.push == true' <<<"$audit_repository")" = "true"
+            ruleset_id="$(
+              GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+                gh api --method GET --paginate --slurp \
+                  --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                  "repos/$GITHUB_REPOSITORY/rulesets?includes_parents=true&targets=tag&per_page=100" |
+                jq -er '[.[][] | select(.enforcement == "active") | .id]
+                  | select(
+                      length == 1
+                      and .[0] != null
+                      and (.[0] | type == "number" and . > 0)
+                    )
+                  | .[0]'
+            )"
+            ruleset="$(
+              GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+                gh api --method GET \
+                  --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                  "repos/$GITHUB_REPOSITORY/rulesets/$ruleset_id?includes_parents=true"
+            )"
+            test "$(
+              jq -r '
+                .target == "tag"
+                and .enforcement == "active"
+                and has("bypass_actors")
+                and (.bypass_actors | type == "array" and length == 0)
+                and .conditions.ref_name.include == ["refs/tags/v*"]
+                and .conditions.ref_name.exclude == []
+                and ([.rules[].type] | sort)
+                  == ["deletion", "non_fast_forward", "update"]
+              ' <<<"$ruleset"
+            )" = "true"
+            immutable_releases="$(
+              GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+                gh api --method GET \
+                  --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                  "repos/$GITHUB_REPOSITORY/immutable-releases"
+            )"
+            test "$(jq -r '.enabled == true' <<<"$immutable_releases")" = "true"
+          }
+          verify_default_head() {
+            local branch_payload
+            local default_ref
+            local repository
+            repository="$(gh api --method GET "repos/$GITHUB_REPOSITORY")"
+            test "$(jq -r '.default_branch' <<<"$repository")" = "main"
+            default_ref="$(gh api --method GET "repos/$GITHUB_REPOSITORY/git/ref/heads/main")"
+            test "$(jq -r '.object.type' <<<"$default_ref")" = "commit"
+            test "$(jq -r '.object.sha' <<<"$default_ref")" = "$SOURCE_REVISION"
+            branch_payload="$(
+              gh api --method GET \
+                --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                "repos/$GITHUB_REPOSITORY/branches/main"
+            )"
+            test "$(jq -r '.name' <<<"$branch_payload")" = "main"
+            test "$(jq -r '.protected' <<<"$branch_payload")" = "true"
+            test "$(jq -r '.commit.sha' <<<"$branch_payload")" = "$SOURCE_REVISION"
+          }
+          registry_path="${IMAGE_NAME#ghcr.io/}"
+          registry_token="$(
+            curl --fail --silent --show-error \
+              --user "$REGISTRY_ACTOR:$GH_TOKEN" \
+              --get \
+              --data-urlencode "service=ghcr.io" \
+              --data-urlencode "scope=repository:$registry_path:pull,push" \
+              https://ghcr.io/token |
+              jq -er '.token | select(type == "string" and length > 0)'
+          )"
+          inspect_manifest() {
+            local reference="$1"
+            local body
+            local code
+            local config_digest
+            local digest
+            local header_digest
+            local headers
+            body="$(mktemp)"
+            headers="$(mktemp)"
+            code="$(
+              curl --silent --show-error \
+                --max-filesize 4194304 \
+                --output "$body" \
+                --dump-header "$headers" \
+                --write-out '%{http_code}' \
+                --header "Authorization: Bearer $registry_token" \
+                --header "Accept: application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json" \
+                "https://ghcr.io/v2/$registry_path/manifests/$reference"
+            )"
+            test "$(stat --format='%s' "$body")" -le 4194304
+            if [[ "$code" = "404" ]]; then
+              jq -e '.errors | length > 0 and all(
+                .code == "MANIFEST_UNKNOWN" or .code == "NAME_UNKNOWN"
+              )' "$body" >/dev/null
+              return 4
+            fi
+            test "$code" = "200"
+            digest="sha256:$(sha256sum "$body" | cut -d' ' -f1)"
+            header_digest="$(
+              awk 'tolower($1) == "docker-content-digest:" {print $2}' "$headers" |
+                tr -d '\r' |
+                tail -1
+            )"
+            test "$header_digest" = "$digest"
+            config_digest="$(jq -er '.config.digest | select(test("^sha256:[0-9a-f]{64}$"))' "$body")"
+            printf '%s|%s\n' "$digest" "$config_digest"
+          }
+          candidate_state="$(inspect_manifest "$CANDIDATE_TAG")"
+          test "${candidate_state%%|*}" = "$IMAGE_DIGEST"
+          test "${candidate_state##*|}" = "$IMAGE_ID"
+          if final_state="$(inspect_manifest "$RELEASE_TAG")"; then
+            test "${final_state%%|*}" = "$IMAGE_DIGEST"
+            test "${final_state##*|}" = "$IMAGE_ID"
+            exit 0
+          else
+            test "$?" = "4"
+          fi
+          candidate_manifest="$RUNNER_TEMP/candidate-manifest.json"
+          candidate_headers="$RUNNER_TEMP/candidate-manifest.headers"
+          response_code="$(
+            curl --silent --show-error \
+              --max-filesize 4194304 \
+              --output "$candidate_manifest" \
+              --dump-header "$candidate_headers" \
+              --write-out '%{http_code}' \
+              --header "Authorization: Bearer $registry_token" \
+              --header "Accept: application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json" \
+              "https://ghcr.io/v2/$registry_path/manifests/$CANDIDATE_TAG"
+          )"
+          test "$(stat --format='%s' "$candidate_manifest")" -le 4194304
+          test "$response_code" = "200"
+          test "sha256:$(sha256sum "$candidate_manifest" | cut -d' ' -f1)" = "$IMAGE_DIGEST"
+          media_type="$(
+            jq -er '.mediaType | select(
+              . == "application/vnd.oci.image.manifest.v1+json"
+              or . == "application/vnd.docker.distribution.manifest.v2+json"
+            )' "$candidate_manifest"
+          )"
+          test "$(remote_tag_commit)" = "$SOURCE_REVISION"
+          verify_default_head
+          verify_authoritative_release_controls
+          promotion_headers="$RUNNER_TEMP/promotion.headers"
+          promotion_code="$(
+            curl --silent --show-error \
+              --max-filesize 4194304 \
+              --output /dev/null \
+              --dump-header "$promotion_headers" \
+              --write-out '%{http_code}' \
+              --request PUT \
+              --header "Authorization: Bearer $registry_token" \
+              --header "Content-Type: $media_type" \
+              --data-binary @"$candidate_manifest" \
+              "https://ghcr.io/v2/$registry_path/manifests/$RELEASE_TAG"
+          )"
+          test "$promotion_code" = "201"
+          test "$(
+            awk 'tolower($1) == "docker-content-digest:" {print $2}' "$promotion_headers" |
+              tr -d '\r' |
+              tail -1
+          )" = "$IMAGE_DIGEST"
+          final_state="$(inspect_manifest "$RELEASE_TAG")"
+          test "${final_state%%|*}" = "$IMAGE_DIGEST"
+          test "${final_state##*|}" = "$IMAGE_ID"
+
+  release:
+    needs:
+      - scan
+      - attest
+      - promote
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: production-release
+    permissions:
+      actions: read
+      attestations: read
+      contents: write
+      packages: read
+    env:
+      ARTIFACT_DIGEST: ${{ needs.scan.outputs.artifact-digest }}
+      ARTIFACT_ID: ${{ needs.scan.outputs.artifact-id }}
+      ARTIFACT_NAME: ${{ needs.scan.outputs.artifact-name }}
+      CANDIDATE_TAG: ${{ needs.scan.outputs.candidate-tag }}
+      IMAGE_DIGEST: ${{ needs.scan.outputs.image-digest }}
+      IMAGE_ID: ${{ needs.scan.outputs.image-id }}
+      IMAGE_NAME: ${{ needs.scan.outputs.image-name }}
+      RELEASE_PAYLOAD_DIRECTORY: .local/release-payload
+    steps:
+      - name: Verify canonical payload and every boundary before first content mutation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REGISTRY_ACTOR: ${{ github.actor }}
+          RELEASE_AUDIT_TOKEN: ${{ secrets.SCHEMABRIDGE_RELEASE_AUDIT_TOKEN }}
+        run: |
+          set -euo pipefail
+          remote_tag_commit() {
+            local ref_payload
+            local tag_object
+            local tag_payload
+            ref_payload="$(gh api --method GET "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG")"
+            test "$(jq -r '.ref' <<<"$ref_payload")" = "refs/tags/$RELEASE_TAG"
+            test "$(jq -r '.object.type' <<<"$ref_payload")" = "tag"
+            tag_object="$(jq -er '.object.sha | select(test("^[0-9a-f]{40}$"))' <<<"$ref_payload")"
+            tag_payload="$(gh api --method GET "repos/$GITHUB_REPOSITORY/git/tags/$tag_object")"
+            test "$(jq -r '.object.type' <<<"$tag_payload")" = "commit"
+            jq -er '.object.sha | select(test("^[0-9a-f]{40}$"))' <<<"$tag_payload"
+          }
+          verify_authoritative_release_controls() {
+            local active_rulesets=0
+            local immutable_releases
+            local ruleset_ids
+            local ruleset
+            local ruleset_id
+            [[ "$RELEASE_AUDIT_TOKEN" =~ ^[^[:space:]]{40,255}$ ]]
+            local audit_repository
+            audit_repository="$(
+              GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+                gh api --method GET \
+                  --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                  "repos/$GITHUB_REPOSITORY"
+            )"
+            test "$(jq -r '.permissions.push == true' <<<"$audit_repository")" = "true"
+            ruleset_ids="$(
+              GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+                gh api --method GET --paginate --slurp \
+                  --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                  "repos/$GITHUB_REPOSITORY/rulesets?includes_parents=true&targets=tag&per_page=100" |
+                jq -cer '[.[][] | .id] as $ids
+                  | select(
+                      length == ($ids | unique | length)
+                      and all(type == "number" and . > 0)
+                    )
+                  | sort'
+            )"
+            while IFS= read -r ruleset_id; do
+              test -n "$ruleset_id"
+              ruleset="$(
+                GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+                  gh api --method GET \
+                    --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                    "repos/$GITHUB_REPOSITORY/rulesets/$ruleset_id?includes_parents=true"
+              )"
+              if [[ "$(jq -r '.enforcement' <<<"$ruleset")" = "active" ]]; then
+                active_rulesets=$((active_rulesets + 1))
+                test "$(
+                  jq -r '
+                    .target == "tag"
+                    and .enforcement == "active"
+                    and has("bypass_actors")
+                    and (.bypass_actors | type == "array" and length == 0)
+                    and .conditions.ref_name.include == ["refs/tags/v*"]
+                    and .conditions.ref_name.exclude == []
+                    and ([.rules[].type] | sort)
+                      == ["deletion", "non_fast_forward", "update"]
+                  ' <<<"$ruleset"
+                )" = "true"
+              fi
+            done < <(jq -r '.[]' <<<"$ruleset_ids")
+            test "$active_rulesets" = "1"
+            immutable_releases="$(
+              GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+                gh api --method GET \
+                  --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                  "repos/$GITHUB_REPOSITORY/immutable-releases"
+            )"
+            test "$(jq -r '.enabled == true' <<<"$immutable_releases")" = "true"
+          }
+          verify_default_head() {
+            local branch_payload
+            local default_ref
+            local repository
+            repository="$(gh api --method GET "repos/$GITHUB_REPOSITORY")"
+            test "$(jq -r '.default_branch' <<<"$repository")" = "main"
+            default_ref="$(gh api --method GET "repos/$GITHUB_REPOSITORY/git/ref/heads/main")"
+            test "$(jq -r '.object.type' <<<"$default_ref")" = "commit"
+            test "$(jq -r '.object.sha' <<<"$default_ref")" = "$SOURCE_REVISION"
+            branch_payload="$(
+              gh api --method GET \
+                --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                "repos/$GITHUB_REPOSITORY/branches/main"
+            )"
+            test "$(jq -r '.name' <<<"$branch_payload")" = "main"
+            test "$(jq -r '.protected' <<<"$branch_payload")" = "true"
+            test "$(jq -r '.commit.sha' <<<"$branch_payload")" = "$SOURCE_REVISION"
+          }
+          [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$ARTIFACT_DIGEST" =~ ^[0-9a-f]{64}$ ]]
+          artifact_payload="$(
+            gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
+          )"
+          test "$(jq -r '.id | tostring' <<<"$artifact_payload")" = "$ARTIFACT_ID"
+          test "$(jq -r '.name' <<<"$artifact_payload")" = "$ARTIFACT_NAME"
+          test "$(jq -r '.expired' <<<"$artifact_payload")" = "false"
+          test "$(jq -r '.digest' <<<"$artifact_payload")" = "sha256:$ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id | tostring' <<<"$artifact_payload")" = "$GITHUB_RUN_ID"
+          test "$(jq -r '.workflow_run.head_sha' <<<"$artifact_payload")" = "$SOURCE_REVISION"
+          artifact_size="$(
+            jq -er '.size_in_bytes | select(type == "number" and . > 0 and . <= 1073741824)' \
+              <<<"$artifact_payload"
+          )"
+          archive_path="$RUNNER_TEMP/release-payload-content.zip"
+          gh api --method GET \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" > "$archive_path"
+          test "$(stat -c '%s' "$archive_path")" = "$artifact_size"
+          test "$(sha256sum "$archive_path" | cut -d' ' -f1)" = "$ARTIFACT_DIGEST"
+          python3 - "$archive_path" \
+            SHA256SUMS \
+            direct-licenses.json \
+            pip-audit.json \
+            provenance.intoto.json \
+            release-assets.sha256 \
+            release-body.md \
+            release-metadata.json \
+            release-payload.json \
+            runtime-image.cdx.json \
+            schemabridge-0.1.0-py3-none-any.whl \
+            trivy-image.json \
+            wheel.cdx.json <<'PY'
+          import stat
+          import sys
+          import zipfile
+          from pathlib import PurePosixPath
+
+          archive, *expected = sys.argv[1:]
+          expected_set = set(expected)
+          if len(expected) != 12 or len(expected_set) != len(expected):
+              raise SystemExit("invalid trusted ZIP allowlist")
+          with zipfile.ZipFile(archive) as payload:
+              entries = payload.infolist()
+              names = [entry.filename for entry in entries]
+              if len(entries) != len(expected) or len(set(names)) != len(names):
+                  raise SystemExit("ZIP entry count or uniqueness mismatch")
+              if set(names) != expected_set:
+                  raise SystemExit("ZIP allowlist mismatch")
+              total_size = 0
+              for entry in entries:
+                  name = entry.filename
+                  path = PurePosixPath(name)
+                  mode = (entry.external_attr >> 16) & 0xFFFF
+                  file_type = stat.S_IFMT(mode)
+                  if (
+                      not name
+                      or "\x00" in name
+                      or "\\" in name
+                      or path.is_absolute()
+                      or len(path.parts) != 1
+                      or any(part in {"", ".", ".."} for part in path.parts)
+                      or entry.is_dir()
+                      or entry.flag_bits & 0x1
+                      or file_type not in {0, stat.S_IFREG}
+                      or entry.file_size <= 0
+                      or entry.file_size > 1073741824
+                      or entry.compress_size <= 0
+                      or entry.file_size / entry.compress_size > 100
+                  ):
+                      raise SystemExit(f"unsafe ZIP entry: {name!r}")
+                  total_size += entry.file_size
+              if total_size > 2147483648:
+                  raise SystemExit("ZIP uncompressed-size limit exceeded")
+              corrupt = payload.testzip()
+              if corrupt is not None:
+                  raise SystemExit(f"ZIP CRC mismatch: {corrupt!r}")
+          PY
+          test ! -e "$RELEASE_PAYLOAD_DIRECTORY"
+          mkdir -p "$RELEASE_PAYLOAD_DIRECTORY"
+          unzip -q "$archive_path" -d "$RELEASE_PAYLOAD_DIRECTORY"
+          test -z "$(
+            find "$RELEASE_PAYLOAD_DIRECTORY" -mindepth 1 -maxdepth 1 ! -type f -print -quit
+          )"
+          expected_entries="$(
+            printf '%s\n' \
+              SHA256SUMS \
+              direct-licenses.json \
+              pip-audit.json \
+              provenance.intoto.json \
+              release-assets.sha256 \
+              release-body.md \
+              release-metadata.json \
+              release-payload.json \
+              runtime-image.cdx.json \
+              schemabridge-0.1.0-py3-none-any.whl \
+              trivy-image.json \
+              wheel.cdx.json | sort
+          )"
+          actual_entries="$(
+            find "$RELEASE_PAYLOAD_DIRECTORY" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort
+          )"
+          test "$actual_entries" = "$expected_entries"
+          verify_checksum_manifest_exact() {
+            local checksum_file="$1"
+            local checksum_line
+            local checksum_name
+            local expected_name
+            local -A expected_names=()
+            local -A observed_names=()
+            shift
+            test "$#" -gt 0
+            test "$(stat --format='%s' "$checksum_file")" -le 4096
+            for expected_name in "$@"; do
+              [[ "$expected_name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
+              test -z "${expected_names[$expected_name]+present}"
+              expected_names["$expected_name"]=1
+            done
+            test "$(wc -l < "$checksum_file" | tr -d ' ')" = "${#expected_names[@]}"
+            while IFS= read -r checksum_line; do
+              [[ "$checksum_line" =~ ^([0-9a-f]{64})\ \ ([A-Za-z0-9][A-Za-z0-9._-]*)$ ]]
+              checksum_name="${BASH_REMATCH[2]}"
+              test -n "${expected_names[$checksum_name]+present}"
+              test -z "${observed_names[$checksum_name]+present}"
+              observed_names["$checksum_name"]=1
+            done < "$checksum_file"
+            test "${#observed_names[@]}" = "${#expected_names[@]}"
+          }
+          verify_checksum_manifest_exact "$RELEASE_PAYLOAD_DIRECTORY/SHA256SUMS" \
+            direct-licenses.json \
+            pip-audit.json \
+            provenance.intoto.json \
+            release-assets.sha256 \
+            release-body.md \
+            release-metadata.json \
+            release-payload.json \
+            runtime-image.cdx.json \
+            schemabridge-0.1.0-py3-none-any.whl \
+            trivy-image.json \
+            wheel.cdx.json
+          verify_checksum_manifest_exact "$RELEASE_PAYLOAD_DIRECTORY/release-assets.sha256" \
+            direct-licenses.json \
+            pip-audit.json \
+            provenance.intoto.json \
+            release-body.md \
+            release-metadata.json \
+            runtime-image.cdx.json \
+            schemabridge-0.1.0-py3-none-any.whl \
+            trivy-image.json \
+            wheel.cdx.json
+          (
+            cd "$RELEASE_PAYLOAD_DIRECTORY"
+            sha256sum --strict --check SHA256SUMS
+            sha256sum --strict --check release-assets.sha256
+          )
+          manifest="$RELEASE_PAYLOAD_DIRECTORY/release-payload.json"
+          test "$(jq -r '.format_version' "$manifest")" = "2"
+          test "$(jq -r '.repository' "$manifest")" = "$GITHUB_REPOSITORY"
+          test "$(jq -r '.release_tag' "$manifest")" = "$RELEASE_TAG"
+          test "$(jq -r '.source_ref' "$manifest")" = "$SOURCE_REF"
+          test "$(jq -r '.source_revision' "$manifest")" = "$SOURCE_REVISION"
+          test "$(jq -r '.candidate_tag' "$manifest")" = "$CANDIDATE_TAG"
+          test "$(jq -r '.image_digest' "$manifest")" = "$IMAGE_DIGEST"
+          test "$(jq -r '.image_config_digest' "$manifest")" = "$IMAGE_ID"
+          test "$(jq -r '.image_name' "$manifest")" = "$IMAGE_NAME"
+          test "$(jq -r '.body_sha256' "$manifest")" = "$(
+            sha256sum "$RELEASE_PAYLOAD_DIRECTORY/release-body.md" | cut -d' ' -f1
+          )"
+          expected_body="$(
+            printf '%s\n\n%s\n%s\n%s\n' \
+              "# SchemaBridge $RELEASE_TAG" \
+              "- Source: \`$SOURCE_REVISION\`" \
+              "- Image: \`$IMAGE_NAME@$IMAGE_DIGEST\`" \
+              "- Checksums: \`release-assets.sha256\`"
+          )"
+          test "$(cat "$RELEASE_PAYLOAD_DIRECTORY/release-body.md")" = "$expected_body"
+          test "$(remote_tag_commit)" = "$SOURCE_REVISION"
+          verify_default_head
+          verify_authoritative_release_controls
+          registry_path="${IMAGE_NAME#ghcr.io/}"
+          registry_token="$(
+            curl --fail --silent --show-error \
+              --user "$REGISTRY_ACTOR:$GH_TOKEN" \
+              --get \
+              --data-urlencode "service=ghcr.io" \
+              --data-urlencode "scope=repository:$registry_path:pull" \
+              https://ghcr.io/token |
+              jq -er '.token | select(type == "string" and length > 0)'
+          )"
+          inspect_manifest() {
+            local reference="$1"
+            local body
+            local code
+            local config_digest
+            local digest
+            local header_digest
+            local headers
+            body="$(mktemp)"
+            headers="$(mktemp)"
+            code="$(
+              curl --silent --show-error \
+                --max-filesize 4194304 \
+                --output "$body" \
+                --dump-header "$headers" \
+                --write-out '%{http_code}' \
+                --header "Authorization: Bearer $registry_token" \
+                --header "Accept: application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json" \
+                "https://ghcr.io/v2/$registry_path/manifests/$reference"
+            )"
+            test "$(stat --format='%s' "$body")" -le 4194304
+            test "$code" = "200"
+            digest="sha256:$(sha256sum "$body" | cut -d' ' -f1)"
+            header_digest="$(
+              awk 'tolower($1) == "docker-content-digest:" {print $2}' "$headers" |
+                tr -d '\r' |
+                tail -1
+            )"
+            test "$header_digest" = "$digest"
+            config_digest="$(jq -er '.config.digest | select(test("^sha256:[0-9a-f]{64}$"))' "$body")"
+            printf '%s|%s\n' "$digest" "$config_digest"
+          }
+          candidate_state="$(inspect_manifest "$CANDIDATE_TAG")"
+          test "${candidate_state%%|*}" = "$IMAGE_DIGEST"
+          test "${candidate_state##*|}" = "$IMAGE_ID"
+          final_state="$(inspect_manifest "$RELEASE_TAG")"
+          test "${final_state%%|*}" = "$IMAGE_DIGEST"
+          test "${final_state##*|}" = "$IMAGE_ID"
+          for subject in \
+            direct-licenses.json \
+            pip-audit.json \
+            provenance.intoto.json \
+            release-assets.sha256 \
+            release-body.md \
+            release-metadata.json \
+            runtime-image.cdx.json \
+            schemabridge-0.1.0-py3-none-any.whl \
+            trivy-image.json \
+            wheel.cdx.json
+          do
+            gh attestation verify "$RELEASE_PAYLOAD_DIRECTORY/$subject" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-evidence.yml" \
+              --source-digest "$SOURCE_REVISION" \
+              --source-ref "$SOURCE_REF" \
+              --deny-self-hosted-runners
+          done
+          gh attestation verify "oci://$IMAGE_NAME@$IMAGE_DIGEST" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-evidence.yml" \
+            --source-digest "$SOURCE_REVISION" \
+            --source-ref "$SOURCE_REF" \
+            --deny-self-hosted-runners \
+            --bundle-from-oci
+      - name: Validate protected environment sentinel before first mutation
+        shell: bash
+        env:
+          RELEASE_APPROVAL_SENTINEL: ${{ secrets.SCHEMABRIDGE_RELEASE_APPROVAL_SENTINEL }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_APPROVAL_SENTINEL" =~ ^[A-Za-z0-9._-]{32,128}$ ]]
+      - name: Create, resume, or publish the canonical release as the final operation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_AUDIT_TOKEN: ${{ secrets.SCHEMABRIDGE_RELEASE_AUDIT_TOKEN }}
+        run: |
+          set -euo pipefail
+          remote_tag_commit() {
+            local ref_payload
+            local tag_object
+            local tag_payload
+            ref_payload="$(gh api --method GET "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG")"
+            test "$(jq -r '.ref' <<<"$ref_payload")" = "refs/tags/$RELEASE_TAG"
+            test "$(jq -r '.object.type' <<<"$ref_payload")" = "tag"
+            tag_object="$(jq -er '.object.sha | select(test("^[0-9a-f]{40}$"))' <<<"$ref_payload")"
+            tag_payload="$(gh api --method GET "repos/$GITHUB_REPOSITORY/git/tags/$tag_object")"
+            test "$(jq -r '.object.type' <<<"$tag_payload")" = "commit"
+            jq -er '.object.sha | select(test("^[0-9a-f]{40}$"))' <<<"$tag_payload"
+          }
+          verify_authoritative_release_controls() {
+            local immutable_releases
+            local ruleset
+            local ruleset_id
+            [[ "$RELEASE_AUDIT_TOKEN" =~ ^[^[:space:]]{40,255}$ ]]
+            local audit_repository
+            audit_repository="$(
+              GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+                gh api --method GET \
+                  --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                  "repos/$GITHUB_REPOSITORY"
+            )"
+            test "$(jq -r '.permissions.push == true' <<<"$audit_repository")" = "true"
+            ruleset_id="$(
+              GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+                gh api --method GET --paginate --slurp \
+                  --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                  "repos/$GITHUB_REPOSITORY/rulesets?includes_parents=true&targets=tag&per_page=100" |
+                jq -er '[.[][] | select(.enforcement == "active") | .id]
+                  | select(
+                      length == 1
+                      and .[0] != null
+                      and (.[0] | type == "number" and . > 0)
+                    )
+                  | .[0]'
+            )"
+            ruleset="$(
+              GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+                gh api --method GET \
+                  --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                  "repos/$GITHUB_REPOSITORY/rulesets/$ruleset_id?includes_parents=true"
+            )"
+            test "$(
+              jq -r '
+                .target == "tag"
+                and .enforcement == "active"
+                and has("bypass_actors")
+                and (.bypass_actors | type == "array" and length == 0)
+                and .conditions.ref_name.include == ["refs/tags/v*"]
+                and .conditions.ref_name.exclude == []
+                and ([.rules[].type] | sort)
+                  == ["deletion", "non_fast_forward", "update"]
+              ' <<<"$ruleset"
+            )" = "true"
+            immutable_releases="$(
+              GH_TOKEN="$RELEASE_AUDIT_TOKEN" \
+                gh api --method GET \
+                  --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                  "repos/$GITHUB_REPOSITORY/immutable-releases"
+            )"
+            test "$(jq -r '.enabled == true' <<<"$immutable_releases")" = "true"
+          }
+          verify_default_head() {
+            local branch_payload
+            local default_ref
+            local repository
+            repository="$(gh api --method GET "repos/$GITHUB_REPOSITORY")"
+            test "$(jq -r '.default_branch' <<<"$repository")" = "main"
+            default_ref="$(gh api --method GET "repos/$GITHUB_REPOSITORY/git/ref/heads/main")"
+            test "$(jq -r '.object.type' <<<"$default_ref")" = "commit"
+            test "$(jq -r '.object.sha' <<<"$default_ref")" = "$SOURCE_REVISION"
+            branch_payload="$(
+              gh api --method GET \
+                --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                "repos/$GITHUB_REPOSITORY/branches/main"
+            )"
+            test "$(jq -r '.name' <<<"$branch_payload")" = "main"
+            test "$(jq -r '.protected' <<<"$branch_payload")" = "true"
+            test "$(jq -r '.commit.sha' <<<"$branch_payload")" = "$SOURCE_REVISION"
+          }
+          release_matches() {
+            gh api --method GET --paginate --slurp \
+              "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+              jq -c --arg tag "$RELEASE_TAG" '[.[][] | select(.tag_name == $tag)]'
+          }
+          fetch_release() {
+            local release_id="$1"
+            gh api --method GET \
+              --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+              "repos/$GITHUB_REPOSITORY/releases/$release_id"
+          }
+          fetch_assets() {
+            local release_id="$1"
+            gh api --method GET --paginate --slurp \
+              --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+              "repos/$GITHUB_REPOSITORY/releases/$release_id/assets?per_page=100" |
+              jq -c '[.[][]]'
+          }
+          canonical_stable_semver() {
+            [[ "$1" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          }
+          semver_greater() {
+            local left="${1#v}"
+            local right="${2#v}"
+            local index
+            local -a left_parts=()
+            local -a right_parts=()
+            IFS='.' read -r -a left_parts <<< "$left"
+            IFS='.' read -r -a right_parts <<< "$right"
+            for index in 0 1 2; do
+              if ((${#left_parts[$index]} > ${#right_parts[$index]})); then
+                return 0
+              fi
+              if ((${#left_parts[$index]} < ${#right_parts[$index]})); then
+                return 1
+              fi
+              if [[ "${left_parts[$index]}" > "${right_parts[$index]}" ]]; then
+                return 0
+              fi
+              if [[ "${left_parts[$index]}" < "${right_parts[$index]}" ]]; then
+                return 1
+              fi
+            done
+            return 1
+          }
+          reject_newer_stable_release() {
+            local published_tag
+            while IFS= read -r published_tag; do
+              test -n "$published_tag"
+              canonical_stable_semver "$published_tag"
+              if semver_greater "$published_tag" "$RELEASE_TAG"; then
+                return 1
+              fi
+            done < <(
+              gh api --method GET --paginate --slurp \
+                "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+                jq -r '.[][] | select(
+                  .draft == false
+                  and .prerelease == false
+                  and (.tag_name | startswith("v"))
+              ) | .tag_name'
+            )
+          }
+          verify_release_identity() {
+            local release="$1"
+            local release_id="$2"
+            local body_digest
+            body_digest="$(
+              sha256sum "$RELEASE_PAYLOAD_DIRECTORY/release-body.md" | cut -d' ' -f1
+            )"
+            test "$(jq -r '.id' <<<"$release")" = "$release_id"
+            test "$(jq -r '.tag_name' <<<"$release")" = "$RELEASE_TAG"
+            test "$(jq -r '.name' <<<"$release")" = "$RELEASE_TAG"
+            test "$(jq -r '.target_commitish' <<<"$release")" = "$SOURCE_REVISION"
+            test "$(jq -r '.prerelease' <<<"$release")" = "false"
+            test "$(
+              jq -jr '.body' <<<"$release" | sha256sum | cut -d' ' -f1
+            )" = "$body_digest"
+            test "$(jq -r '.body_sha256' \
+              "$RELEASE_PAYLOAD_DIRECTORY/release-payload.json")" = "$body_digest"
+            test "$(jq -r '.release_body_sha256' \
+              "$RELEASE_PAYLOAD_DIRECTORY/release-metadata.json")" = "$body_digest"
+          }
+          verify_assets_exact() {
+            local assets
+            local asset_count
+            local expected_digest
+            local expected_size
+            local filename
+            local release_id="$1"
+            assets="$(fetch_assets "$release_id")"
+            test "$(
+              jq '([.[].name] | sort) == ([
+                  "direct-licenses.json",
+                  "pip-audit.json",
+                  "provenance.intoto.json",
+                  "release-assets.sha256",
+                  "release-body.md",
+                  "release-metadata.json",
+                  "runtime-image.cdx.json",
+                  "schemabridge-0.1.0-py3-none-any.whl",
+                  "trivy-image.json",
+                  "wheel.cdx.json"
+                ] | sort)
+                and ([.[].name] | length) == 10
+                and ([.[].name] | unique | length) == 10
+              ' <<<"$assets"
+            )" = "true"
+            for filename in \
+              direct-licenses.json \
+              pip-audit.json \
+              provenance.intoto.json \
+              release-assets.sha256 \
+              release-body.md \
+              release-metadata.json \
+              runtime-image.cdx.json \
+              schemabridge-0.1.0-py3-none-any.whl \
+              trivy-image.json \
+              wheel.cdx.json
+            do
+              expected_digest="sha256:$(
+                sha256sum "$RELEASE_PAYLOAD_DIRECTORY/$filename" | cut -d' ' -f1
+              )"
+              expected_size="$(stat --format='%s' "$RELEASE_PAYLOAD_DIRECTORY/$filename")"
+              asset_count="$(
+                jq --arg name "$filename" '[.[] | select(.name == $name)] | length' <<<"$assets"
+              )"
+              test "$asset_count" = "1"
+              test "$(
+                jq -r --arg name "$filename" '
+                  [.[] | select(.name == $name)]
+                  | if length == 1 then .[0].digest else "" end
+                ' <<<"$assets"
+              )" = "$expected_digest"
+              test "$(
+                jq -r --arg name "$filename" '
+                  [.[] | select(.name == $name)]
+                  | if length == 1 then .[0].size else "" end
+                ' <<<"$assets"
+              )" = "$expected_size"
+              test "$(
+                jq -r --arg name "$filename" '
+                  [.[] | select(.name == $name)]
+                  | if length == 1 then .[0].state else "" end
+                ' <<<"$assets"
+              )" = "uploaded"
+            done
+          }
+          reconcile_draft_assets() {
+            local assets
+            local asset_count
+            local expected_digest
+            local filename
+            local release_id="$1"
+            assets="$(fetch_assets "$release_id")"
+            test "$(
+              jq '([.[].name] | length) <= 10
+                and ([.[].name] | unique | length) == ([.[].name] | length)
+                and all(
+                  .[];
+                  .name as $name
+                  | [
+                    "direct-licenses.json",
+                    "pip-audit.json",
+                    "provenance.intoto.json",
+                    "release-assets.sha256",
+                    "release-body.md",
+                    "release-metadata.json",
+                    "runtime-image.cdx.json",
+                    "schemabridge-0.1.0-py3-none-any.whl",
+                    "trivy-image.json",
+                    "wheel.cdx.json"
+                  ] | index($name) != null
+                )
+              ' <<<"$assets"
+            )" = "true"
+            for filename in \
+              direct-licenses.json \
+              pip-audit.json \
+              provenance.intoto.json \
+              release-assets.sha256 \
+              release-body.md \
+              release-metadata.json \
+              runtime-image.cdx.json \
+              schemabridge-0.1.0-py3-none-any.whl \
+              trivy-image.json \
+              wheel.cdx.json
+            do
+              expected_digest="sha256:$(
+                sha256sum "$RELEASE_PAYLOAD_DIRECTORY/$filename" | cut -d' ' -f1
+              )"
+              asset_count="$(
+                jq --arg name "$filename" '[.[] | select(.name == $name)] | length' <<<"$assets"
+              )"
+              if [[ "$asset_count" = "0" ]]; then
+                gh release upload "$RELEASE_TAG" "$RELEASE_PAYLOAD_DIRECTORY/$filename"
+              else
+                test "$asset_count" = "1"
+                test "$(
+                  jq -r --arg name "$filename" '.[] | select(.name == $name) | .digest' \
+                    <<<"$assets"
+                )" = "$expected_digest"
+              fi
+            done
+            verify_assets_exact "$release_id"
+          }
+          verify_exact_published_release() {
+            local release="$1"
+            local release_id="$2"
+            verify_release_identity "$release" "$release_id"
+            test "$(jq -r '.draft' <<<"$release")" = "false"
+            test "$(jq -r '.immutable' <<<"$release")" = "true"
+            jq -e '.published_at
+              | type == "string"
+                and test(
+                  "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+                )' <<<"$release" >/dev/null
+            verify_assets_exact "$release_id"
+          }
+          verify_postpublication_current_latest() {
+            local latest_release
+            local release="$1"
+            local release_id="$2"
+            verify_exact_published_release "$release" "$release_id"
+            latest_release="$(
+              gh api --method GET \
+                --header "X-GitHub-Api-Version: $GH_API_VERSION" \
+                "repos/$GITHUB_REPOSITORY/releases/latest"
+            )"
+            test "$(jq -r '.id' <<<"$latest_release")" = "$release_id"
+            test "$(jq -r '.tag_name' <<<"$latest_release")" = "$RELEASE_TAG"
+            test "$(jq -r '.draft' <<<"$latest_release")" = "false"
+            test "$(jq -r '.immutable' <<<"$latest_release")" = "true"
+            reject_newer_stable_release
+          }
+          canonical_stable_semver "$RELEASE_TAG"
+          test "$(remote_tag_commit)" = "$SOURCE_REVISION"
+          verify_default_head
+          verify_authoritative_release_controls
+          releases="$(release_matches)"
+          test "$(jq 'length <= 1' <<<"$releases")" = "true"
+          if [[ "$(jq 'length' <<<"$releases")" = "0" ]]; then
+            reject_newer_stable_release
+            gh release create "$RELEASE_TAG" \
+              "$RELEASE_PAYLOAD_DIRECTORY/direct-licenses.json" \
+              "$RELEASE_PAYLOAD_DIRECTORY/pip-audit.json" \
+              "$RELEASE_PAYLOAD_DIRECTORY/provenance.intoto.json" \
+              "$RELEASE_PAYLOAD_DIRECTORY/release-assets.sha256" \
+              "$RELEASE_PAYLOAD_DIRECTORY/release-body.md" \
+              "$RELEASE_PAYLOAD_DIRECTORY/release-metadata.json" \
+              "$RELEASE_PAYLOAD_DIRECTORY/runtime-image.cdx.json" \
+              "$RELEASE_PAYLOAD_DIRECTORY/schemabridge-0.1.0-py3-none-any.whl" \
+              "$RELEASE_PAYLOAD_DIRECTORY/trivy-image.json" \
+              "$RELEASE_PAYLOAD_DIRECTORY/wheel.cdx.json" \
+              --draft \
+              --verify-tag \
+              --target "$SOURCE_REVISION" \
+              --title "$RELEASE_TAG" \
+              --notes-file "$RELEASE_PAYLOAD_DIRECTORY/release-body.md"
+            releases="$(release_matches)"
+          fi
+          test "$(jq 'length' <<<"$releases")" = "1"
+          release_id="$(jq -er '.[0].id | select(type == "number" and . > 0)' <<<"$releases")"
+          release="$(fetch_release "$release_id")"
+          verify_release_identity "$release" "$release_id"
+          if [[ "$(jq -r '.draft' <<<"$release")" = "false" ]]; then
+            verify_exact_published_release "$release" "$release_id"
+            exit 0
+          fi
+          test "$(jq -r '.draft' <<<"$release")" = "true"
+          test "$(jq -r '.immutable' <<<"$release")" = "false"
+          reconcile_draft_assets "$release_id"
+          test "$(remote_tag_commit)" = "$SOURCE_REVISION"
+          verify_default_head
+          verify_authoritative_release_controls
+          reject_newer_stable_release
+          gh release edit "$RELEASE_TAG" \
+            --draft=false \
+            --latest
+          release="$(fetch_release "$release_id")"
+          verify_postpublication_current_latest "$release" "$release_id"
