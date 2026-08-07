@@ -36,6 +36,10 @@ Thumbs.db
 # Runtime artifacts
 .local/
 artifacts/
+output/speech/
+output/transcribe/
+output/video/
+tmp/speech/
 reports/
 !reports/
 reports/*

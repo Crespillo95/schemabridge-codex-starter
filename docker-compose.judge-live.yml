@@ -1,0 +1,100 @@
+name: schemabridge-judge-live
+
+services:
+  postgres:
+    image: postgres:16.13-alpine@sha256:20edbde7749f822887a1a022ad526fde0a47d6b2be9a8364433605cf65099416
+    environment:
+      POSTGRES_DB: schemabridge
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/judge_db_admin_password
+      POSTGRES_INITDB_ARGS: --encoding=UTF8 --locale=C --data-checksums
+      PGTZ: UTC
+      SCHEMABRIDGE_JUDGE_DB_READER_PASSWORD_FILE: /run/secrets/judge_db_reader_password
+    secrets:
+      - judge_db_admin_password
+      - judge_db_reader_password
+    volumes:
+      - judge_postgres_data:/var/lib/postgresql/data
+      - ./demo/sql/001_schemas.sql:/docker-entrypoint-initdb.d/001_schemas.sql:ro
+      - ./demo/sql/010_tables.sql:/docker-entrypoint-initdb.d/010_tables.sql:ro
+      - ./demo/sql/020_seed.sql:/docker-entrypoint-initdb.d/020_seed.sql:ro
+      - ./deploy/judge-live/030_read_only_user.sh:/docker-entrypoint-initdb.d/030_read_only_user.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      start_period: 5s
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    stop_grace_period: 15s
+    pids_limit: 256
+    cpus: 1.0
+    mem_limit: 768m
+    networks:
+      - judge_backend
+
+  app:
+    build:
+      context: .
+      args:
+        SCHEMABRIDGE_RELEASE_REF: ${SCHEMABRIDGE_RELEASE_REF:-judge-live-uncommitted}
+    environment:
+      SCHEMABRIDGE_ENVIRONMENT: development
+      SCHEMABRIDGE_AUTH_MODE: local-demo
+      SCHEMABRIDGE_CATALOG_MODE: recorded
+      SCHEMABRIDGE_REGISTRY_MODE: recorded
+      SCHEMABRIDGE_PUBLICATION_MODE: disabled
+      SCHEMABRIDGE_JUDGE_EXECUTION: live
+      SCHEMABRIDGE_ALLOW_LOCAL_LIVE_READS: "true"
+      SCHEMABRIDGE_QUERY_STUDIO_AI_MODE: fake
+      SCHEMABRIDGE_LOCAL_WORKSPACE: public-judge-demo
+      SCHEMABRIDGE_LOCAL_ROLES: '["analyst","publisher"]'
+      SCHEMABRIDGE_DRAFT_STORE_PATH: /tmp/schemabridge/schemabridge.db
+      SCHEMABRIDGE_RELEASE_REF: ${SCHEMABRIDGE_RELEASE_REF:-judge-live-uncommitted}
+      SCHEMABRIDGE_MAX_QUERY_ROWS: "500"
+      SCHEMABRIDGE_STATEMENT_TIMEOUT_MS: "5000"
+      SCHEMABRIDGE_MAX_QUERY_TABLES: "3"
+      POSTGRES_READER_USER: schemabridge_reader
+      SCHEMABRIDGE_JUDGE_DB_READER_PASSWORD_FILE: /run/secrets/judge_db_reader_password
+      STREAMLIT_SERVER_BASE_URL_PATH: ${SCHEMABRIDGE_JUDGE_BASE_PATH:-schemabridge}
+    entrypoint:
+      - /bin/sh
+      - /run/schemabridge/run_app.sh
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${SCHEMABRIDGE_JUDGE_PORT:-7860}:7860"
+    secrets:
+      - judge_db_reader_password
+    volumes:
+      - ./deploy/judge-live/run_app.sh:/run/schemabridge/run_app.sh:ro
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=256m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+    stop_grace_period: 15s
+    pids_limit: 256
+    cpus: 1.5
+    mem_limit: 2g
+    networks:
+      - judge_backend
+
+networks:
+  judge_backend:
+    internal: true
+
+volumes:
+  judge_postgres_data:
+
+secrets:
+  judge_db_admin_password:
+    file: ${SCHEMABRIDGE_JUDGE_DB_ADMIN_SECRET_FILE:?set the path to the administrator secret file}
+  judge_db_reader_password:
+    file: ${SCHEMABRIDGE_JUDGE_DB_READER_SECRET_FILE:?set the path to the reader secret file}

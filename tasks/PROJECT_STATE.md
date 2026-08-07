@@ -2177,3 +2177,22 @@ sign-off remain open; owner eligibility/legal submission is complete.
 - Publication remains conditional on all hosted PR checks passing. Once merged, `main` is the
   current judge-readable repository line and `devpost-m18-c5817af` remains the immutable deployed
   release identity; M30 remains 0/24 and production NO-GO.
+
+## M18 candidature-quality hardening — 2026-08-07
+
+- Published a narrated 2:55, 1080p version of the audited judge sequence at
+  `https://youtu.be/6Bw7yGhl24o`. The final MP4 SHA-256 is
+  `9fa7b47a35169144917911a7a8390d3114d61e0015a12d1ec6b80d8aeacdb1cb`; independent
+  transcription recovers all ten safety/product points, including `null-valued identifiers`.
+  YouTube reports no copyright issue and its public oEmbed endpoint returns the expected title.
+- Devpost Project details now embeds the narrated URL. The prior silent upload remains historical
+  evidence, not the current candidature video.
+- Replaced the 765-line repository root README with a 163-line judge-first entry point: public
+  demo/video/Devpost links, the `2/1/1` result, a five-step path, honest public mode table, DataHub
+  role, safety boundary, exact evidence, artifacts, and limitations. Deep implementation and
+  operations detail remains linked under `docs/`.
+- Added `docker-compose.judge-live.yml` and a dynamic read-only-role initializer for a public live
+  synthetic PostgreSQL promotion. PostgreSQL has no host port; the app gets only the
+  `schemabridge_reader` credential, live source reads, recorded catalog/registry, deterministic
+  intent, and disabled publication. The configuration is prepared but is not public evidence until
+  an authorized VPS operator deploys and verifies it.

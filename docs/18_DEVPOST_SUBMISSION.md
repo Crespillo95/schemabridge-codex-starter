@@ -11,7 +11,7 @@
   compiles business questions into safe SQL, and writes reusable decisions back to DataHub.**
 - Repository: https://github.com/Crespillo95/schemabridge-codex-starter
 - Configured live project URL: https://rcr-ia.eu/schemabridge/
-- Public video URL: https://youtu.be/R8PPBJ5ot84
+- Public narrated video URL: https://youtu.be/6Bw7yGhl24o
 - Public Devpost project URL: https://devpost.com/software/schemabridge
 - Release commit: `c5817af6d01b8a98cd7f1950d57e1be667614696`
 - Release tag: `devpost-m18-c5817af`

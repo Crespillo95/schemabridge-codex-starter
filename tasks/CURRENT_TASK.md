@@ -1,7 +1,8 @@
 # Current task
 
 - Current milestone: M18 — README, examples, video, and Devpost submission package
-- Status: submitted and publicly participating; public VPS judge path passes, external reviewer/network evidence pending
+- Status: submitted and publicly participating; narrated video and judge-first README complete,
+  live-PostgreSQL VPS promotion awaiting authorized operator access
 - Plan: `plans/M18_SUBMISSION_PACKAGE.md`
 - Handoff: `tasks/M18_HANDOFF.md`
 - Hackathon participation: **ACTIVE — Devpost confirmed submission on 2026-08-07**
@@ -53,9 +54,9 @@ or synthetic evidence into a production claim.
   SHA-256 is `5b4a2fa1a8a01920ac54ba0f5efc2155236d268f32d8cc19d4a0ff7c2bbcc0e9`.
 - Human-tested the exact final image in Safari through reset, interpretation, governed plan, SQL
   safety, execution, rejection evidence, publication, decisions, relationships, and fresh reset.
-- Exported and visually reviewed a silent English-captioned 1920×1080 H.264 video at exactly 2:55;
-  final public-file SHA-256 is
-  `a7ac6119d93ee5001b40bdc63811eb562db513b5571d31f10ca528ca17739d3b`.
+- Exported and visually reviewed an English-captioned 1920×1080 H.264 video at exactly 2:55, then
+  added disclosed AI-generated English narration. The current public-file SHA-256 is
+  `9fa7b47a35169144917911a7a8390d3114d61e0015a12d1ec6b80d8aeacdb1cb`.
 - Published the secret-free recorded demo on Streamlit Community Cloud at
   `https://schemabridge-governed-agent.streamlit.app/`. The anonymous browser journey passes
   ambiguity handling, governed planning, SQL safety, exact `2/1/1`, three rejections, and fake
@@ -69,9 +70,9 @@ or synthetic evidence into a production claim.
 - Passed public HTTPS health and deployment smoke, then completed the entire anonymous browser
   journey on the VPS: interpretation, approved one-to-many fanout mitigation, SQL safety, exact
   `2/1/1`, and the `127.5`/`NaN`/`NULL` rejection evidence. The UI displays release `c5817af`.
-- Published the 2:55 video at `https://youtu.be/R8PPBJ5ot84`; YouTube reports processing and
-  copyright checks complete with no issues, and unauthenticated watch/oEmbed requests resolve the
-  expected title.
+- Published the narrated 2:55 video at `https://youtu.be/6Bw7yGhl24o`; YouTube reports processing
+  and copyright checks complete with no issues, and unauthenticated oEmbed resolves the expected
+  title. Devpost now embeds this narrated upload; the earlier silent upload is historical only.
 - Submitted Devpost entry `1109948` with the final elevator pitch, 5,788-character verified project
   story, public tags, repository, demo, video, examples, category, Spain residence, creation-period
   attestation, DataHub Core/MCP selections, and four factual product-feedback answers. The owner
