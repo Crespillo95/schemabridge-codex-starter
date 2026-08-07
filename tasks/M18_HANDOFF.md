@@ -3,9 +3,9 @@
 ## Summary
 
 - Milestone: M18 — README, examples, video, and Devpost submission package
-- Status: submitted — public Devpost participation and VPS judge path active; external acceptance pending
-- Recommended operator decision: participating; record unfamiliar-reviewer and second-network checks before the deadline
-- Proposed commit message: `docs: record VPS judge deployment`
+- Status: submitted — narrated video and judge-first README public; live-PostgreSQL VPS promotion pending
+- Recommended operator decision: deploy the reviewed live-source compose on the existing VPS, then repeat the anonymous journey
+- Proposed commit message: `feat: harden judge candidature`
 
 ## Implemented
 
@@ -31,10 +31,10 @@
   restartable, and loopback-only; no database, DataHub, LLM, or administrator credential was added.
 - Passed public health/deployment smoke and the complete anonymous browser north-star journey on
   the VPS with exact `2/1/1`, all three rejection records, and no browser console error.
-- Produced and visually reviewed the final public silent, English-captioned H.264 1920×1080/30 fps
+- Produced and visually reviewed the final public narrated, English-captioned H.264 1920×1080/30 fps
   video at exactly 2:55. SHA-256 is
-  `a7ac6119d93ee5001b40bdc63811eb562db513b5571d31f10ca528ca17739d3b`.
-- Published that video at `https://youtu.be/R8PPBJ5ot84`. YouTube reports processing complete and
+  `9fa7b47a35169144917911a7a8390d3114d61e0015a12d1ec6b80d8aeacdb1cb`.
+- Published that video at `https://youtu.be/6Bw7yGhl24o`. YouTube reports processing complete and
   the copyright check complete with no issue; an unauthenticated watch request and oEmbed lookup
   return the expected title. Monetization and paid promotion remain untouched.
 - Submitted Devpost entry `1109948` with category, Spain residence, submission-period attestation,
@@ -76,7 +76,7 @@
 | `scripts/package_huggingface_space.sh c5817af...` | pass | Secret-free Docker Space package; exact `RELEASE_COMMIT` |
 | `ffprobe ...` and `shasum -a 256 ...mp4` | pass | 175 s; H.264 1920×1080 30 fps; checksum recorded above |
 | anonymous Streamlit browser north-star | pass | `2/1/1`, three rejections, governed SQL, fake publication, release `c5817af` |
-| YouTube publish and public HTTP/oEmbed lookup | pass | `R8PPBJ5ot84`; copyright clear; expected title returned without authentication |
+| YouTube publish and public HTTP/oEmbed lookup | pass | `6Bw7yGhl24o`; narrated 2:55; copyright clear; expected title returned without authentication |
 | Devpost Additional info and final submission | pass | Owner-confirmed eligibility, Feedback Prize answers, legal acceptance, and Submit; public URL returns HTTP 200 |
 | exact `c5817af` VPS Docker build and constrained run | pass | Image `sha256:fbd970…0558b`; non-root, healthy, read-only, loopback-only |
 | Nginx configuration test/reload and public root/health checks | pass | `/schemabridge/` and health return 200; existing `rcr-ia.eu/` remains 200 |

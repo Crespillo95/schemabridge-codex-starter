@@ -7,8 +7,8 @@ Final local export:
 - Source release: `c5817af6d01b8a98cd7f1950d57e1be667614696`
 - Duration: `175.000000` seconds (2:55)
 - Video: H.264, 1920 × 1080, 30 fps
-- SHA-256: `a7ac6119d93ee5001b40bdc63811eb562db513b5571d31f10ca528ca17739d3b`
-- Audio/music: none
+- SHA-256: `9fa7b47a35169144917911a7a8390d3114d61e0015a12d1ec6b80d8aeacdb1cb`
+- Audio: AI-generated English narration using OpenAI text-to-speech voice `cedar`; no music
 - Captions: English, burned into the video from `docs/18_CAPTIONS.srt`
 - Mode labels: `LIVE LOCAL DATAHUB | SYNTHETIC` and
   `RECORDED HOSTED FALLBACK | RELEASE c5817af`
@@ -19,20 +19,18 @@ personal data, local path, notification, proprietary data, music, or third-party
 
 ## Public upload metadata
 
-- Public URL: https://youtu.be/R8PPBJ5ot84
+- Public URL: https://youtu.be/6Bw7yGhl24o
 
-- Title: `SchemaBridge — Governed Semantic Query Agent for DataHub | Devpost 2026`
-- Description: `SchemaBridge governs semantic mappings and fanout-safe joins in DataHub before
-  compiling a business question into independently validated read-only PostgreSQL. This 2:55 demo
-  uses only synthetic data and clearly labels live local DataHub versus the recorded public
-  fallback. Source: https://github.com/Crespillo95/schemabridge-codex-starter — release:
-  devpost-m18-c5817af.`
+- Title: `SchemaBridge — Narrated Governed Semantic Query Demo | DataHub Hackathon`
+- Description discloses the synthetic-data boundary, public demo/source/Devpost links, governed
+  DataHub/SQL behavior, and that the narration uses OpenAI text-to-speech voice `cedar`.
 - Audience: not made for children; this is a technical software demonstration.
 - Visibility: public.
-- Music/audio: none; English captions are burned in.
+- Music/audio: AI-generated English narration; no music; English captions remain burned in.
 - Upload state: published on 2026-08-07. YouTube reports the SD/HD processing complete and the
   copyright check complete with no issues. An unauthenticated HTTP request and YouTube oEmbed
-  lookup both resolve the expected public title.
+  lookup both resolve the expected public title. The prior silent upload at
+  `https://youtu.be/R8PPBJ5ot84` remains historical evidence and is not the Devpost video.
 
 The final video must show the release functioning, remain below 3:00, be understandable with audio
 off, and use no music. Record from the clean release commit after the public deployment is stable.
@@ -59,10 +57,10 @@ integration.
 | 0:56–1:12 | Customer → AccountHolder contract | “The approved join is one-to-many. Customer 123 has two holder links, so entity counts require the contract’s exact distinct-key mitigation.” |
 | 1:12–1:30 | Query Studio request and explicit interpretation | “The request counts customers by registration date when the holder role is secondary. SchemaBridge distinguishes customers from holder relationships before planning.” |
 | 1:30–1:55 | Resolved plan, SQL, policy checks | “A typed plan selects approved versions. A deterministic compiler produces parameterized PostgreSQL, and an independent AST guard validates the final statement.” |
-| 1:55–2:15 | Result and rejection view | “The read-only preview returns two, one, and one. Fractional, non-finite, and null identifiers are rejected visibly instead of truncated or hidden.” |
+| 1:55–2:15 | Result and rejection view | “The read-only preview returns two, one, and one. Fractional, non-finite, and null-valued identifiers are rejected visibly instead of truncated or hidden.” |
 | 2:15–2:39 | DataHub after state and approval audit | “With explicit approval, SchemaBridge writes the model, join contract, decision context, and SQL-free recipe back to DataHub, with a target-level audit record.” |
 | 2:39–2:51 | New workflow reusing context | “A later workflow retrieves that context but still replans, recompiles, validates, and asks for execution approval. Saved SQL is never executed.” |
-| 2:51–2:55 | Project name and verified links | “SchemaBridge: govern the semantic layer before asking an agent to query it.” |
+| 2:51–2:55 | Project name and verified links | “SchemaBridge: govern meaning before SQL.” |
 
 ## Capture order
 

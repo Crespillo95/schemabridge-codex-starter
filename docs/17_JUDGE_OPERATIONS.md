@@ -97,6 +97,49 @@ the deployed image as `sha256:fbd970e8a3618769e35ee8df166f267810c08ca2e597e45d52
 the running container is non-root user `user`, healthy, root-filesystem read-only, and restartable
 without rebuilding.
 
+## Live PostgreSQL judge promotion
+
+`docker-compose.judge-live.yml` is the reviewed promotion path from recorded source evidence to a
+real synthetic PostgreSQL preview. It deliberately keeps the catalog/registry recorded, intent
+deterministic, and publication disabled. PostgreSQL has no published host port; only the app can
+reach its internal network, and the app receives only the `schemabridge_reader` credential.
+
+On the existing VPS, create an ignored mode-0600 environment file with independent random values,
+then validate the rendered configuration before changing the current container:
+
+```bash
+cd /opt/schemabridge/releases/<reviewed-commit>
+umask 077
+printf 'SCHEMABRIDGE_JUDGE_DB_ADMIN_PASSWORD=%s\n' "$(openssl rand -hex 32)" \
+  > .env.judge-live
+printf 'SCHEMABRIDGE_JUDGE_DB_READER_PASSWORD=%s\n' "$(openssl rand -hex 32)" \
+  >> .env.judge-live
+printf 'SCHEMABRIDGE_RELEASE_REF=%s\n' "$(git rev-parse --short=12 HEAD)" \
+  >> .env.judge-live
+sudo docker compose --env-file .env.judge-live \
+  -f docker-compose.judge-live.yml config --quiet
+```
+
+The operator must review the exact commit and create a recoverable backup of the current
+`schemabridge-judge` container configuration before cutover. Start the isolated stack, confirm the
+database role from inside the database container, and smoke the loopback path before reloading or
+changing Nginx:
+
+```bash
+sudo docker compose --env-file .env.judge-live \
+  -f docker-compose.judge-live.yml up -d --build --wait
+sudo docker compose --env-file .env.judge-live \
+  -f docker-compose.judge-live.yml exec -T postgres \
+  psql -U schemabridge_reader -d schemabridge -Atc \
+  'SHOW transaction_read_only; SELECT current_user;'
+curl --fail --show-error --silent http://127.0.0.1:7860/schemabridge/_stcore/health
+```
+
+The expected database output is `on` and `schemabridge_reader`. The UI integration panel must show
+**Live read-only PostgreSQL**, **Recorded catalog**, and **Publisher submission unavailable**. A
+failed database health check or any different label is a failed promotion; do not fall back to the
+recorded result under the live label.
+
 ## Reset, restart, and uptime
 
 - **Reset demo** starts a new deterministic synthetic workflow and changes no source/DataHub data.
