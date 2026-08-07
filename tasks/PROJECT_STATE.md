@@ -619,8 +619,9 @@ evidence.
 - The judge-first README, English Devpost draft, current official-rule summary, timed 2:55 video
   script, SRT captions, rights/privacy checks, and final sign-off checklist all preserve the live
   versus recorded/fake boundary and the small-fixture limitations.
-- GitHub reports the repository public with Apache-2.0 detected, and a signed-out HTTP request
-  returned 200 on 2026-07-22. No public application/video URL or release tag is claimed.
+- GitHub reports the repository public with Apache-2.0 detected. The frozen source tag, 2:55
+  YouTube video, and submitted Devpost entry are public; anonymous Devpost HTTP returned 200 with
+  the expected title on 2026-08-07. The Streamlit URL currently redirects to authentication.
 - An approval-gated publisher now writes one exact immutable, workspace-hashed DataHub semantic
   registry version and verifies its complete post-write read-back. The publication approval is
   durably reserved before publisher I/O and its stable identity is bound to actor, scope, version,
@@ -1847,14 +1848,16 @@ M29 final-byte remediation status on 2026-07-30:
   retry, and read-back contracts but do not claim cross-system atomicity.
 - A scoped writer token minted immediately before terminal provisioning failure might remain valid
   without a saved local reference; revoke it manually after such a failure.
-- The final release browser journey, screenshots, and muted video frame review pass; the unfamiliar
-  second-person explanation and second-network/public-host checks remain operator work.
+- The final release browser journey, screenshots, muted video frame review, public video, and
+  Devpost submission pass. The earlier anonymous demo journey also passed, but current Streamlit
+  visibility, the unfamiliar second-person explanation, and the second-network check remain
+  post-submit operator work.
 - The M18 manifest, evaluation summary, annotated source tag, package checksum, and manifest-file
   checksum bind clean release source `c5817af` under D143/D147.
-- Ten final Streamlit and six genuine local DataHub captures pass privacy/rights review. A future
-  public-host capture must still be checked after deployment.
-- The 175-second captioned video file, checksum, mode labels, muted-frame review, and rights review
-  pass locally; public YouTube upload and signed-out playback remain pending.
+- Ten final Streamlit and six genuine local DataHub captures pass privacy/rights review. The public
+  Streamlit journey has been checked anonymously; a second-network repetition remains open.
+- The 175-second captioned video file, checksum, mode labels, muted-frame review, rights review,
+  public YouTube upload, and signed-out playback all pass.
 - M20 alone isolates workflow control-plane state, not live data-plane credentials. Accepted-local
   M28 adds workspace/connection-qualified source and DataHub routes, but deployments must retain
   the historical single-scope restriction until M29's provider and infrastructure controls are
@@ -2048,9 +2051,10 @@ external controls. GitHub `main` remains unprotected with zero environments/rule
 attestation workflow must not be dispatched. Campaign remains blocked on an exact clean tagged-main
 candidate, exact-subject hosted artifacts, the blind corpus, operated target controls, independent
 assessment and owner signatures.
-M17/M18 source release and local evidence are frozen and audited at `c5817af`; the public
-Streamlit demo and YouTube video are live. Second-network evidence, unfamiliar-reviewer sign-off,
-and Devpost owner eligibility/legal submission remain independently open.
+M17/M18 source release and local evidence are frozen and audited at `c5817af`; the YouTube video
+and Devpost entry are public. The Streamlit URL currently redirects to authentication despite its
+earlier anonymous journey. Streamlit visibility, second-network evidence, and unfamiliar-reviewer
+sign-off remain open; owner eligibility/legal submission is complete.
 
 ## M18 frozen source and local evidence audit — 2026-08-05
 
@@ -2095,18 +2099,17 @@ and Devpost owner eligibility/legal submission remain independently open.
   documented `make judge-smoke` expected a pre-existing `.venv`; judge documentation now invokes
   the same standard-library smoke script with system `python3`, which passes against a healthy
   non-root container without changing frozen source.
-- Existing Devpost draft `1109948` now saves the final pitch, 5,788-character evidence-backed story,
-  five public tags and repository URL. Additional info has safe technical fields prefilled but
-  remains unsaved beside owner-only residence, submission-period, optional Feedback Prize, and
-  final legal choices. The reserved slug redirects signed-out users until submission.
-- Chrome is authenticated to YouTube Studio and Devpost. YouTube upload is blocked only on the
-  extension's file-URL permission; Hugging Face remains unauthenticated across available browsers
-  and CLI. D148 preserves those account/legal boundaries.
-- Local source, DataHub read/act/write/reuse, release UX, artifacts, screenshots, and video evidence
-  are complete. Public Hugging Face and YouTube/Vimeo URLs, cold-start/signed-out/second-network
-  checks, unfamiliar-reviewer answers, Devpost account/legal eligibility, and final submission are
-  still owner/external blockers. M30 remains 0/24 external controls and commercial/production
-  NO-GO.
+- Devpost submission `1109948` now contains the final pitch, 5,788-character evidence-backed story,
+  five public tags, repository/demo/video/examples URLs, owner-confirmed eligibility, DataHub
+  Core/MCP selections, Feedback Prize answers, and final legal acceptance.
+- YouTube and Devpost publication are complete. Hugging Face is not part of the final hosted path;
+  its 2026-08-07 UI requires PRO for Docker Spaces and no paid fallback was created. Streamlit had
+  provided the public demo without payment or a secret, but now redirects anonymous requests to
+  authentication.
+- Local source, DataHub read/act/write/reuse, release UX, artifacts, screenshots, public video, and
+  active Devpost participation are complete. Streamlit public visibility must be restored; the
+  unfamiliar-reviewer answers and a second-network/device repetition also remain post-submit
+  evidence. M30 remains 0/24 external controls and commercial/production NO-GO.
 
 ## M18 public hackathon publication — 2026-08-07
 
@@ -2114,6 +2117,9 @@ and Devpost owner eligibility/legal submission remain independently open.
   `https://schemabridge-governed-agent.streamlit.app/`. An anonymous browser completed ambiguity
   selection, governed plan, SQL safety, exact `2/1/1`, three visible identifier rejections, and fake
   approval-gated publication; the UI identifies exact release `c5817af`.
+- A later post-submit smoke on the same date receives `303` from `/` and `/_stcore/health` to
+  Streamlit authentication. This supersedes the public-availability claim until owner visibility
+  is restored; it does not invalidate the earlier functional journey or Devpost submission.
 - The final YouTube file was rebuilt only from the already audited genuine M18 release/DataHub
   captures after the temporary export disappeared. It keeps the frozen captions and mode labels,
   is silent H.264 1920×1080/30 fps at exactly 175 seconds, and has SHA-256
@@ -2121,9 +2127,12 @@ and Devpost owner eligibility/legal submission remain independently open.
 - `https://youtu.be/R8PPBJ5ot84` is public. YouTube reports processing complete and no copyright
   issue; unauthenticated watch and oEmbed requests return the expected title. Monetization and paid
   promotion remain untouched.
-- Devpost submission `1109948` saves repository, demo, video, story, and tags. Additional info has
-  factual technical fields prefilled but remains unsaved until the owner confirms residence and
-  creation-period eligibility. The payment-related Feedback Prize is intentionally untouched.
-- Remaining M18 acceptance is the unfamiliar-reviewer answer set, one second-network/device check,
-  owner legal/eligibility confirmation, the public Devpost page, and final Submit. M30 remains 0/24
-  external controls and commercial/production NO-GO.
+- Devpost submission `1109948` is public at `https://devpost.com/software/schemabridge`. Additional
+  info records Spain, newly created during the submission period, category, repository/demo/examples,
+  DataHub Core/MCP, Feedback Prize opt-in, and four factual feedback answers. The owner authorized
+  final rules/terms acceptance and Submit; Devpost confirmed `Project submitted!`. Anonymous HTTP
+  returns 200 with title `SchemaBridge | Devpost`. No payment, purchase, monetization, or paid
+  promotion was performed.
+- Remaining M18 evidence is the unfamiliar-reviewer answer set and one second-network/device check.
+  These do not block active participation. M30 remains 0/24 external controls and
+  commercial/production NO-GO.

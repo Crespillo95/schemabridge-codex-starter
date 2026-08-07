@@ -1,8 +1,7 @@
 # M18 Devpost submission copy
 
-> **DRAFT — DO NOT SUBMIT YET.** The manifest is release-ready, the source is frozen/tagged, and
-> the public demo/video links are saved and tested. Complete the owner's Devpost eligibility and
-> legal attestations before final submission.
+> **SUBMITTED 2026-08-07.** Devpost confirmed `Project submitted!`; the public entry is active at
+> https://devpost.com/software/schemabridge and remains editable until the hackathon deadline.
 
 ## Submission fields
 
@@ -11,18 +10,25 @@
 - Elevator pitch: **SchemaBridge turns inconsistent schemas into approved semantic context,
   compiles business questions into safe SQL, and writes reusable decisions back to DataHub.**
 - Repository: https://github.com/Crespillo95/schemabridge-codex-starter
-- Live project URL: https://schemabridge-governed-agent.streamlit.app/
+- Configured live project URL: https://schemabridge-governed-agent.streamlit.app/ (post-submit
+  smoke currently redirects anonymous visitors to Streamlit authentication)
 - Public video URL: https://youtu.be/R8PPBJ5ot84
-- Reserved Devpost project URL: https://devpost.com/software/schemabridge
+- Public Devpost project URL: https://devpost.com/software/schemabridge
 - Release commit: `c5817af6d01b8a98cd7f1950d57e1be667614696`
 - Release tag: `devpost-m18-c5817af`
 
-The Devpost draft already exists as submission `1109948`. The elevator pitch, project story,
+Devpost submission `1109948` is submitted and public. The elevator pitch, project story,
 repository URL, public demo/video, and public tags `postgresql`, `python`, `datahub`, `streamlit`,
-and `sqlglot` are saved. The Additional info tab is prefilled with the challenge category,
-repository, demo, examples URL, and DataHub Core/MCP selections but is intentionally unsaved until
-the owner supplies residence and submission-period attestation. The optional Feedback Prize is
-left untouched because the operator excluded payment/prize-related actions.
+and `sqlglot` are saved. Additional info records category **Agents That Do Real Work**, Spain,
+newly created during the submission period, the repository/demo/examples URLs, and DataHub Core
+plus MCP. The owner opted into the optional Feedback Prize and authorized legal acceptance and
+Submit at action time. That opt-in is prize eligibility only; no purchase, payment, monetization,
+or promotion was performed.
+
+The four submitted feedback answers describe: the reproducible Core 1.6.0/MCP read-only and
+approval-gated write/restart path; the initially missing semantic registry after physical ingest
+and the explicit prepare/publish/read-back fix; a requested native versioned semantic-contract
+model; and the observed `REGISTRY_NOT_FOUND` boundary after reset and physical ingest.
 
 ## About the project
 
@@ -144,6 +150,10 @@ completed work.
 
 ### Public path
 
+Current caveat: the full anonymous journey passed before submission, but a 2026-08-07
+post-submit smoke now redirects this URL to Streamlit authentication. Use the public video or the
+Docker path below until owner visibility is restored.
+
 Open https://schemabridge-governed-agent.streamlit.app/ and:
 
 1. Open the URL without login or payment.
@@ -180,8 +190,8 @@ third-party stock image, font, audio, or video asset. Source is Apache-2.0; dire
 their licenses are inventoried by the release audit. Full details are in
 `HACKATHON_DISCLOSURE.md`.
 
-## Final paste gate
+## Post-submit verification
 
-Before final submission, complete every remaining owner/external box in
-`docs/15_SUBMISSION_CHECKLIST.md` and verify the repository, demo, video, example, and final Devpost
-URLs from a second network/device.
+The entry is active. Record the remaining unfamiliar-reviewer and second-network/device evidence
+in `docs/15_SUBMISSION_CHECKLIST.md`; correct any mismatch before the deadline without changing the
+frozen executable release.

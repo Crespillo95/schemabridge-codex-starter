@@ -13,11 +13,15 @@ approved semantic context can be written back to DataHub through its separate ap
 > is frozen under annotated tag `devpost-m18-c5817af`. Its strict clean-room gate, hosted CI,
 > `linux/amd64` image, generated M18 manifest, Safari north-star test, screenshots, and 2:55
 > captioned video pass. The public
-> [Streamlit demo](https://schemabridge-governed-agent.streamlit.app/) and
-> [2:55 YouTube demo](https://youtu.be/R8PPBJ5ot84) are live and were checked without an
-> authenticated application session. The full synthetic DataHub/PostgreSQL path also passes ingest,
+> [Streamlit demo](https://schemabridge-governed-agent.streamlit.app/) previously passed the full
+> anonymous judge journey, and the [2:55 YouTube demo](https://youtu.be/R8PPBJ5ot84) remains public.
+> A post-submit smoke on 2026-08-07 found that Streamlit now redirects anonymous visitors to login;
+> use the public video or the exact Docker instructions below until public visibility is restored.
+> The full synthetic DataHub/PostgreSQL path also passes ingest,
 > least-privilege MCP reads, approval-gated write/read-back, restart persistence, and context reuse.
-> The owner's Devpost eligibility/legal attestations and final submission remain open. M20–M29 are
+> The [Devpost project](https://devpost.com/software/schemabridge) was submitted successfully on
+> 2026-08-07 and is publicly reachable without authentication. The optional Feedback Prize entry
+> is enabled; this created no purchase, payment, monetization, or promotion. M20–M29 are
 > accepted locally within their stated synthetic/local scopes; the corrective hosted M29 rerun and
 > every external production/release gate remain open. M32—the bounded simple/advanced
 > natural-language to copyable PostgreSQL capability described below—is accepted locally for its

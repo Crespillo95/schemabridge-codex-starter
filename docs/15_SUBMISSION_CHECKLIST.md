@@ -1,9 +1,12 @@
 # Final submission checklist
 
-Current sign-off: **NOT READY — owner/legal and external-review checks remain**. The frozen source,
-strict clean-room gate, hosted CI, annotated tag, final artifact package, release screenshots,
-public demo, and public video are verified. The unfamiliar-reviewer/second-network evidence,
-Devpost eligibility attestations, and final submission remain pending.
+Current sign-off: **SUBMITTED — actively participating; Streamlit visibility remediation and
+post-submit external-review checks remain**.
+The frozen source, strict clean-room gate, hosted CI, annotated tag, final artifact package,
+release screenshots, prior anonymous demo journey, public video, eligibility fields, legal
+acceptance, and Devpost submission are complete. A 2026-08-07 post-submit smoke now receives a
+Streamlit authentication redirect; the unfamiliar-reviewer and second-network evidence also remain.
+These do not undo the active hackathon entry but the demo visibility regression should be fixed.
 
 ## Release identity
 
@@ -15,11 +18,11 @@ Devpost eligibility attestations, and final submission remain pending.
 - Video SHA-256 and duration:
   `a7ac6119d93ee5001b40bdc63811eb562db513b5571d31f10ca528ca17739d3b`,
   `175.000000` seconds (2:55)
-- Public demo URL: `https://schemabridge-governed-agent.streamlit.app/`
+- Configured demo URL: `https://schemabridge-governed-agent.streamlit.app/` (currently redirects
+  anonymous requests to Streamlit authentication)
 - Public video URL: `https://youtu.be/R8PPBJ5ot84`
-- Devpost project URL: `PENDING`
-- Reserved draft URL: `https://devpost.com/software/schemabridge` (currently redirects signed-out
-  visitors to login; do not claim it as public until final submission)
+- Public Devpost project URL: `https://devpost.com/software/schemabridge`
+- Anonymous verification: `HTTP 200`, title `SchemaBridge | Devpost`, 2026-08-07
 
 ## Repository
 
@@ -39,7 +42,8 @@ Devpost eligibility attestations, and final submission remain pending.
 - [x] Guided and deterministic natural-language paths have equivalent typed north-star plans.
 - [x] Unsafe identifiers and SQL-policy rejections are visible in generated examples.
 - [x] Hosted recorded/fake and local live modes are unambiguously labeled.
-- [x] Free public deployment is reachable without login, payment, or operator intervention.
+- [ ] Restore free public Streamlit visibility. Anonymous journey passed before submission, but the
+  2026-08-07 post-submit smoke returns `303` to Streamlit authentication.
 
 ## Evaluation and artifacts
 
@@ -59,6 +63,10 @@ Devpost eligibility attestations, and final submission remain pending.
   disparaging or misrepresenting it.
 - [x] Devpost draft has the final elevator pitch, project story, public tags, and repository URL.
 - [x] Devpost Project details saves the public Streamlit and YouTube URLs.
+- [x] Additional info records Spain, new project during the submission period, DataHub Core/MCP,
+  the Feedback Prize opt-in, and all four specific product-feedback answers.
+- [x] The owner authorized final legal acceptance and submission at action time; Devpost displayed
+  `Project submitted!` and published the project URL.
 - [x] YouTube reports the video public and its copyright check completed with no issues; an
   unauthenticated watch request and oEmbed lookup both resolve the expected title.
 - [x] Every `PENDING` field in `docs/18_DEVPOST_SUBMISSION.md` is replaced with a tested value.
@@ -88,5 +96,5 @@ Devpost eligibility attestations, and final submission remain pending.
    one dependency and confirm the real status appears without silent fallback: `PENDING`.
 4. Open every final link in an incognito/signed-out browser, repeat the north-star path on another
    network/device, and record date/device/result: `PENDING`.
-5. Compare README, Devpost, video, examples, release manifest, and actual UI. Any mismatch blocks
-   submission.
+5. Compare README, Devpost, video, examples, release manifest, and actual UI. Any mismatch requires
+   a correction before the deadline.

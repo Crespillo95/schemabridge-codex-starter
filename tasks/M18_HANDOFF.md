@@ -3,9 +3,9 @@
 ## Summary
 
 - Milestone: M18 — README, examples, video, and Devpost submission package
-- Status: partial — source, public demo, and public video complete; owner/legal and external acceptance pending
-- Recommended operator decision: needs owner attestations and manual external tests before Devpost submission
-- Proposed commit message: `docs: record public M18 demo and video`
+- Status: submitted — public Devpost participation active; Streamlit visibility remediation and external acceptance pending
+- Recommended operator decision: participating; restore Streamlit public access and record external checks before the deadline
+- Proposed commit message: `docs: record final Devpost submission`
 
 ## Implemented
 
@@ -31,10 +31,11 @@
 - Published that video at `https://youtu.be/R8PPBJ5ot84`. YouTube reports processing complete and
   the copyright check complete with no issue; an unauthenticated watch request and oEmbed lookup
   return the expected title. Monetization and paid promotion remain untouched.
-- Updated existing Devpost draft `1109948`: elevator pitch, 5,788-character project story, tags,
-  repository, public demo, and video are saved; category/repo/demo/examples/DataHub Core+MCP are
-  prefilled but deliberately unsaved beside owner residence and creation-period attestations. The
-  optional payment-related Feedback Prize remains untouched.
+- Submitted Devpost entry `1109948` with category, Spain residence, submission-period attestation,
+  repository/demo/examples, DataHub Core/MCP selections, Feedback Prize opt-in, and four factual
+  product-feedback answers. The owner authorized final terms and Submit at action time. Devpost
+  confirmed the public entry at `https://devpost.com/software/schemabridge`; anonymous HTTP returns
+  200 and the expected title. No payment, monetization, paid promotion, or purchase was performed.
 - Updated GitHub repository description and topics. Public repo and detected Apache-2.0 license
   remain verified.
 
@@ -43,11 +44,11 @@
 - `README.md`: public judge/video links plus frozen source/tag and release evidence.
 - `examples/final/`: release-ready generated evaluation summary and manifest.
 - `docs/screenshots/m18/*.png`, `docs/screenshots/m18/README.md`: final release UI evidence and inventory.
-- `docs/15_SUBMISSION_CHECKLIST.md`: exact source/tag/image/package/video evidence and remaining owner checks.
-- `docs/18_DEVPOST_SUBMISSION.md`: saved public demo/video fields and remaining owner-only gate.
+- `docs/15_SUBMISSION_CHECKLIST.md`: exact source/tag/image/package/video/submission evidence and remaining external checks.
+- `docs/18_DEVPOST_SUBMISSION.md`: final submitted fields, feedback summary, and public URL.
 - `docs/18_VIDEO_PRODUCTION.md`: final public export checksum, URL, YouTube checks, and privacy review.
 - `plans/M18_SUBMISSION_PACKAGE.md`: current acceptance status and public evidence.
-- `tasks/CURRENT_TASK.md`, `tasks/PROJECT_STATE.md`, `tasks/DECISION_LOG.md`: D149 and current M18 state.
+- `tasks/CURRENT_TASK.md`, `tasks/PROJECT_STATE.md`, `tasks/DECISION_LOG.md`: D149–D151 and current M18 state.
 - `tasks/M18_HANDOFF.md`: this handoff.
 
 ## Commands executed
@@ -65,11 +66,16 @@
 | `ffprobe ...` and `shasum -a 256 ...mp4` | pass | 175 s; H.264 1920×1080 30 fps; checksum recorded above |
 | anonymous Streamlit browser north-star | pass | `2/1/1`, three rejections, governed SQL, fake publication, release `c5817af` |
 | YouTube publish and public HTTP/oEmbed lookup | pass | `R8PPBJ5ot84`; copyright clear; expected title returned without authentication |
-| Devpost Project details save | pass | Repository, demo, video, story, and tags saved; advanced owner fields not submitted |
-| `.venv/bin/python scripts/release_audit.py --check-external --check-history` | pass | Evidence-only tree; architecture, secret, license, internal/external link, and history audit |
+| Devpost Additional info and final submission | pass | Owner-confirmed eligibility, Feedback Prize answers, legal acceptance, and Submit; public URL returns HTTP 200 |
+| post-submit Streamlit anonymous smoke | fail | `/` and `/_stcore/health` return `303` to Streamlit authentication; no payment fallback authorized |
+| pre-submit `.venv/bin/python scripts/release_audit.py --check-external --check-history` | pass | Historical evidence-only tree; architecture, secret, license, internal/external link, and history audit |
 | annotated tag creation/push | pass | `devpost-m18-c5817af` resolves to exact source commit |
 | public tag clone, build, and documented smoke | pass after docs correction | Clean detached source; initial `make judge-smoke` exposed absent `.venv`; stdlib `python3 scripts/smoke_deployment.py` passes and is now the judge instruction |
-| `git diff --check` | pass | Public URL/evidence documentation diff has no whitespace errors |
+| post-submit anonymous Devpost `curl -L` | pass | HTTP 200; final URL and title `SchemaBridge | Devpost` verified |
+| post-submit anonymous Streamlit root/health `curl` | fail | HTTP 303 to Streamlit authentication; visibility regression recorded |
+| post-submit release audit with external/history checks | fail as expected | 45 links checked; current Streamlit URL is the sole broken external link |
+| `.venv/bin/python scripts/release_audit.py --check-history` | pass with dirty-tree warning | 1,081 files, 23 licenses, 46 history revisions; documentation not yet committed |
+| `git diff --check` | pass | Final submission/visibility evidence diff has no whitespace errors |
 
 ## Automated test results
 
@@ -86,8 +92,8 @@
 
 1. Ask one unfamiliar person the five questions in `docs/15_SUBMISSION_CHECKLIST.md` using only the
    public README/video; record their verbatim answers.
-2. Test repo, demo, video, examples, and Devpost links from a second device/network; complete the Devpost
-   eligibility/legal attestations and submit.
+2. Test repo, demo, video, examples, and Devpost links from a second device/network; record the
+   result and correct any mismatch before the deadline.
 
 Expected result:
 
@@ -118,30 +124,31 @@ concrete result. Every public link works signed out.
 - Decision: accept both real fixed-minute-window outcomes in the CI test without changing runtime policy.
 - Reason: the public service must be stable and credential-free; release identity must not imply M30
   production acceptance; a time-boundary test must assert semantics rather than scheduler timing.
-- Logged in: D141 and D145–D149 in `tasks/DECISION_LOG.md`.
+- Logged in: D141 and D145–D151 in `tasks/DECISION_LOG.md`.
 
 ## Known limitations or unverified items
 
-- The final public Devpost URL is not yet available.
-- The Devpost slug `https://devpost.com/software/schemabridge` is reserved but redirects signed-out
-  visitors to login while the submission remains a draft.
+- The public Devpost entry is active at `https://devpost.com/software/schemabridge`; anonymous HTTP
+  returned 200 with title `SchemaBridge | Devpost` on 2026-08-07.
+- The configured Streamlit URL currently redirects anonymous visitors to authentication. It had
+  passed the full anonymous journey before submission; this is a post-submit visibility regression.
 - Second-network/device and unfamiliar-reviewer checks remain unperformed.
 - The video is an edited progression of genuine captured release/DataHub states with burned captions,
   not a narrated continuous cursor recording; it truthfully labels local live versus recorded modes.
 - This is a hackathon MVP with PostgreSQL-only bounded execution and small tuned synthetic evaluation.
 - M18 does not satisfy M30: all 24 commercial/production external controls remain NO-GO.
 
-## Blockers
+## Remaining post-submit work
 
-- Devpost residence, creation-period eligibility, final terms acceptance, and Submit require exact
-  owner facts/confirmation and cannot be fabricated.
+- Restore public access through the existing GitHub-linked Streamlit owner account. Hugging Face
+  currently requires a paid plan for Docker Spaces, so no paid fallback was created.
 - An unfamiliar human and a second network/device are required for the checklist's external acceptance.
 
 ## Next milestone readiness
 
 - Dependencies satisfied: exact source/tag, public demo/video, local image, strict gates, generated
-  artifacts, and screenshots are complete.
-- Recommended next prompt: confirm the two Devpost eligibility facts, perform external acceptance,
-  accept the final terms at action time, and submit without changing source.
-- Required operator prerequisites: Devpost owner attestations, unfamiliar reviewer, and second
-  device/network.
+  artifacts, screenshots, and active Devpost participation are complete.
+- Recommended next prompt: restore Streamlit visibility, then perform the unfamiliar-reviewer and
+  second-network checks without changing the frozen source.
+- Required operator prerequisites: GitHub-linked Streamlit owner session, unfamiliar reviewer, and
+  second device/network.

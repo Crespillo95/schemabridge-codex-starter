@@ -1,10 +1,10 @@
 # Current task
 
 - Current milestone: M18 — README, examples, video, and Devpost submission package
-- Status: source release, public demo, and public video complete; owner/legal and external acceptance pending
+- Status: submitted and publicly participating; Streamlit visibility remediation and external evidence pending
 - Plan: `plans/M18_SUBMISSION_PACKAGE.md`
 - Handoff: `tasks/M18_HANDOFF.md`
-- Hackathon submission GO: **NO — owner attestations, unfamiliar review, second-network check, and final submission pending**
+- Hackathon participation: **ACTIVE — Devpost confirmed submission on 2026-08-07**
 - Commercial/production GO: **NO — M30 remains 0/24 external controls and is not changed by M18**
 
 ## Objective
@@ -60,15 +60,18 @@ or synthetic evidence into a production claim.
   `https://schemabridge-governed-agent.streamlit.app/`. The anonymous browser journey passes
   ambiguity handling, governed planning, SQL safety, exact `2/1/1`, three rejections, and fake
   approval-gated publication while displaying release `c5817af`.
+- Post-submit verification on 2026-08-07 found a new `303` redirect from both `/` and
+  `/_stcore/health` to Streamlit authentication. The earlier anonymous journey remains valid
+  historical evidence, but the configured live URL is not currently judge-accessible without login.
 - Published the 2:55 video at `https://youtu.be/R8PPBJ5ot84`; YouTube reports processing and
   copyright checks complete with no issues, and unauthenticated watch/oEmbed requests resolve the
   expected title.
-- Updated the existing Devpost draft `1109948`: final elevator pitch, 5,788-character verified
-  project story, public tags, repository, demo, and video URLs are saved. Category, repository,
-  demo, examples, and DataHub Core/MCP are prefilled in Additional info but remain unsaved beside
-  owner-only residence and creation-period attestations. The optional Feedback Prize remains
-  untouched under the operator's no-payment instruction. Reserved public slug is
-  `https://devpost.com/software/schemabridge`.
+- Submitted Devpost entry `1109948` with the final elevator pitch, 5,788-character verified project
+  story, public tags, repository, demo, video, examples, category, Spain residence, creation-period
+  attestation, DataHub Core/MCP selections, and four factual product-feedback answers. The owner
+  selected the Feedback Prize and explicitly authorized the final terms and Submit. Devpost
+  confirmed `Project submitted!`; `https://devpost.com/software/schemabridge` returns public HTTP
+  200 without authentication. No payment, monetization, paid promotion, or purchase was enabled.
 - Enabled only the Chrome extension's file-URL permission required for upload. No YouTube
   monetization, paid promotion, or payment feature was enabled.
 
@@ -92,19 +95,16 @@ or synthetic evidence into a production claim.
   `sha256:b8ee73024ed6a33e32033bde69974dcb1c969e2a54875753dbb0a6cbd08b65f7`;
   it ran as non-root user `user`, reached healthy status, and passed the deployment smoke.
 
-## Remaining account/external sequence
+## Remaining post-submit external sequence
 
-1. Obtain the owner's residence and creation-period confirmations and save Additional info without
-   opting into the payment-related Feedback Prize.
+1. Restore the existing Streamlit app to public visibility through its GitHub-linked owner session;
+   do not purchase a Hugging Face PRO plan merely to host the prepared Docker package.
 2. Obtain an unfamiliar human reviewer and a second-network/device check for repository, demo,
    video, examples, and the final Devpost page.
-3. Record the external evidence, push the evidence-only commit, accept the final Devpost legal
-   terms only with action-time owner confirmation, and submit.
+3. Record the external evidence and correct any mismatch before the deadline.
 
-## External/operator prerequisites
+## External/operator follow-up
 
-- Devpost is authenticated; residence, creation-period, final legal acceptance, and Submit remain
-  owner-only.
 - A person unfamiliar with the project plus a second network/device for the required manual review.
 
 ## Preserved production boundary
