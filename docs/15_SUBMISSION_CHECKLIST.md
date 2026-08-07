@@ -16,10 +16,10 @@ undo the active hackathon entry.
   `5b4a2fa1a8a01920ac54ba0f5efc2155236d268f32d8cc19d4a0ff7c2bbcc0e9`
 - Manifest file SHA-256: `c25baeef12c372b69fae0a114be94d3bc86a4049e4d4ea373d643475d14dae2a`
 - Video SHA-256 and duration:
-  `a7ac6119d93ee5001b40bdc63811eb562db513b5571d31f10ca528ca17739d3b`,
+  `9fa7b47a35169144917911a7a8390d3114d61e0015a12d1ec6b80d8aeacdb1cb`,
   `175.000000` seconds (2:55)
 - Configured demo URL: `https://rcr-ia.eu/schemabridge/`
-- Public video URL: `https://youtu.be/R8PPBJ5ot84`
+- Public narrated video URL: `https://youtu.be/6Bw7yGhl24o`
 - Public Devpost project URL: `https://devpost.com/software/schemabridge`
 - Anonymous verification: `HTTP 200`, title `SchemaBridge | Devpost`, 2026-08-07
 
@@ -69,6 +69,8 @@ undo the active hackathon entry.
   `Project submitted!` and published the project URL.
 - [x] YouTube reports the video public and its copyright check completed with no issues; an
   unauthenticated watch request and oEmbed lookup both resolve the expected title.
+- [x] The 2:55 public video includes intelligible narration, retains burned English captions, and
+  discloses its OpenAI text-to-speech voice in the public description.
 - [x] Every `PENDING` field in `docs/18_DEVPOST_SUBMISSION.md` is replaced with a tested value.
 - [x] Repository, demo, video, example, and Devpost links work signed out on the operator network.
 - [ ] Repeat the final link and north-star check from a second network/device.

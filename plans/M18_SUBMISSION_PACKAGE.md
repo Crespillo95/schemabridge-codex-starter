@@ -62,7 +62,7 @@ Judges may decide from the description, images, README, and sub-three-minute vid
   captures, and the verified 2:55 captioned local video export are complete.
 - The VPS replacement at `https://rcr-ia.eu/schemabridge/` serves the exact frozen image, passes
   public health/smoke and the full anonymous browser journey, and is saved in both Devpost demo
-  fields. YouTube video `R8PPBJ5ot84` is public at 2:55 with a clear copyright check, and Devpost
+  fields. Narrated YouTube video `6Bw7yGhl24o` is public at 2:55 with a clear copyright check, and Devpost
   submission `1109948` is publicly participating at `https://devpost.com/software/schemabridge`.
   Unfamiliar-reviewer and second-network acceptance remain post-submit work.
 
