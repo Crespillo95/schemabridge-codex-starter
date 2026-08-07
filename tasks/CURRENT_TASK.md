@@ -81,6 +81,12 @@ or synthetic evidence into a production claim.
 - Replaced the obsolete Streamlit URL in both Devpost Project details and judge-only Additional
   info with `https://rcr-ia.eu/schemabridge/`. Devpost retained `Submitted`, `5/5 steps done`, and
   `Project submitted!`; the public **Try it out** link now resolves to `rcr-ia.eu`.
+- Prepared the complete delivery line to replace the obsolete one-commit M16 public `main` after
+  hosted quality, PostgreSQL and supply-chain checks pass. The public default branch will describe
+  the current submission, while annotated tag `devpost-m18-c5817af` remains the immutable source
+  identity of the deployed judge image.
+- Raised Streamlit's transitive GitPython dependency floor from 3.1.57 to 3.1.58 after five HIGH
+  advisories were published on 2026-08-07; the exact runtime lock and hashes were regenerated.
 - Enabled only the Chrome extension's file-URL permission required for upload. No YouTube
   monetization, paid promotion, or payment feature was enabled.
 

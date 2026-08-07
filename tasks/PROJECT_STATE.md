@@ -2162,3 +2162,18 @@ sign-off remain open; owner eligibility/legal submission is complete.
   eligibility/residence, repository, examples, video, terms, and team fields were not changed.
 - This remediation changes only deployment operations and evidence documentation. The frozen
   executable release and annotated tag remain unchanged; M30 remains 0/24 and production NO-GO.
+
+## M18 public-repository alignment — 2026-08-07
+
+- Independent signed-out review found that GitHub's default `main` still showed the initial M16
+  snapshot and an obsolete “not releasable” README, while the complete submission was confined to
+  draft PR #1 and the M18 tag. D153 corrects the public default-branch presentation without moving
+  the frozen executable tag or changing the deployed demo.
+- The same PR rerun surfaced five HIGH advisories published for GitPython 3.1.57. The UI dependency
+  now declares `gitpython>=3.1.58,<4`; `uv.lock` and the hashed runtime export resolve 3.1.58 only.
+- Local evidence is deliberately focused: lock consistency, static supply-chain policy, release
+  scan, exact hashed `pip-audit` over 69 runtime dependencies with zero known vulnerabilities, and
+  `git diff --check` pass. This is not represented as a repeated full local release gate.
+- Publication remains conditional on all hosted PR checks passing. Once merged, `main` is the
+  current judge-readable repository line and `devpost-m18-c5817af` remains the immutable deployed
+  release identity; M30 remains 0/24 and production NO-GO.

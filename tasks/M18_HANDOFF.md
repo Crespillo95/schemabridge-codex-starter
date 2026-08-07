@@ -106,6 +106,21 @@
 - Post-restart: four live integration tests pass; DataHub catalog/MCP/registry checks pass.
 - Hosted CI: run `31003886659` completed successfully in all three jobs.
 
+## Public-repository alignment — 2026-08-07
+
+- Independent signed-out review found that GitHub's public default branch still exposed the
+  one-commit M16 snapshot and obsolete “not releasable” status. The complete submission and judge
+  documentation are prepared for merge from draft PR #1; the annotated M18 tag remains the exact
+  deployed source identity and is not moved.
+- Five HIGH GitPython 3.1.57 advisories published on the same date caused the PR supply-chain job to
+  fail. The UI extra now sets the patched floor `gitpython>=3.1.58,<4`, with exact 3.1.58 hashes in
+  both `uv.lock` and `requirements/runtime.txt`.
+- Focused local validation passes lock consistency, static supply-chain policy, the release scan,
+  exact hashed `pip-audit` across 69 runtime dependencies with zero known vulnerabilities, and
+  `git diff --check`. A full local gate was not repeated for this documentation/lock-only repair.
+- Merge remains conditional on all current hosted quality, PostgreSQL and supply-chain checks
+  passing. This correction changes neither the running frozen image nor M30's 0/24 NO-GO state.
+
 ## Operator manual test
 
 1. Ask one unfamiliar person the five questions in `docs/15_SUBMISSION_CHECKLIST.md` using only the
