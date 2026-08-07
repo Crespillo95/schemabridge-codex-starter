@@ -104,15 +104,19 @@ real synthetic PostgreSQL preview. It deliberately keeps the catalog/registry re
 deterministic, and publication disabled. PostgreSQL has no published host port; only the app can
 reach its internal network, and the app receives only the `schemabridge_reader` credential.
 
-On the existing VPS, create an ignored mode-0600 environment file with independent random values,
-then validate the rendered configuration before changing the current container:
+On the existing VPS, create ignored mode-0600 secret files with independent random values and a
+mode-0600 environment file that contains only their paths, then validate the rendered configuration
+before changing the current container:
 
 ```bash
 cd /opt/schemabridge/releases/<reviewed-commit>
 umask 077
-printf 'SCHEMABRIDGE_JUDGE_DB_ADMIN_PASSWORD=%s\n' "$(openssl rand -hex 32)" \
+mkdir -p .secrets/judge-live
+openssl rand -hex 32 > .secrets/judge-live/admin
+openssl rand -hex 32 > .secrets/judge-live/reader
+printf 'SCHEMABRIDGE_JUDGE_DB_ADMIN_SECRET_FILE=.secrets/judge-live/admin\n' \
   > .env.judge-live
-printf 'SCHEMABRIDGE_JUDGE_DB_READER_PASSWORD=%s\n' "$(openssl rand -hex 32)" \
+printf 'SCHEMABRIDGE_JUDGE_DB_READER_SECRET_FILE=.secrets/judge-live/reader\n' \
   >> .env.judge-live
 printf 'SCHEMABRIDGE_RELEASE_REF=%s\n' "$(git rev-parse --short=12 HEAD)" \
   >> .env.judge-live
@@ -139,6 +143,11 @@ The expected database output is `on` and `schemabridge_reader`. The UI integrati
 **Live read-only PostgreSQL**, **Recorded catalog**, and **Publisher submission unavailable**. A
 failed database health check or any different label is a failed promotion; do not fall back to the
 recorded result under the live label.
+
+The reader secret is mounted read-only into the two containers. `run_app.sh` validates it, builds
+`DATABASE_URL` only inside the app process, and unsets the temporary shell value before starting
+Streamlit. The rendered Compose configuration and Docker container configuration therefore contain
+secret-file paths, not the credential or a credential-bearing DSN.
 
 ## Reset, restart, and uptime
 

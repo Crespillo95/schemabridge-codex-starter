@@ -1,7 +1,14 @@
 #!/bin/sh
 set -eu
 
-reader_password=${SCHEMABRIDGE_JUDGE_DB_READER_PASSWORD:-}
+reader_password_file=${SCHEMABRIDGE_JUDGE_DB_READER_PASSWORD_FILE:-}
+
+if [ ! -r "$reader_password_file" ]; then
+  echo "the judge database reader secret file is unavailable" >&2
+  exit 1
+fi
+
+IFS= read -r reader_password < "$reader_password_file"
 
 case "$reader_password" in
   ''|*[!A-Za-z0-9]*)

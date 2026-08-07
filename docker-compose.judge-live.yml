@@ -6,10 +6,13 @@ services:
     environment:
       POSTGRES_DB: schemabridge
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${SCHEMABRIDGE_JUDGE_DB_ADMIN_PASSWORD:?set a 32-128 character secret}
+      POSTGRES_PASSWORD_FILE: /run/secrets/judge_db_admin_password
       POSTGRES_INITDB_ARGS: --encoding=UTF8 --locale=C --data-checksums
       PGTZ: UTC
-      SCHEMABRIDGE_JUDGE_DB_READER_PASSWORD: ${SCHEMABRIDGE_JUDGE_DB_READER_PASSWORD:?set a 32-128 character alphanumeric secret}
+      SCHEMABRIDGE_JUDGE_DB_READER_PASSWORD_FILE: /run/secrets/judge_db_reader_password
+    secrets:
+      - judge_db_admin_password
+      - judge_db_reader_password
     volumes:
       - judge_postgres_data:/var/lib/postgresql/data
       - ./demo/sql/001_schemas.sql:/docker-entrypoint-initdb.d/001_schemas.sql:ro
@@ -54,13 +57,20 @@ services:
       SCHEMABRIDGE_STATEMENT_TIMEOUT_MS: "5000"
       SCHEMABRIDGE_MAX_QUERY_TABLES: "3"
       POSTGRES_READER_USER: schemabridge_reader
-      DATABASE_URL: postgresql://schemabridge_reader:${SCHEMABRIDGE_JUDGE_DB_READER_PASSWORD:?set a 32-128 character alphanumeric secret}@postgres:5432/schemabridge
+      SCHEMABRIDGE_JUDGE_DB_READER_PASSWORD_FILE: /run/secrets/judge_db_reader_password
       STREAMLIT_SERVER_BASE_URL_PATH: ${SCHEMABRIDGE_JUDGE_BASE_PATH:-schemabridge}
+    entrypoint:
+      - /bin/sh
+      - /run/schemabridge/run_app.sh
     depends_on:
       postgres:
         condition: service_healthy
     ports:
       - "127.0.0.1:${SCHEMABRIDGE_JUDGE_PORT:-7860}:7860"
+    secrets:
+      - judge_db_reader_password
+    volumes:
+      - ./deploy/judge-live/run_app.sh:/run/schemabridge/run_app.sh:ro
     read_only: true
     tmpfs:
       - /tmp:rw,nosuid,nodev,size=256m
@@ -82,3 +92,9 @@ networks:
 
 volumes:
   judge_postgres_data:
+
+secrets:
+  judge_db_admin_password:
+    file: ${SCHEMABRIDGE_JUDGE_DB_ADMIN_SECRET_FILE:?set the path to the administrator secret file}
+  judge_db_reader_password:
+    file: ${SCHEMABRIDGE_JUDGE_DB_READER_SECRET_FILE:?set the path to the reader secret file}
